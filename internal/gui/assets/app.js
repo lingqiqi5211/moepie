@@ -80,11 +80,6 @@ let advanced = null; // { of, open }: the editor's Advanced as it was opened or 
 // what the editor edits (editing), not its draft: a move to the plugin or a
 // refresh made under it starts a new draft, and the fold stays as left
 let adding = false; // the preset sheet is open
-// the partners counted as shown since the sheet opened: once an opening,
-// however often it is drawn (countPartner)
-let partnersCounted = null;
-// the Partners heading's light has run since the sheet opened (shinePartners)
-let partnersShone = false;
 let importing = null; // a magpie://import link waiting for a yes: { provider, error, replaces }
 let importingApps = null; // the Import from other apps dialog: { sources, picks }
 let providerDiscovery = []; // only opaque fingerprints and app names, never credentials
@@ -5895,7 +5890,7 @@ let providersEarly = null;
 function prefetchProviders() {
   if (providers || providersEarly) return;
   const e = providersEarly = { read: api("providers") };
-  e.read.then((s) => { e.got = s; markNewPartners(); }, () => { if (providersEarly === e) providersEarly = null; });
+  e.read.then((s) => { e.got = s; }, () => { if (providersEarly === e) providersEarly = null; });
 }
 
 // The page's first reading, while it is on its way, is the one every ask
@@ -6102,7 +6097,6 @@ function renderProviders() {
   // scroll to the top; put it back so closing the editor leaves the reader
   // where they were.
   const view = $("#view-providers"), top = view.scrollTop;
-  markNewPartners();
   keepIcons($("#providers"), $("#offProviders"), $("#addSheet"), $("#excluded"));
   view.classList.remove("loading");
   view.removeAttribute("aria-busy");
@@ -7033,25 +7027,6 @@ function pickForAgent(a, p, btn, ev) {
   openPicker(agent, field, btn, ev, (o) => pre.test(o.value));
 }
 
-// shinePartners: a hairline of light runs once round the Partners heading
-// when the sheet opens, as the reader reaches it (the owner picked it, of
-// three). Once an opening: a search or a reload drawing it again doesn't.
-function shinePartners(k) {
-  if (partnersShone || calm()) return;
-  k.classList.add("shine");
-  k.append(el("i", "glow"), el("i", "ring"));
-  const seen = new IntersectionObserver(([en]) => {
-    // a redraw's new heading takes over from this one
-    if (!k.isConnected) return seen.disconnect();
-    if (!en.isIntersecting || !adding) return;
-    seen.disconnect();
-    if (partnersShone) return;
-    partnersShone = true;
-    k.classList.add("lit");
-  }, { root: $("#view-providers"), threshold: 1 });
-  seen.observe(k);
-}
-
 // The add sheet: presets first (a key is all they need), custom last.
 let presetQuery = "", addReturnPick = null;
 function renderAdd() {
@@ -7072,7 +7047,6 @@ function renderAdd() {
     setRoom(view, 0);
   }
   sheet.hidden = !adding;
-  if (!adding) { partnersCounted = null; partnersShone = false; }
   // Duplicate and Add another open a new provider's editor with no sheet
   if (!adding) return editing && typeof editing === "object" ? renderEditor(null, editing.preset) : null;
   const head = el("div", "row-head");
@@ -7124,26 +7098,6 @@ function renderAdd() {
     const named = (x) => !f || x.name.toLowerCase().includes(f) || x.agent.includes(f) || "subscription".includes(f);
     const subs = SUBS.filter((x) => !(replacedSub(x.agent) || unusedSub(x.agent)) || signing?.agent === x.agent).map((x) => subOf(x.agent)).filter(named);
     const inPlugins = f && SUBS.some((x) => unusedSub(x.agent) && signing?.agent !== x.agent && named(subOf(x.agent)));
-    // partners pay to be listed first, under a heading that says so; who
-    // they are comes from usemagpie.ai (internal/provider/partners.go), and
-    // each may name the languages it is shown in
-    const partners = providers.presets.filter((p) => p.kind === "partner" && partnerShown(p) && (hit(p) || partnerNote(p).toLowerCase().includes(f)));
-    if (partners.length) {
-      any = true;
-      const grid = section("Partners", "magpie's sponsors");
-      shinePartners(grid.previousElementSibling);
-      // a new one's tile keeps a dot until opened (partnerTile)
-      newPartnerTiles ??= new Set();
-      for (const p of partners) if (p.new && !p.added) newPartnerTiles.add(p.id);
-      for (const pr of partners) grid.append(partnerTile(pr));
-      partnersCounted ??= new Set();
-      const fresh = partners.filter((p) => !partnersCounted.has(p.id));
-      for (const p of fresh) partnersCounted.add(p.id);
-      countPartner("shown", fresh.map((p) => p.id));
-      // shown, they are new no more (provider.NoticePartners)
-      for (const p of partners) p.new = false;
-      markNewPartners();
-    }
     if (subs.length || inPlugins) {
       any = true;
       const grid = section("Subscriptions", "sign in, no key");
@@ -7369,66 +7323,12 @@ function pageLangs() {
   return [l, l.split("-")[0]];
 }
 
-// a partner listed in no language of its own is listed in every one
-function partnerShown(pr) {
-  return !pr.langs?.length || pageLangs().some((l) => pr.langs.includes(l));
-}
-
 // the partner's tagline in the page's language, else its English one; the
 // partner writes it, so it isn't translated here
 function partnerNote(pr) {
   const n = pr.notes || {};
   for (const l of pageLangs()) if (n[l]) return n[l];
   return n.en || "";
-}
-
-// countPartner counts what for partners (provider.CountPartner): magpie
-// counts them only when the stats are on, and nothing waits on it
-function countPartner(what, ids) {
-  if (ids.length) api("partner", { what, ids }).catch(() => {});
-}
-
-// a partner listed since the add sheet last showed the partners puts a
-// small dot on the add button, its name in the button's title, until the
-// sheet shows it (yetone: 有了新的合作伙伴的时候…提醒吸引用户点击查看),
-// and a still one on Providers in the nav, as Plugins has for an update
-// (yetone: 侧边栏…不要太打扰用户)
-function markNewPartners() {
-  const list = providers || providersEarly?.got;
-  const fresh = adding ? [] : (list?.presets || []).filter((p) => p.kind === "partner" && p.new && !p.added && partnerShown(p));
-  const title = fresh.length ? t("New in Partners: {names}", { names: fresh.map((p) => p.name).join(", ") }) : "";
-  const nav = mode === "window" && document.querySelector('#nav button[data-view="providers"]');
-  for (const [b, cls] of [[$("#addProvider"), "has-new"], [nav, "has-dot"]]) {
-    if (!b) continue;
-    b.classList.toggle(cls, fresh.length > 0);
-    if (title) b.title = title;
-    else b.removeAttribute("title");
-  }
-}
-
-// partners new when the sheet showed them, each dotted until opened, this
-// run; a dot scales in once
-let newPartnerTiles = null;
-const newPartnerDotsIn = new Set();
-
-// a partner's row: its own section says it is sponsored, so no badge
-function partnerTile(pr) {
-  const b = tile({ ...pr, sponsored: false, note: "" });
-  if (!pr.added) {
-    const open = b.onclick;
-    b.onclick = (e) => { newPartnerTiles?.delete(pr.id); countPartner("opened", [pr.id]); open(e); };
-  }
-  if (!pr.added && newPartnerTiles?.has(pr.id)) {
-    const d = el("span", "new-dot" + (newPartnerDotsIn.has(pr.id) ? "" : " in"));
-    newPartnerDotsIn.add(pr.id);
-    // a hidden dot's animation starts over when shown again
-    d.addEventListener("animationend", (e) => { if (e.animationName === "new-dot-ring") d.classList.remove("in"); });
-    d.setAttribute("role", "img");
-    d.setAttribute("aria-label", t("New"));
-    b.querySelector(".nm").append(d);
-  }
-  if (!pr.added) b.title = pr.name + (partnerNote(pr) ? " · " + partnerNote(pr) : "") + "\n" + hostOf(pr.chat || pr.responses || pr.anthropic);
-  return b;
 }
 
 let fieldIDs = 0;
@@ -9407,7 +9307,6 @@ function drawEditor(p, presetID) {
   if (keysUrl) {
     const b = el("button", "link", t("Get a key ↗"));
     b.onclick = () => {
-      if (pr?.kind === "partner") countPartner("keys", [pr.id]);
       api("open", { url: draft?.keysUrl || pr?.keysUrl || p?.keysUrl });
     };
     side.append(b);

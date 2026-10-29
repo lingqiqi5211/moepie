@@ -2028,14 +2028,6 @@ body.panel .foot { min-height: 0; padding: 5px 8px 7px 14px; border-top: 1px sol
 .text.primary { color: var(--accent-fg); background: var(--accent); font-weight: 500; }
 .text.primary:hover { filter: brightness(1.08); }
 .text.danger:hover { color: var(--red); background: var(--red-soft); }
-/* a partner listed since the add sheet last showed them (markNewPartners) */
-#addProvider.has-new::after { content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 0 0 5px; border-radius: 50%; background: var(--accent); vertical-align: 6px; box-shadow: 0 0 0 0 var(--accent); animation: new-dot-in .4s cubic-bezier(.3, 1.6, .5, 1), new-dot-ring 2.4s ease-out .4s 2; }
-@keyframes new-dot-in { from { transform: scale(0); } }
-@keyframes new-dot-ring { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); } 70%, 100% { box-shadow: 0 0 0 5px transparent; } }
-/* and on the tile of each partner new when the sheet showed it, until it is opened (partnerTile) */
-.tile .new-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-.tile .new-dot.in { animation: new-dot-in .4s cubic-bezier(.3, 1.6, .5, 1), new-dot-ring 2.4s ease-out .4s 1; }
-@media (prefers-reduced-motion: reduce) { #addProvider.has-new::after, .tile .new-dot.in { animation: none; } }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0 6px; min-height: 12px; }
 .chip {
   display: inline-flex; align-items: center; gap: 2px;
@@ -2904,18 +2896,6 @@ body.window .ag-sk-icon { width: 22px; height: 22px; border-radius: 6px; }
 .sheet .kind { display: flex; align-items: baseline; gap: 8px; padding: 22px 8px 6px; font-size: 12px; }
 .sheet .kind b { font-size: 13px; font-weight: 600; color: var(--fg); }
 .sheet .kind span { color: var(--faint); }
-/* Partners' light (shinePartners): a hairline runs once round the heading
-   and fades, over a breath of the accent; nothing with reduced motion */
-@property --shine-a { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
-.sheet .kind.shine { position: relative; width: fit-content; }
-.sheet .kind.shine i { position: absolute; inset: 17px 0 1px; border-radius: 8px; opacity: 0; pointer-events: none; }
-.sheet .kind.shine .glow { background: color-mix(in srgb, var(--accent) 7%, transparent); }
-.sheet .kind.shine .ring { padding: 1px; background: conic-gradient(from var(--shine-a), transparent 0deg 250deg, color-mix(in srgb, var(--accent) 35%, transparent) 300deg, var(--accent) 345deg, transparent 360deg); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
-.sheet .kind.lit .ring { animation: shine-trace 1.8s cubic-bezier(.5, 0, .3, 1); }
-.sheet .kind.lit .glow { animation: shine-glow 1.8s ease-out; }
-@keyframes shine-trace { 0% { --shine-a: 0deg; opacity: 0; } 15%, 70% { opacity: 1; } 100% { --shine-a: 360deg; opacity: 0; } }
-@keyframes shine-glow { 35% { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .sheet .kind.shine i { display: none; } }
 /* a removed account: its name, then Add it back and Sign out… side by
    side, across the row (#694) */
 .sheet .tile.removed { grid-column: 1 / -1; }

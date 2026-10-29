@@ -30,9 +30,9 @@ import (
 // is, and kept on disk. A partner is a preset in all but where it comes
 // from, so adding one, its editor and its key page work as a preset's do.
 
-// PartnersURL is where the list is kept; MAGPIE_PARTNERS moves it, and
-// MAGPIE_PARTNERS=off keeps to none.
-const PartnersURL = "https://usemagpie.ai/api/partners"
+// PartnersURL disables sponsored discovery in this fork. An explicit
+// MAGPIE_PARTNERS feed can still be used by the compatibility tests.
+const PartnersURL = "off"
 
 // KindPartner is a partner's Kind: the add sheet lists them apart.
 const KindPartner Kind = "partner"
@@ -558,7 +558,9 @@ func keptPartnerIcons() []string {
 // partnerPreset is the preset of a partner listed now or before, for a
 // provider added from it: one no longer listed isn't Sponsored.
 func partnerPreset(id string) *PresetDef {
-	if partnersSource() == "off" {
+	// Keep cached definitions for services already added. Explicit off
+	// keeps its upstream meaning; the fork default only stops discovery.
+	if os.Getenv("MAGPIE_PARTNERS") == "off" {
 		return nil
 	}
 	partnerMu.Lock()
@@ -571,7 +573,7 @@ func partnerPreset(id string) *PresetDef {
 	d := p.PresetDef
 	d.Sponsored = false
 	for _, l := range partnerState.Partners {
-		if l.ID == id && l.Live(time.Now()) {
+		if partnersSource() != "off" && l.ID == id && l.Live(time.Now()) {
 			d.Sponsored = true
 		}
 	}
