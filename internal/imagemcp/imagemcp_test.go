@@ -289,7 +289,7 @@ func TestVideoToolSaysEveryVideoModel(t *testing.T) {
 	if desc == "" {
 		t.Fatalf("no generate_video in %v", res)
 	}
-	for _, want := range []string{"Grok", "Seedance", "another Magpie", "model list marks video models"} {
+	for _, want := range []string{"Grok", "Seedance", "MiniMax H3", "another Magpie", "model list marks video models"} {
 		if !strings.Contains(desc, want) {
 			t.Errorf("description leaves out %q: %s", want, desc)
 		}

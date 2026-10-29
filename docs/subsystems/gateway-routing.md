@@ -475,6 +475,43 @@ on the key that started the video. A gateway key's account and model holds
 apply to all three routes (`videoAsker`, `videoModelHeld`), and to Grok's
 and Volcengine's polls and downloads as well.
 
+A MiniMax API key (no account, a Chat, Anthropic or Responses base on
+api.minimax.io, api.minimaxi.com or api.minimax.cn: `filmsMiniMax`,
+`minimaxHost`; a relay serving MiniMax's models is not one) makes videos
+with the H3 models, MiniMax-H3, -Highspeed, -Lite and -Max
+([`video_minimax.go`](../../internal/gateway/video_minimax.go),
+`minimaxVideoModels`). They are video models only (`Films`), listed by
+`Videomakers` and never added to a chat list. A video starts at
+`<host>/v2/video_generation` on that key's own host, so international and
+Chinese keys each reach their platform, and is polled at
+`<host>/v2/query/video_generation/<task_id>`. Its MP4 is `task.content.url`,
+fetched as other vendors' video URLs are (`vendorClient`). `minimaxVideoBody`
+sends the prompt and images in `content` (`first_frame` from
+`input_reference`, `last_frame` from the request's `last_frame`, references
+as `reference_image`). It turns away frames and references together, or more
+than 9 references, with a 400 before MiniMax is asked. The duration is 5
+unless set, raised to the model's shortest (4, or 5 for Max) and cut at 15.
+The resolution is the request's own `resolution`, else derived from `size`'s
+shorter side among the model's resolutions (H3 768P/2K, Highspeed 768P,
+Lite and Max 768P/480P). The ratio is the nearest of MiniMax's to `size`.
+None is sent with a frame, since the video takes the image's shape. Text
+alone, and Lite's references, default to 16:9. No `callback_url` is ever
+sent. Ids carry the key's mark (`markedKey`), as a custom provider's do,
+and a key whose plan doesn't make H3 (codes 2061/2068/2057: a Token Plan
+key) hands the video to the provider's next key. Failures are said for what
+they are before MiniMax's own words (`minimaxWhy`, `minimaxError`): a bad
+key (1004, 2049, 401), an empty pay-as-you-go balance (1008, 402), refused
+content (1026, 1027), a plan without H3, and the rate limit (1002, 1045,
+429). A failed task's `error.code` is explained the same way.
+`AutoVideomaker` puts a MiniMax key after every other video maker: H3 is
+paid by the second, so a subscription that made the videos before keeps
+making them, and generate_video, which names no model, uses MiniMax-H3 only
+when nothing else makes videos. Covered by `TestMiniMaxKeysMakeH3Videos`,
+`TestMiniMaxVideoIsStartedPolledAndFetched`, `TestMiniMaxVideoBody`,
+`TestMiniMaxVideoFailuresSayWhy`, `TestImageMCPMakesMiniMaxVideos`,
+`TestMiniMaxComesAfterOtherVideomakers` and
+`TestMiniMaxVideoMovesPastATokenPlanKey`.
+
 ## Turning provider search off
 
 [Settings](../../internal/settings/settings.go)' `searcher: "off"` disables magpie's provider-assisted search,
@@ -915,6 +952,7 @@ vendor) and the other `TestTool*` tests.
 Covered by `TestImageMCPDrawsAndServesTheImage`, `TestImageMCPSaysWhenOff`,
 `TestImageMCPGuarded`, `TestImageMCPHeldToKeyLimit`,
 `TestImageMCPSlowDrawingIsWaitedOn`, `TestImageMCPMakesVideos`,
+`TestImageMCPMakesMiniMaxVideos`,
 `TestImageMCPIsServed` and `image-mcp.test.cjs`.
 
 ## Side models magpie picks: allowance first
