@@ -24,8 +24,14 @@ import (
 
 func errorf(format string, a ...any) error { return fmt.Errorf(format, a...) }
 
-// manyModels is where "expose everything" stops being helpful.
-const manyModels = 24
+// ModelListLimit is the effective bound on the vendor list, 0 for all.
+// Another magpie already bounded its list to what its user exposed.
+func (p Provider) ModelListLimit() int {
+	if p.IsRemoteMagpie() {
+		return 0
+	}
+	return settings.Load().EffectiveModelLimit()
+}
 
 // Available lists every model the vendor is known to serve: the list fetched
 // from the vendor itself when there is one, over the models.dev catalog (or,
@@ -1548,16 +1554,17 @@ func (p Provider) Exposed() []catalog.Model {
 		return slices.DeleteFunc(pick(p.withNewlyListed(picks, avail)), func(m catalog.Model) bool { return p.NoAPIFor(m.ID) })
 	}
 	// a model listed on none of the APIs the provider has a URL for is
-	// left out before the first 24 are taken (#2094)
+	// left out before the default limit is applied (#2094)
 	avail = slices.DeleteFunc(slices.Clone(avail), func(m catalog.Model) bool { return p.NoAPIFor(m.ID) })
 	// another magpie's list is already the models its user exposed
-	if len(avail) <= manyModels || p.IsRemoteMagpie() {
+	limit := p.ModelListLimit()
+	if limit == 0 || len(avail) <= limit {
 		return avail
 	}
 	// More than an agent's picker wants. Show the first slice of the
 	// vendor's own list — theirs run newest first — and let the user pick
 	// from the rest; nothing here is compiled in.
-	return avail[:manyModels]
+	return avail[:limit]
 }
 
 // NoAPIFor says the provider has a URL for none of the APIs the vendor's

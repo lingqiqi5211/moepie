@@ -318,6 +318,9 @@ type Settings struct {
 	// the vendor's own reply, stop_reason "refusal", which Claude Code
 	// answers by switching to its fallback model itself (DD on Discord).
 	RefusalRetries *int `json:"refusalRetries,omitempty"`
+	// DefaultModelLimit bounds a provider's vendor list when no models were
+	// picked explicitly. Unset keeps 24; 0 serves the whole list.
+	DefaultModelLimit *int `json:"defaultModelLimit,omitempty"`
 	// NoAccountDiscovery leaves every agent's sign-in unread (#1535,
 	// MaxHaiCom): no credential file, Keychain item or agent CLI is asked
 	// who is signed in, and no subscription is offered; API-key providers
@@ -1543,10 +1546,22 @@ func UseRedactModel(name string) error {
 	return save(s, false)
 }
 
+// EffectiveModelLimit keeps old settings at 24 and treats an explicit 0 as
+// unlimited. A malformed negative value on disk also keeps the old default.
+func (s Settings) EffectiveModelLimit() int {
+	if s.DefaultModelLimit == nil || *s.DefaultModelLimit < 0 {
+		return 24
+	}
+	return *s.DefaultModelLimit
+}
+
 // save is called under fileMu. Only the consent setter may replace recording.
 func save(s Settings, recording bool) error {
 	defer filememo.Forget() // read again, where a request holds it
 	s = s.normal()
+	if s.DefaultModelLimit != nil && *s.DefaultModelLimit < 0 {
+		return fmt.Errorf("default model limit must be a non-negative integer")
+	}
 	if !slices.Contains(Themes, s.Theme) {
 		return fmt.Errorf("theme must be one of %v, not %q", Themes, s.Theme)
 	}

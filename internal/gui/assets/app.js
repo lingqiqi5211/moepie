@@ -10912,18 +10912,23 @@ function renderModels(p) {
       fold.hidden = !(chips.scrollHeight > (modelsOpen ? most : chips.clientHeight) + 1);
     });
   };
+  const limit = p.modelListLimit ?? prefs?.effectiveModelLimit ?? 24;
+  const listModels = () => {
+    const ms = p.models.filter((m) => !noAPI(m));
+    return limit ? ms.slice(0, limit) : ms;
+  };
   const draw = () => {
     if (agentMenu && chips.contains(agentMenu.anchor)) closeAgentMenu();
     chips.replaceChildren();
     const f = (q?.value || "").trim().toLowerCase();
     let shown = 0, hidden = 0;
-    // with none picked agents are served the vendor's list, up to 24 of
-    // it: those are drawn as served, not as left out (#614: the one model
+    // with none picked agents are served the bounded vendor list:
+    // those are drawn as served, not as left out (#614: the one model
     // unticked and saved was still "1 model" on the card). Kept for routing
     // groups alone, those are what the groups use (#1818: drawn as none
     // while the card and the auto groups had all 17); after Select none,
     // none is served
-    const served = draft.chosen.length || decideOnly(p) || draft.none ? new Set() : new Set(p.models.filter((m) => !noAPI(m)).slice(0, 24).map((m) => m.id));
+    const served = draft.chosen.length || decideOnly(p) || draft.none ? new Set() : new Set(listModels().map((m) => m.id));
     // models that would read alike say what tells them apart (modelTells)
     const tells = modelTells(p.models);
     // a filter is a search: what it doesn't match is left out, picked or not
@@ -10997,8 +11002,8 @@ function renderModels(p) {
     drawServes();
     why.textContent = decideOnly(p) ? t("Agents never see them: a routing group picks one as its classifier.")
       : !draft.chosen.length && draft.none ? t("None selected: no agent or routing group uses its models. Its balance and usage still show. Click a model to pick it.")
-      : draft.unlisted ? t(draft.chosen.length ? "Agents don't see them: only the routing groups they are in use them." : "Vendor's list: agents don't see it, the routing groups its models are in use up to {n} of it (dashed). Click a model to pick just it.", { n: 24 })
-      : t(draft.chosen.length ? "Agents see the models picked." : "Vendor's list: agents see up to {n} of its models (dashed), and those it lists later. Click a model to pick just it.", { n: 24 });
+      : draft.unlisted ? t(draft.chosen.length ? "Agents don't see them: only the routing groups they are in use them." : limit ? "Vendor's list: agents don't see it, the routing groups its models are in use up to {n} of it (dashed). Click a model to pick just it." : "Vendor's list: routing groups use all its models (dashed). Click a model to pick just it.", { n: limit })
+      : t(draft.chosen.length ? "Agents see the models picked." : limit ? "Vendor's list: agents see up to {n} of its models (dashed), and those it lists later. Click a model to pick just it." : "Vendor's list: agents see all its models (dashed), and those it lists later. Click a model to pick just it.", { n: limit });
     drawLost();
   };
   // those of its models in no routing group, while it is kept for groups:
@@ -11381,11 +11386,11 @@ function renderModels(p) {
   const servesOpts = [["list", "Vendor's list", "Serve the vendor's list, up to {n} of it (dashed), models it lists later too"], ["picked", "Picked only", "Serve only the models picked"], ["none", "Usage only", "Route nothing to it: no agent or routing group uses its models, and those it lists later aren't added. Its balance and usage still show."]].map(([v, name, tip]) => {
     const b = el("button", "opt", t(name));
     b.dataset.serves = v;
-    b.title = t(tip, { n: 24 });
+    b.title = t(v === "list" && !limit ? "Serve all the vendor's models (dashed), models it lists later too" : tip, { n: limit });
     b.onclick = () => {
       if (v === "list") { draft.chosen = []; draft.typed = ""; draft.none = false; }
       else if (v === "none") { draft.chosen = []; draft.typed = ""; draft.none = true; }
-      else if (!draft.chosen.length) { draft.chosen = p.models.filter((m) => !noAPI(m)).slice(0, 24).map((m) => m.id); draft.none = true; }
+      else if (!draft.chosen.length) { draft.chosen = listModels().map((m) => m.id); draft.none = true; }
       draw();
     };
     serves.append(b);
@@ -21622,7 +21627,18 @@ function renderReplies(s, keep) {
   cval.append(segs([["off", t("Off")], ["on", t("On")]], s.claudeLeanPrompt ? "on" : "off",
     (v) => savePrefs({ ...keep, claudeLeanPrompt: v === "on" })));
   c.append(cwho, cval);
-  box.append(r, l, f, k, c);
+  const m = waitRow("defaultModelLimitRow", t("Default model limit"), t("Vendor lists use this many models unless you pick models explicitly. Blank keeps 24; 0 means no limit"), [], 0, "{n}", () => {});
+  const mv = m.querySelector(".val");
+  const mb = input(String(s.defaultModelLimit ?? ""), String(s.effectiveModelLimit ?? 24), "number");
+  mb.min = "0"; mb.step = "1"; mb.inputMode = "numeric";
+  mb.setAttribute("aria-label", t("Default model limit"));
+  mb.style.width = "7em";
+  mb.onchange = () => {
+    if (!mb.checkValidity() || (mb.value !== "" && !Number.isSafeInteger(Number(mb.value)))) { mb.reportValidity(); return; }
+    savePrefs({ ...keep, defaultModelLimit: mb.value === "" ? null : Number(mb.value) });
+  };
+  mv.replaceChildren(mb);
+  box.append(m, r, l, f, k, c);
 }
 
 // renderDisabledModels: the models the user turned off for every request
@@ -22660,7 +22676,7 @@ function prefsKeep(s) {
     redact: !!s.redact, redactPersonal: !!s.redactPersonal, redactKinds: s.redactKinds || {}, redactWords: s.redactWords || [], redactWordsAnyCase: !!s.redactWordsAnyCase, redactWordsWhole: !!s.redactWordsWhole, redactShape: !!s.redactShape, codexWarmup: s.codexWarmup || "",
     claudeWarmup: s.claudeWarmup || "", codexWarmAt: s.codexWarmAt || "", claudeWarmAt: s.claudeWarmAt || "",
     codexWarmAts: warmTimes(s.codexWarmAts, s.codexWarmAt), claudeWarmAts: warmTimes(s.claudeWarmAts, s.claudeWarmAt), workbuddyCheckin: !!s.workbuddyCheckin, traeCheckin: !!s.traeCheckin, minimaxCheckin: !!s.minimaxCheckin, qoderCheckin: !!s.qoderCheckin, noStats: !!s.noStats, noUsageStats: !!s.noUsageStats,
-    memberModel: !!s.memberModel, noLoopGuard: !!s.noLoopGuard, claudeLeanPrompt: !!s.claudeLeanPrompt, refusalRetries: s.refusalRetries ?? null,
+    memberModel: !!s.memberModel, noLoopGuard: !!s.noLoopGuard, claudeLeanPrompt: !!s.claudeLeanPrompt, refusalRetries: s.refusalRetries ?? null, defaultModelLimit: s.defaultModelLimit ?? null,
     noUpdatePill: !!s.noUpdatePill, noAutoUpdate: !!s.noAutoUpdate, updateEvery: s.updateEvery || 360, autoRestart: !!s.autoRestart, noAutoDownload: !!s.noAutoDownload, updateChannel: s.updateChannel || "",
     trayUsage: s.trayUsage || "", trayUsageEvery: s.trayUsageEvery || 3, trayNoLogos: !!s.trayNoLogos, trayNoBird: !!s.trayNoBird, trayPace: !!s.trayPace, trayNoCost: !!s.trayNoCost, vision: s.vision || "", visionEffort: s.visionEffort || "", searcherEffort: s.searcherEffort || "", imageGen: s.imageGen || "", imageTimeout: s.imageTimeout || 0, classifyTimeout: s.classifyTimeout || 0, searcher: s.searcher || "", searchFirst: s.searchFirst || "", currency: s.currency || "usd",
     chineseUnits: !!s.chineseUnits, usageAlert: s.usageAlert || 0, balanceAlert: s.balanceAlert || 0, resetReminder: s.resetReminder || 0,
@@ -22683,6 +22699,7 @@ function savePrefs(body) {
     try {
       prefs = await api("settings", { ...prefsKeep(prefs), ...change });
       if (state) state.settings = prefs;
+      if ("defaultModelLimit" in change) providers = null;
     } catch (e) {
       failed = true;
       status(e.message, "err");

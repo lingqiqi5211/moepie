@@ -242,13 +242,14 @@ type providerJSON struct {
 	// minute, 0 for no limit (coeo91 on Discord)
 	MaxRPM int `json:"maxRPM,omitempty"`
 	// what it charges against the official price, 0 for that (#819)
-	PriceRate float64     `json:"priceRate,omitempty"`
-	Models    []modelJSON `json:"models"`            // everything the vendor lists, exposed ones flagged
-	Exposed   int         `json:"exposed"`           // how many reach the agents
-	Draws     int         `json:"draws,omitempty"`   // how many of its models draw images (gateway.Drawers)
-	DrawIDs   []string    `json:"drawIds,omitempty"` // those models' ids, listed apart in its editor
-	Unlisted  bool        `json:"unlisted"`          // its models serve only through routing groups
-	NoModels  bool        `json:"noModels"`          // Select none: none of its models served (#1818)
+	PriceRate      float64     `json:"priceRate,omitempty"`
+	ModelListLimit int         `json:"modelListLimit"`    // effective vendor-list limit, 0 for all
+	Models         []modelJSON `json:"models"`            // everything the vendor lists, exposed ones flagged
+	Exposed        int         `json:"exposed"`           // how many reach the agents
+	Draws          int         `json:"draws,omitempty"`   // how many of its models draw images (gateway.Drawers)
+	DrawIDs        []string    `json:"drawIds,omitempty"` // those models' ids, listed apart in its editor
+	Unlisted       bool        `json:"unlisted"`          // its models serve only through routing groups
+	NoModels       bool        `json:"noModels"`          // Select none: none of its models served (#1818)
 	// Groups are the routing groups ("group/<id>") each of its models is
 	// in, by model id: what an unlisted one is still used through, and the
 	// editor names those in none
@@ -601,7 +602,7 @@ func providerInfoWith(p provider.Provider, agents []agentUse, desktop map[string
 		Chat: p.Chat, Responses: p.Responses, Anthropic: p.Anthropic, Gemini: p.Gemini, Decide: p.Decide, BaseAPI: p.BaseAPI, ModelTest: p.ModelTest(), TestsAs: p.TestClients(), DecideTest: p.AsksDecideModels(), MarksKinds: p.MarksKinds(),
 		Catalog: p.Catalog, Website: p.Website, KeysURL: p.KeysURL,
 		Proxy: p.Proxy, AccountProxies: p.AccountProxies, AccountModels: p.AccountModels, AccountCaps: p.AccountCaps, AccountWindowCaps: p.AccountWindowCaps, AccountNames: p.AccountNames, Headers: p.Headers, ExtraBody: p.ExtraBody, Searches: p.Searches, Cline: p.ClinePinnable(), PinUpstream: p.PinUpstream, Unredacted: p.Unredacted, InsecureTLS: p.InsecureTLS, TakesInsecureTLS: p.TakesInsecureTLS(), LimitRestOff: p.LimitRestOff, NativeCompaction: p.NativeCompaction, CarriesCompaction: p.CarriesCompaction(), PassUserAgent: p.PassUserAgent, OwnClient: p.OwnClient(), AuthHeader: p.AuthHeader, BothAuth: p.BothAuth(), BalanceURL: p.BalanceURL, BalancePath: p.BalancePath, BalanceMethod: p.BalanceMethod, ModelsURL: p.ModelsURL,
-		Ready: p.Ready(), Chosen: p.Picks(), Models: []modelJSON{}, Agents: []providerAgent{},
+		Ready: p.Ready(), Chosen: p.Picks(), Models: []modelJSON{}, ModelListLimit: p.ModelListLimit(), Agents: []providerAgent{},
 		Fallback: p.Fallback, Routing: p.Routing, Sink: p.Sink, Affinity: p.Affinity, KeepLogin: p.KeepLogin, KeepLoginAs: p.KeepLoginAs, SwitchOnly: p.SwitchOnly, CapStop: p.CapStop, CapCareful: p.CapCareful, Unlisted: p.Unlisted, NoModels: p.ServesNone(), Off: p.Off, Contexts: p.Contexts,
 		MaxConcurrency: p.MaxConcurrency, PluginConcurrency: p.PluginConcurrency(), PriceRate: p.PriceRate,
 		AccountConcurrency: p.AccountConcurrency, QueueLimit: p.QueueLimit, QueueWait: p.QueueWait, MaxRPM: p.MaxRPM,

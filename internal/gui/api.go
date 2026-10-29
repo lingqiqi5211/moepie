@@ -363,9 +363,10 @@ func currentFX() fxJSON {
 // settingsJSON is the Settings page: the two choices plus the facts it shows.
 type settingsJSON struct {
 	settings.Settings
-	Version string `json:"version"`
-	Dir     string `json:"dir"`     // where magpie keeps its files, as shown
-	Gateway string `json:"gateway"` // the local endpoint
+	EffectiveModelLimit int    `json:"effectiveModelLimit"` // 0 serves the whole vendor list
+	Version             string `json:"version"`
+	Dir                 string `json:"dir"`     // where magpie keeps its files, as shown
+	Gateway             string `json:"gateway"` // the local endpoint
 	// Builtins are the built-in plugins: each one's switch, whether it
 	// runs and what of it is in use (builtins.go)
 	Builtins []builtinJSON `json:"builtins"`
@@ -621,6 +622,7 @@ var loginState = autostart.Enabled
 
 func settingsState() settingsJSON {
 	s := settingsJSON{Settings: settings.Load(), Version: Version, Dir: tilde(settings.Dir()), Portable: settings.Portable() != "", Gateway: gateway.URL()}
+	s.EffectiveModelLimit = s.Settings.EffectiveModelLimit()
 	s.AddrEnv = os.Getenv("MAGPIE_ADDR")
 	s.Builtins = builtinsState()
 	s.JSRoutings = middleware.Routings()
@@ -1264,6 +1266,10 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 		if _, sent := fields["refusalRetries"]; !sent {
 			in.RefusalRetries = cur.RefusalRetries
 		}
+		// Older pages preserve the limit; null restores the default of 24.
+		if _, sent := fields["defaultModelLimit"]; !sent {
+			in.DefaultModelLimit = cur.DefaultModelLimit
+		}
 		// nor whether updates download by themselves (#2296)
 		if _, sent := fields["noAutoDownload"]; !sent {
 			in.NoAutoDownload = cur.NoAutoDownload
@@ -1426,7 +1432,7 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 		}
 		// whether agents are told every model takes images follows Vision
 		// (provider.Described)
-		if strings.TrimSpace(in.Vision) != strings.TrimSpace(cur.Vision) {
+		if strings.TrimSpace(in.Vision) != strings.TrimSpace(cur.Vision) || in.EffectiveModelLimit() != cur.EffectiveModelLimit() {
 			catalog.Touched()
 		}
 		if (in.Dock != cur.Dock || in.DockWindow != cur.DockWindow) && onDock != nil {
