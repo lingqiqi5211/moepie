@@ -1,5 +1,12 @@
 # Providers and accounts
 
+Model labels follow the suffix setting even when names collide. With
+`SuffixOff`, a model and a routing group can have the same plain label;
+`SuffixOwn` also keeps duplicate custom names plain. Their IDs stay distinct,
+and `SuffixOn` still includes each provider or routing-group suffix. See
+`Labels` in `internal/provider/modelprefs.go` and
+`TestSuffixSwitchHonoursDuplicateNames`.
+
 The gateway can send a request to three kinds of upstream:
 
 - A **provider** in `providers.json`: an endpoint with one or more API keys. Google Vertex AI's has no key: it is signed with the user's Google credentials.

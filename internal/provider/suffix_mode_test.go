@@ -58,8 +58,8 @@ func TestSuffixMode(t *testing.T) {
 	if s := settings.Load(); SuffixMode() != SuffixOff || !s.PlainNames || s.PlainOwnNames || touched != 2 {
 		t.Fatalf("off: %q %+v, told %d", SuffixMode(), s, touched)
 	}
-	// b's sol and the group found for it would both read "Sol": they keep theirs
-	if got := codex(); !slices.Equal(got, []string{"a/sol=My Sol", "auto/sol=Sol · routing group", "b/sol=Sol · B"}) {
+	// The setting also applies to colliding model and group names.
+	if got := codex(); !slices.Equal(got, []string{"a/sol=My Sol", "auto/sol=Sol", "b/sol=Sol"}) {
 		t.Fatalf("off: %q", got)
 	}
 

@@ -10,9 +10,7 @@ import (
 
 // With PlainNames (#335: 希望 Codex 模型列表里的显示名可以不带 · routing group
 // / · 提供商 后缀) the lists agents get name each model by its name alone —
-// Codex's catalog and the other agents' files alike — but two a list would
-// call the same keep their provider's, so a picker never shows one name
-// twice; taking one of them out of the agent's list leaves the other plain.
+// Codex's catalog and the other agents' files alike, including duplicates.
 // Off, as by default, every name has its provider's after it as before, and
 // switching it tells the agents.
 func TestPlainNames(t *testing.T) {
@@ -50,12 +48,12 @@ func TestPlainNames(t *testing.T) {
 	if touched != 1 || !settings.Load().PlainNames {
 		t.Fatalf("agents told %d times, setting %v", touched, settings.Load().PlainNames)
 	}
-	// the group found for sol and b's sol are both "Sol": they keep theirs
-	want := []string{"a/sol=My Sol", "auto/sol=Sol · routing group", "b/sol=Sol · B"}
+	// Duplicate names remain plain when the user disabled suffixes.
+	want := []string{"a/sol=My Sol", "auto/sol=Sol", "b/sol=Sol"}
 	if got := codex(); !slices.Equal(got, want) {
 		t.Fatalf("plain: %q", got)
 	}
-	if got := other(); !slices.Equal(got, []string{"My Sol", "Sol · B", "Sol · routing group"}) {
+	if got := other(); !slices.Equal(got, []string{"My Sol", "Sol", "Sol"}) {
 		t.Fatalf("plain, another agent: %q", got)
 	}
 
@@ -69,7 +67,7 @@ func TestPlainNames(t *testing.T) {
 	if got := codex(); !slices.Equal(got, []string{"a/sol=My Sol", "auto/sol=Sol"}) {
 		t.Fatalf("plain, b hidden: %q", got)
 	}
-	if got := other(); !slices.Equal(got, []string{"My Sol", "Sol · B", "Sol · routing group"}) {
+	if got := other(); !slices.Equal(got, []string{"My Sol", "Sol", "Sol"}) {
 		t.Fatalf("plain, another agent: %q", got)
 	}
 

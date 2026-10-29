@@ -80,8 +80,8 @@ const modelUsage = `usage:
   magpie model suffix [on|own|off]               whether the agents' lists name each model with its provider
                                                  (or "routing group") after it: on, as by default, "Sol · OpenAI";
                                                  own, a name you gave a model just as you wrote it, "Opus 5.5",
-                                                 the others as on; off, "Sol" alone — but two a list would name
-                                                 the same keep it
+                                                 the others as on; off, "Sol" alone, even when models or
+                                                 routing groups have the same name
   magpie model compact [on|off|<size>]           whether Codex and Claude Code compact a long conversation at
                                                  272K: on, as by default, for a model of a longer window (in
                                                  Claude Code, a Claude model runs to its own); off, at the
@@ -672,7 +672,7 @@ func modelSuffix(args []string) error {
 	}
 	switch mode {
 	case provider.SuffixOff:
-		fmt.Println(green.Render("✓"), "agents' lists name each model alone", muted.Render("· two that would read the same keep their provider's"))
+		fmt.Println(green.Render("✓"), "agents' lists name each model alone", muted.Render("· duplicate names stay plain too"))
 	case provider.SuffixOwn:
 		fmt.Println(green.Render("✓"), "agents' lists name a model you named just as you wrote it", muted.Render("· the others with their provider"))
 	default:
