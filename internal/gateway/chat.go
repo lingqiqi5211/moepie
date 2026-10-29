@@ -585,7 +585,7 @@ func buildChat(r *Request, model, host string, rejectTemp bool) []byte {
 		// OpenRouter's own search, for any of its models
 		out["plugins"] = []map[string]any{{"id": "web"}}
 	}
-	b, _ := marshalBody(out)
+	b, _ := marshalBody(out, "messages")
 	return b
 }
 

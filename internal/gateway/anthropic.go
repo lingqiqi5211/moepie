@@ -1099,7 +1099,7 @@ func anthropicBody(r *Request, model, host string, replay bool) []byte {
 			out["tool_choice"] = tc
 		}
 	}
-	b, _ := marshalBody(out)
+	b, _ := marshalBody(out, "messages")
 	return b
 }
 
