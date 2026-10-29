@@ -1625,6 +1625,24 @@ func passing(status int, header http.Header, body []byte, again int) (time.Durat
 // answer a request of about tokens that c's model found too long: not an
 // account of c's model at c's provider, which holds it no better, nor one
 // whose window it is known to be past.
+// wholeRouteRetryable says whether a failed route may be worth asking from
+// its first candidate again. A 529 overload is transient, while a 502
+// qualifies only when it reports a transport EOF or closed connection.
+func wholeRouteRetryable(status int, body []byte) bool {
+	if status == 529 {
+		return true
+	}
+	if status != http.StatusBadGateway {
+		return false
+	}
+	s := strings.ToLower(string(body))
+	return strings.Contains(s, "eof") ||
+		strings.Contains(s, "forcibly closed") ||
+		strings.Contains(s, "connection reset") ||
+		strings.Contains(s, "connection refused") ||
+		strings.Contains(s, "wsarecv")
+}
+
 func withRoom(left []candidate, c candidate, tokens int) []candidate {
 	var out []candidate
 	for _, x := range left {

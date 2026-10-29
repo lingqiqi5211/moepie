@@ -2548,6 +2548,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 	wentAt := ""     // and the level that went, once translated (wireEffort, #1636)
 	wentTier := ""   // the service tier the last try went out at (noteWireTier, #1784)
 	where := ""      // the last try's provider.Where, for the usage
+	fullRetries := 0 // one fresh pool pass after transient failures
+	routeTransient := true
 	again := 0       // times the last one left has been tried again
 	resealed := 0    // what of the conversation another account sealed was taken out: its reasoning, then its compaction
 	repicked := 0    // times Copilot's Auto was asked again for a model the account is served
@@ -3078,6 +3080,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			// ended for looping (#1359): the agent had its 200 and the
 			// stream's error; logged apart from the vendor's own errors
 			call.Status, call.Error, call.Usage.ErrType = hw.status, c.p.Name+": "+hw.looped, loopErrType
+		}
+		if !hw.passing && !wholeRouteRetryable(hw.code(), hw.errBody()) {
+			routeTransient = false
 		}
 		if wentAt = sent; at.set {
 			wentAt = at.effort
@@ -3698,6 +3703,25 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 				s.trace.update(tr, func(t *Route) { t.Tries[len(t.Tries)-1] = try })
 			}
 			break
+		}
+		// A Codex request can reach every account while ChatGPT's front is
+		// briefly returning EOF/502/529. The last account's short retry budget
+		// is not enough for that outage: start one fresh pass through the
+		// account pool so Codex does not need the user to press Continue.
+		if last && from == provider.Responses && c.p.ID == "codex" && len(cands) > 1 && fullRetries == 0 && routeTransient && wholeRouteRetryable(hw.code(), hw.errBody()) {
+			fullRetries++
+			routeTransient = true
+			again = 0
+			wait := retryPause << lastRetries
+			select {
+			case <-time.After(wait):
+				i = -1
+				continue
+			case <-r.Context().Done():
+				call.Status, call.Error = canceled(r.Context())
+				try.Gone = true
+				s.trace.update(tr, func(t *Route) { t.Tries[len(t.Tries)-1] = try })
+			}
 		}
 		// (not for one account pinned: the others weren't asked)
 		if !autoReset && pin == "" && last && other == nil && hw.failed() && !hw.passing && !hw.turnedAway && failure(hw.code(), hw.errBody()) == failQuota {

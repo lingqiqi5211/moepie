@@ -1,5 +1,14 @@
 # Gateway routing and fallback
 
+After all candidates in a multi-account Codex Responses route fail before
+content with HTTP 529 or a transport EOF/closed/reset connection reported as
+502, the route gets one fresh pass through the same candidate list. The
+extra pass is bounded to one and respects client cancellation; existing
+short retries and provider/group patience remain separate. Quota exhaustion,
+authentication errors and unrelated 502s do not qualify for this extra pass.
+No reply already delivered is replayed. See `wholeRouteRetryable` and
+`codex_transient_retry_test.go`.
+
 The gateway is magpie's local LLM endpoint (`127.0.0.1:3425` by default). It
 serves Chat Completions, Responses, Anthropic Messages and Gemini. It finds
 the provider, key or account and model for each request. When the upstream
