@@ -2936,6 +2936,9 @@ func (s *Server) codexCompact(w http.ResponseWriter, r *http.Request, body []byt
 	ask := func(b []byte) (*recorder, compactResult, error) {
 		rec := &recorder{header: http.Header{}, status: 200}
 		s.serve(rec, r, provider.Responses, b)
+		if rec.cut {
+			return rec, compactResult{}, errReplyTooBig
+		}
 		if rec.status >= 400 {
 			return rec, compactResult{}, nil
 		}
@@ -3182,15 +3185,19 @@ func plainCompact(body []byte) []byte {
 	if q == nil {
 		return body
 	}
-	var b strings.Builder
-	for _, it := range items {
-		role, text := itemText(it)
+	// the latest first, only as far back as plainCompactMax keeps
+	var parts []string
+	n := 0
+	for i := len(items) - 1; i >= 0 && n <= plainCompactMax; i-- {
+		role, text := itemText(items[i])
 		if strings.TrimSpace(text) == "" || text == codexCompactPrompt {
 			continue
 		}
-		fmt.Fprintf(&b, "[%s]\n%s\n\n", role, text)
+		p := fmt.Sprintf("[%s]\n%s\n\n", role, text)
+		parts, n = append(parts, p), n+len(p)
 	}
-	t := b.String()
+	slices.Reverse(parts)
+	t := strings.Join(parts, "")
 	if len(t) > plainCompactMax {
 		t = "…\n" + t[len(t)-plainCompactMax:]
 	}
@@ -3380,8 +3387,22 @@ type recorder struct {
 	header http.Header
 	status int
 	body   bytes.Buffer
+	cut    bool // the reply ran past recorderMost; the rest was dropped
 }
 
-func (r *recorder) Header() http.Header         { return r.header }
-func (r *recorder) WriteHeader(status int)      { r.status = status }
-func (r *recorder) Write(b []byte) (int, error) { return r.body.Write(b) }
+// recorderMost bounds the reply a recorder keeps: a summary or a title is
+// small, and an upstream answering without end held all it sent.
+const recorderMost = 32 << 20
+
+// errReplyTooBig is a compaction whose reply ran past recorderMost.
+var errReplyTooBig = fmt.Errorf("the reply ran past %d MiB", recorderMost>>20)
+
+func (r *recorder) Header() http.Header    { return r.header }
+func (r *recorder) WriteHeader(status int) { r.status = status }
+func (r *recorder) Write(b []byte) (int, error) {
+	if r.cut || r.body.Len()+len(b) > recorderMost {
+		r.cut = true
+		return len(b), nil
+	}
+	return r.body.Write(b)
+}
