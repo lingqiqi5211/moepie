@@ -125,19 +125,12 @@ signed and not notarised; without `DEEPSEEK_API_KEY` the notes stay English
 and use the commit list. Set the repository variable `RELEASE_NOTES_MODEL` to
 change the default `deepseek-chat` model. See the workflow for signing secrets.
 
-## UI preview retention
+## Deliberately omitted automation
 
-`ui-previews` stores screenshots and recordings, with one root commit and only
-the latest preview for each open PR. Publishing replaces that PR's older
-preview and removes closed PRs. The **UI preview cleanup** workflow also runs
-on PR closure (including merge), daily at 03:23 UTC, or manually from Actions.
-It reads all pages of open PRs before pruning; a failed read stops cleanup.
-Publication and cleanup share a writer queue and use a Git lease when replacing
-the branch. No expired previews means no new commit; an absent branch is left
-absent. Preview links for closed PRs stop working after cleanup.
-
-Actions artifacts expire separately: PR input after 3 days, recordings after
-7 days. GitHub controls garbage collection of old unreachable Git objects.
+This fork does not generate or publish automatic UI previews for pull requests.
+Do not restore that workflow, its recording scripts or media branch when
+selecting upstream changes. Browser regression tests remain independent, and
+release notes still use the release workflow described above.
 
 ## Update feed
 

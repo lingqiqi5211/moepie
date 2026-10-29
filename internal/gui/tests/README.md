@@ -2049,8 +2049,7 @@ instead of Playwright's Chromium.
 Set `BROWSER=chromium` or `BROWSER=webkit` for one engine. Set `ARTIFACT_DIR` to
 an external directory to retain screenshots and Playwright traces, including
 failed assertions. These browser checks run through `make test-ui`, separately
-from `make test` (which is Go only) and from the UI preview workflow (which
-only records screenshots).
+from `make test` (which is Go only).
 The Test workflow does not run this suite.
 
 `quota-refresh-order.test.cjs`, `usage-stale-answer.test.cjs` and
