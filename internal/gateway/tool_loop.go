@@ -110,8 +110,8 @@ func tailOf(from provider.Protocol, body []byte) []byte {
 	if len(items) <= tailItems {
 		return body
 	}
-	var b bytes.Buffer
-	b.Grow(len(body) - list.Index - len(list.Raw) + items[len(items)-1].Index + len(items[len(items)-1].Raw) - items[len(items)-tailItems].Index + list.Index + 2)
+	size := len(body) - len(list.Raw) + items[len(items)-1].Index + len(items[len(items)-1].Raw) - items[len(items)-tailItems].Index + 2
+	b := bytes.NewBuffer(make([]byte, 0, size))
 	b.Write(body[:list.Index])
 	b.WriteByte('[')
 	for i, v := range items[len(items)-tailItems:] {
