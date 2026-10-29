@@ -4,8 +4,14 @@
 let usageHidOpen = false; // the hidden agents shown under their line
 
 // What was read back from the archive, by "<date>/<id>": the archive's
-// copy, or {busy} while it is read, or {error}.
+// copy, or {busy} while it is read, or {error}. The last 20 are kept: each
+// can hold two bodies of 256 KB.
 const archivedCalls = new Map();
+function keepArchived(name, got) {
+  archivedCalls.delete(name);
+  if (archivedCalls.size >= 20) archivedCalls.delete(archivedCalls.keys().next().value);
+  archivedCalls.set(name, got);
+}
 
 function headersPanel(label, first, headers) {
   const panel = el("section", "call-body");
@@ -77,11 +83,11 @@ function archivePanel(name, id, redraw) {
     b.disabled = !!got?.busy;
     b.onclick = (ev) => {
       ev.stopPropagation();
-      archivedCalls.set(name, { busy: true });
+      keepArchived(name, { busy: true });
       redraw();
       api(`archive?date=${encodeURIComponent(date)}&id=${encodeURIComponent(aid)}`)
-        .then((a) => archivedCalls.set(name, a))
-        .catch((e) => archivedCalls.set(name, { error: t(e.message) }))
+        .then((a) => keepArchived(name, a))
+        .catch((e) => keepArchived(name, { error: t(e.message) }))
         .finally(redraw);
     };
     head.append(b);

@@ -2587,9 +2587,10 @@ function routingPage(part) {
   // Gateway page's are (#1521); once they have let the request go, the
   // request archive's copy, when it was on. Nothing more is recorded for
   // it: without the archive an older request says how to keep them.
-  const bodiesGot = new Map(); // route id → { busy } | its bodies | { gone } | { error }
+  const bodiesGot = new Map(); // route id → { busy } | its bodies | { gone } | { error }; the last 20
   async function loadBodies(id) {
     const pending = { busy: true };
+    if (bodiesGot.size >= 20) bodiesGot.delete(bodiesGot.keys().next().value);
     bodiesGot.set(id, pending);
     let got;
     try {
