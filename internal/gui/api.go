@@ -653,7 +653,7 @@ func settingsState() settingsJSON {
 		s.TerminalDefault = found.Default
 	}
 	s.FX = currentFX()
-	if (s.UsageAlert > 0 || s.BalanceAlert > 0 || s.ResetReminder > 0 || s.TurnDoneAlert > 0) && notifyProblem != nil {
+	if (s.UsageAlert > 0 || s.BalanceAlert > 0 || s.ResetReminder > 0 || s.TurnDoneAlert > 0 || s.MaskAlert) && notifyProblem != nil {
 		s.NotifyProblem = notifyProblem()
 	}
 	s.ProxyNow, s.ProxySource = netproxy.Describe()
@@ -1296,6 +1296,10 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 		if _, sent := fields["reduceMotion"]; !sent {
 			in.ReduceMotion = cur.ReduceMotion
 		}
+		// nor whether a value masked for the first time is told (Must2333)
+		if _, sent := fields["maskAlert"]; !sent {
+			in.MaskAlert = cur.MaskAlert
+		}
 		in.AgentOrder, in.AgentsHidden, in.AgentsShown = cur.AgentOrder, cur.AgentsHidden, cur.AgentsShown
 		in.Window, in.WindowMaximised = cur.Window, cur.WindowMaximised // the window's own, as it was last resized
 		// and what other pages keep here: which models an agent is shown, and
@@ -1438,8 +1442,8 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 		}
 		// an alert turned on or moved is looked at now, the Mac asked for its
 		// leave to notify as it is turned on (#368)
-		if (in.UsageAlert != cur.UsageAlert || in.BalanceAlert != cur.BalanceAlert || in.ResetReminder != cur.ResetReminder || in.TurnDoneAlert != cur.TurnDoneAlert) &&
-			(in.UsageAlert > 0 || in.BalanceAlert > 0 || in.ResetReminder > 0 || in.TurnDoneAlert > 0) && onAlerts != nil {
+		if (in.UsageAlert != cur.UsageAlert || in.BalanceAlert != cur.BalanceAlert || in.ResetReminder != cur.ResetReminder || in.TurnDoneAlert != cur.TurnDoneAlert || in.MaskAlert != cur.MaskAlert) &&
+			(in.UsageAlert > 0 || in.BalanceAlert > 0 || in.ResetReminder > 0 || in.TurnDoneAlert > 0 || in.MaskAlert) && onAlerts != nil {
 			onAlerts()
 		}
 		// the tray menu follows the page's language (#301)

@@ -26,6 +26,13 @@ type Masked struct {
 	Key int64 `json:"key,omitempty,string"`
 }
 
+// OnMasked is told of each request's record as masking makes it, for the
+// notification that a value was masked (Must2333 on X); set by the app,
+// nil (magpie serve, the CLI) for none. It is on the request's way, so it
+// only takes the record: which of its values are new is asked later
+// (maskrec.Fresh). The record holds no value and no text around one.
+var OnMasked func(maskrec.Record)
+
 // maskHits are what a masker swapped: each value from a gwmw.Teller, and
 // how many places in all.
 type maskHits struct {
@@ -83,6 +90,11 @@ func noteMaskedUntil(r *http.Request, what string, h maskHits, sent string, rout
 	rec, done := maskrec.Hold(rec)
 	if h.key != nil {
 		*h.key = rec.Key
+	}
+	if f := OnMasked; f != nil {
+		told := rec
+		told.Snips, told.Back = nil, nil // the text around a value stays here
+		f(told)
 	}
 	m := &Masked{N: rec.N, Key: rec.Key}
 	for _, v := range rec.Values {

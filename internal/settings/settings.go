@@ -495,6 +495,11 @@ type Settings struct {
 	// notification (itieniu on X): a long task set going while the user
 	// works elsewhere. Only turns the app's own gateway serves; 0 is off.
 	TurnDoneAlert int `json:"turnDoneAlert,omitempty"`
+	// MaskAlert has magpie say with a notification when masking swaps a
+	// value it never masked before (Must2333 on X): its kind and how many,
+	// never the value, a burst said once and at most once a minute. Only
+	// requests the app's own gateway serves; off until turned on.
+	MaskAlert bool `json:"maskAlert,omitempty"`
 	// PlainNames has the model lists magpie gives agents name each model
 	// by its name alone, without its provider's or "routing group" after it
 	// (#335) — but for two in one list that would read the same, which keep

@@ -132,6 +132,12 @@ node --test --test-concurrency=1 internal/gui/tests/gateway-caller-keys.test.cjs
 
 ## Other Browser Regressions
 
+`mask-alert.test.cjs` checks Settings › Usage's Masking alert (Must2333 on
+X): after the task done alert, Off to begin with; On saves `maskAlert`,
+another setting saved later keeps it, Off saves false, no click moves the
+page, and the row goes while masking is switched off. Every language at 900
+and 380 wide, in Chromium and WebKit, with the API faked.
+
 `local-address.test.cjs` checks the Address of a local server's provider
 (Ollama, LM Studio, oMLX, MLX-Serve): under the key in a Server address
 section, folded unless the provider is away from the preset's default or an address typed or
