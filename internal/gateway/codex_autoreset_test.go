@@ -35,6 +35,11 @@ type resetBackend struct {
 
 func newResetBackend(t *testing.T, accounts ...string) *resetBackend {
 	t.Helper()
+	// These tests judge spending reset cards and the immediate refusal path.
+	// Quota-wait tests enable the asynchronous recovery separately.
+	oldResume := codexQuotaResumeMax
+	codexQuotaResumeMax = 0
+	t.Cleanup(func() { codexQuotaResumeMax = oldResume })
 	b := &resetBackend{week: map[string]float64{}, held: map[string]int{}, out: map[string]bool{},
 		credits: map[string]bool{}, edge: map[string]int{}, fails: map[string]int{}}
 	for _, a := range accounts {

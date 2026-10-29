@@ -177,9 +177,16 @@ func minTime(a, b time.Time) time.Time {
 // pauseAlive waits d, keeping a streaming agent alive as a held stream
 // does once the request has gone keepHeldAfter without a word. false: the
 // agent went away first.
-func pauseAlive(ctx context.Context, w http.ResponseWriter, kept *keptAlive, streams bool, start time.Time, d time.Duration) bool {
+func pauseAlive(ctx context.Context, w http.ResponseWriter, kept *keptAlive, streams bool, start time.Time, d time.Duration, wakes ...<-chan struct{}) bool {
 	t := time.NewTimer(d)
 	defer t.Stop()
+	var wake, allowanceWake <-chan struct{}
+	if len(wakes) > 0 {
+		wake = wakes[0]
+	}
+	if len(wakes) > 1 {
+		allowanceWake = wakes[1]
+	}
 	var hw *holdWriter
 	if streams && kept != nil && kept.proto != provider.Gemini {
 		hw = newHoldWriter(w, true)
@@ -196,6 +203,10 @@ func pauseAlive(ctx context.Context, w http.ResponseWriter, kept *keptAlive, str
 			return true
 		case <-ctx.Done():
 			return false
+		case <-wake:
+			return true
+		case <-allowanceWake:
+			return true
 		case <-tick.C:
 		}
 	}
