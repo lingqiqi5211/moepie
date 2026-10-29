@@ -11,7 +11,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
   for (const lang of ["en", "zh", "zh-TW", "ja", "de"]) {
     test(`${engine} ${lang}: global default model limit`, async (t) => {
       const tr = (k) => lang === "en" ? k : I18N[lang][k];
-      const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
+      const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch());
       t.after(() => browser.close());
       const page = await browser.newPage({ viewport: { width: 900, height: 700 }, reducedMotion: "reduce" });
       page.setDefaultTimeout(5000);
@@ -46,6 +46,32 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const input = page.locator("#defaultModelLimitRow input");
         await input.waitFor();
         assert.equal(await input.getAttribute("aria-label"), tr("Default model limit"));
+        if (value === "") {
+          assert.equal(await page.locator("#replyList #defaultModelLimitRow").count(), 0);
+          assert.equal(await page.locator("#modelListsList").evaluate(e => e.previousElementSibling.textContent.trim()), tr("Model lists"));
+          for (const theme of ["light", "dark"]) {
+            await page.evaluate(v => document.documentElement.dataset.theme = v, theme);
+            for (const width of [390, 900]) {
+              await page.setViewportSize({ width, height: 700 });
+              await input.scrollIntoViewIfNeeded();
+              const style = await input.evaluate(e => {
+                const s = getComputedStyle(e), r = e.getBoundingClientRect();
+                return { background: s.backgroundColor, color: s.color, radius: parseFloat(s.borderRadius), height: r.height, left: r.left, right: r.right, viewport: innerWidth };
+              });
+              assert(style.radius >= 6 && style.height >= 24, "uses the existing rounded settings field");
+              assert(style.left >= 0 && style.right <= style.viewport, "field fits a narrow window");
+              const channel = Number(style.background.match(/\d+/)[0]);
+              assert(theme === "dark" ? channel < 80 : channel > 200, `${theme}: field follows the card palette: ${style.background}`);
+              assert.notEqual(style.color, style.background, "text remains visible");
+              if (process.env.SCREENSHOT_DIR && lang === "zh") {
+                await fs.mkdir(process.env.SCREENSHOT_DIR, { recursive: true });
+                await page.screenshot({ path: path.join(process.env.SCREENSHOT_DIR, `model-limit-${engine}-${theme}-${width}.png`) });
+              }
+            }
+          }
+          await page.setViewportSize({ width: 900, height: 700 });
+          await page.evaluate(() => document.documentElement.dataset.theme = "light");
+        }
         if (value !== "") {
           const before = posts.length;
           const oldInput = await input.elementHandle();

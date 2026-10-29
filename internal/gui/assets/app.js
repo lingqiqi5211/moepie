@@ -19450,6 +19450,7 @@ function renderSettings() {
   renderGitHubToken(s);
   renderImages(s, keep);
   renderSearch(s, keep);
+  renderModelLists(s, keep);
   renderReplies(s, keep);
   renderDisabledModels(s);
   renderRedact(s, keep);
@@ -21627,18 +21628,25 @@ function renderReplies(s, keep) {
   cval.append(segs([["off", t("Off")], ["on", t("On")]], s.claudeLeanPrompt ? "on" : "off",
     (v) => savePrefs({ ...keep, claudeLeanPrompt: v === "on" })));
   c.append(cwho, cval);
-  const m = waitRow("defaultModelLimitRow", t("Default model limit"), t("Vendor lists use this many models unless you pick models explicitly. Blank keeps 24; 0 means no limit"), [], 0, "{n}", () => {});
-  const mv = m.querySelector(".val");
+  box.append(r, l, f, k, c);
+}
+
+// The default vendor list belongs with model discovery, not reply behavior.
+function renderModelLists(s, keep) {
+  const m = el("div", "row pref"), who = el("div", "who"), mv = el("div", "val");
+  m.id = "defaultModelLimitRow";
+  who.append(el("div", "name", t("Default model limit")), el("div", "sub wraps", t("Vendor lists use this many models unless you pick models explicitly. Blank keeps 24; 0 means no limit")));
   const mb = input(String(s.defaultModelLimit ?? ""), String(s.effectiveModelLimit ?? 24), "number");
+  mb.className = "set-field";
   mb.min = "0"; mb.step = "1"; mb.inputMode = "numeric";
   mb.setAttribute("aria-label", t("Default model limit"));
-  mb.style.width = "7em";
   mb.onchange = () => {
     if (!mb.checkValidity() || (mb.value !== "" && !Number.isSafeInteger(Number(mb.value)))) { mb.reportValidity(); return; }
     savePrefs({ ...keep, defaultModelLimit: mb.value === "" ? null : Number(mb.value) });
   };
-  mv.replaceChildren(mb);
-  box.append(m, r, l, f, k, c);
+  mv.append(mb);
+  m.append(who, mv);
+  $("#modelListsList").replaceChildren(m);
 }
 
 // renderDisabledModels: the models the user turned off for every request
