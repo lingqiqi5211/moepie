@@ -6,7 +6,7 @@ branches have different jobs:
 
 | Branch | Who writes it | What it holds |
 | --- | --- | --- |
-| `main` | this fork | the shipped source: upstream commits picked one by one, minus what the fork drops |
+| `main` | this fork | the shipped source: selected upstream patches grouped by topic, minus what the fork drops |
 | `up` | `.github/workflows/sync-upstream.yml` only | upstream `main`, mirrored every six hours; never authored, never committed to |
 
 Never commit to `up` and never mirror it by hand: the workflow force-moves it,
@@ -21,24 +21,27 @@ out or executes upstream code. Rotate the secret when its token expires.
 
 ## Picking upstream work into main
 
-`main` takes upstream changes as cherry-picks, never as a merge. A merge would
-carry every upstream commit at once, including the ones this fork removed or
-rewrote, and would make the subtraction impossible to see or undo.
+`main` takes selected upstream patches, never a merge. Related fixes are
+applied without committing and collected into one commit per topic; unrelated
+topics stay separate. A merge would carry every upstream commit at once,
+including the ones this fork removed or rewrote.
 
 ```shell
 git fetch origin up
 git log --cherry-pick --right-only --no-merges main...origin/up --oneline
-                                  # upstream patches main does not already contain
-git cherry-pick -x <sha>            # one commit per decision, with provenance
+                                  # candidates, not a count of missing changes
+git cherry-pick --no-commit <sha>   # apply each reviewed patch in dependency order
+                                  # validate the topic, then commit with source SHAs
 ```
 
-The Sync upstream workflow lists up to 40 upstream candidates in its run
-summary. GitHub compares commit ancestry, so this list can include commits
-already cherry-picked under a new sha. The local command above filters patch
-equivalents; adapted conflict resolutions still need a manual provenance check.
+Record every selected upstream commit's full SHA in the topic's commit body.
+This preserves provenance even when several upstream commits become one fork
+commit. Keep the upstream `area: behavior` subject style.
 
-`-x` records the upstream sha in the message, which is how a later reader
-finds where a picked commit came from, and how a duplicate pick is spotted.
+The Sync upstream workflow lists up to 40 upstream candidates in its run
+summary. GitHub compares commit ancestry, while `--cherry-pick` only filters
+patch equivalents. Neither recognizes all grouped or adapted changes: check
+recorded source SHAs and the actual code before picking a candidate again.
 
 Rules for picking:
 
