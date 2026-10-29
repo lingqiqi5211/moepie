@@ -4458,10 +4458,11 @@ function routingPage(part) {
         await new Promise((r) => { sightWait = r; });
         caught = true;
       }
+      // asked once, a failure too: a gateway that's down was asked every 3 s out of sight
+      heard = true;
       try {
         const res = await fetch(`/api/gateway/trace?after=${seq}${loaded ? "&wait=1" : ""}`);
         const d = await res.json();
-        heard = true;
         noteAccounts(d);
         noteLifted(d.lifted);
         skew = at(d.now) - Date.now();
