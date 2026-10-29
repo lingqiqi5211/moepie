@@ -110,19 +110,19 @@ func tailOf(from provider.Protocol, body []byte) []byte {
 	if len(items) <= tailItems {
 		return body
 	}
-	size := len(body) - len(list.Raw) + items[len(items)-1].Index + len(items[len(items)-1].Raw) - items[len(items)-tailItems].Index + 2
-	b := bytes.NewBuffer(make([]byte, 0, size))
-	b.Write(body[:list.Index])
-	b.WriteByte('[')
+	// a slice made to its size, not a bytes.Buffer: under -race the
+	// Buffer's Grow allocates its slice twice
+	b := make([]byte, 0, len(body)-list.Index-len(list.Raw)+items[len(items)-1].Index+len(items[len(items)-1].Raw)-items[len(items)-tailItems].Index+list.Index+2)
+	b = append(b, body[:list.Index]...)
+	b = append(b, '[')
 	for i, v := range items[len(items)-tailItems:] {
 		if i > 0 {
-			b.WriteByte(',')
+			b = append(b, ',')
 		}
-		b.WriteString(v.Raw)
+		b = append(b, v.Raw...)
 	}
-	b.WriteByte(']')
-	b.Write(body[list.Index+len(list.Raw):])
-	return b.Bytes()
+	b = append(b, ']')
+	return append(b, body[list.Index+len(list.Raw):]...)
 }
 
 // toolLoop is a conversation's newest exchange and how many turns in a row
