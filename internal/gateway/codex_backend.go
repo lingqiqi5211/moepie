@@ -104,7 +104,13 @@ func (s *Server) codexBackend(w http.ResponseWriter, r *http.Request) {
 		}
 		// a turn of the conversation's own: the model its side calls may
 		// follow (codexFollowTo)
-		kind := requestCallKind(r.Header, requestSessionMetadata(r.Header, body))
+		meta := requestSessionMetadata(r.Header, body)
+		kind := requestCallKind(r.Header, meta)
+		// a subagent resume_agent brought back on its lead's model goes
+		// back on the one it was spawned with (codexResumeTo)
+		if to := s.codexResumeTo(r, agentOf(r), kind, model, meta); to != "" {
+			body, model = withModel(body, to), to
+		}
 		s.codexLeads.saw(r, kind, model)
 		// a thread's title, where Settings sends it (#705) — the request
 		// still on Codex's own model, through its sign-in, when it says
@@ -2015,13 +2021,23 @@ func codexMerged(own []any, cached bool) []any {
 	if !codexOwnOnly() {
 		ms = provider.CodexListed()
 	}
+	// Codex's own, as the user left them in its list
+	mine := make(map[string]bool, len(own))
+	for _, m := range own {
+		if o, ok := m.(map[string]any); ok {
+			if slug, _ := o["slug"].(string); slug != "" {
+				mine[slug] = true
+			}
+		}
+	}
 	all := append(own, codexcat.Entries(ms, len(own)+100)...)
 	if at, ok := provider.CodexOrder(); ok {
 		codexcat.Order(all, at)
 	}
 	// the Codex app and its VS Code extension read the first 100 alone:
-	// hidden ones go last, and the ones the user uses are among the 100
-	codexcat.Fit(all, usage.CodexUsed())
+	// hidden ones go last, and Codex's own and the ones the user uses are
+	// among the 100, wherever the user's order put them (maiya on Discord)
+	codexcat.FitOwn(all, usage.CodexUsed(), func(slug string) bool { return mine[slug] })
 	return all
 }
 

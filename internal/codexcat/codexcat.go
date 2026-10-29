@@ -99,10 +99,11 @@ func Catalog(ms []catalog.Model) []byte { return CatalogAt(ms, NewSessionEffort(
 func CatalogAt(ms []catalog.Model, effort string) []byte { return CatalogUsed(ms, effort, nil) }
 
 // CatalogUsed is CatalogAt with the models Codex used, most recent first,
-// kept where the Codex app reads them (Fit).
+// and a ChatGPT account's own (ChatGPTOwn), kept where the Codex app reads
+// them (FitOwn).
 func CatalogUsed(ms []catalog.Model, effort string, used []string) []byte {
 	entries := entriesAt(ms, 0, effort)
-	Fit(entries, used)
+	FitOwn(entries, used, ChatGPTOwn)
 	out := struct {
 		Models []any `json:"models"`
 	}{Models: entries}
@@ -112,6 +113,12 @@ func CatalogUsed(ms []catalog.Model, effort string, used []string) []byte {
 	b, _ := json.MarshalIndent(out, "", " ")
 	return b
 }
+
+// ChatGPTOwn reports whether slug is a ChatGPT account's own model in
+// magpie's list for Codex (codex/<slug>): Codex's own GPT models, for a
+// Codex that reaches them through magpie, which FitOwn keeps in the first
+// AppList.
+func ChatGPTOwn(slug string) bool { return strings.HasPrefix(slug, "codex/") }
 
 // level, tier and model are an entry of models.json as Entries writes it.
 type level struct {
@@ -561,7 +568,15 @@ const AppList = 100
 // order they stood, in place of the last of the others there. The order
 // is otherwise kept, and the priorities numbered 1 to n in it. The slice
 // is put in that order too.
-func Fit(entries []any, used []string) {
+func Fit(entries []any, used []string) { FitOwn(entries, used, nil) }
+
+// FitOwn is Fit with Codex's own models (own reports them by slug) kept
+// in the first AppList ahead of the ones used, wherever the user's order
+// (Order) put them: Codex lists them itself, so a user who didn't take
+// them out of its list expects them in the app. An order set while the
+// list had none of them names only magpie's, and put every one past the
+// 100th (maiya on Discord). A hidden one still goes last.
+func FitOwn(entries []any, used []string, own func(slug string) bool) {
 	type ranked struct {
 		e        any
 		slug     string
@@ -603,7 +618,17 @@ func Fit(entries []any, used []string) {
 			listed++
 		}
 	}
-	if listed > AppList && len(used) > 0 {
+	if listed > AppList && (len(used) > 0 || own != nil) {
+		n := 0
+		// Codex's own first, then the used ones, as room allows
+		if own != nil {
+			for i := range rs[:listed] {
+				if n < AppList && own(rs[i].slug) {
+					rs[i].promoted = true
+					n++
+				}
+			}
+		}
 		at := map[string]int{}
 		for i, r := range rs[:listed] {
 			at[r.slug] = i
@@ -613,7 +638,6 @@ func Fit(entries []any, used []string) {
 				at["codex/"+r.slug] = i
 			}
 		}
-		n := 0
 		for _, u := range used {
 			if i, ok := at[u]; ok && !rs[i].promoted && n < AppList {
 				rs[i].promoted = true
