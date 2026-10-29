@@ -131,6 +131,10 @@ func TestCodexSwitchedAccountRestsAsItself(t *testing.T) {
 // sign-in, and the refusal back to Codex as ChatGPT said it.
 func TestCodexOwnModelOneAccountRelayed(t *testing.T) {
 	codexSignedIn(t)
+	// With recovery disabled, the direct refusal remains unchanged.
+	oldResume := codexQuotaResumeMax
+	codexQuotaResumeMax = 0
+	t.Cleanup(func() { codexQuotaResumeMax = oldResume })
 	var tried, models []string
 	usedUp(t, &tried, &models)
 	code, body := codexPost(t, `{"model":"gpt-5.5","stream":true,"input":"ping"}`)

@@ -259,6 +259,7 @@ var onSubscriptionUsage atomic.Pointer[func()]
 // reset spent. The menu bar reads again then, not at its next tick
 // minutes later, so it says what the panel does (#2357).
 func toldUsage() {
+	allowanceCardsChanged()
 	if f := onSubscriptionUsage.Load(); f != nil {
 		(*f)()
 	}

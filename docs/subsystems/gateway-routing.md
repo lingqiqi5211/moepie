@@ -1,5 +1,27 @@
 # Gateway routing and fallback
 
+An official Codex native compaction checkpoint stays encrypted and passes
+through unchanged. It can continue on another eligible Responses candidate
+already in the caller's routing plan, including another official account;
+permissions, model/account caps and strict affinity still apply. A selected
+Responses relay may refuse a checkpoint it cannot read: the checkpoint is
+never discarded or replaced with a magpie summary. Other providers' native
+checkpoints retain their writer binding. The legacy Codex `/compact` path
+uses the same eligibility rules. See `Server.checkpointReaders`,
+`TestCodexNativeCompactionPoolFailover` and the checkpoint relay tests.
+
+Codex Responses requests with no reply content yet can remain open while all
+eligible official accounts wait for quota. The original route is rebuilt at
+the earliest known reset or when account-pool/allowance changes wake it; no
+periodic account polling is added. An authorized reset card is attempted
+before entering the quota wait. The wait is bounded by `longestQuota`
+and ends on client cancellation. Model/account/key restrictions, checkpoint
+compatibility and strict affinity remain in force. A silent third-party
+fallback can yield at the official reset; a reply already in progress is
+never interrupted. Codex receives an extension keepalive event while waiting
+because SSE comments alone do not reset its idle timeout. See
+`codexQuotaBack`, `resumeQuota`, `pauseAlive` and `codex_quota_resume_test.go`.
+
 The gateway is magpie's local LLM endpoint (`127.0.0.1:3425` by default). It
 serves Chat Completions, Responses, Anthropic Messages and Gemini. It finds
 the provider, key or account and model for each request. When the upstream

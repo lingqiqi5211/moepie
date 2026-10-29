@@ -67,6 +67,27 @@ type Login struct {
 	home string
 }
 
+var accountChanges = struct {
+	sync.RWMutex
+	ch chan struct{}
+}{ch: make(chan struct{})}
+
+// AccountChanges returns a channel closed whenever the remembered account
+// pool is written. A new channel is created for the next change, so every
+// current waiter is woken by the same write.
+func AccountChanges() <-chan struct{} {
+	accountChanges.RLock()
+	defer accountChanges.RUnlock()
+	return accountChanges.ch
+}
+
+func notifyAccountChanges() {
+	accountChanges.Lock()
+	close(accountChanges.ch)
+	accountChanges.ch = make(chan struct{})
+	accountChanges.Unlock()
+}
+
 type savedLogin struct {
 	// ID is the account's stable id (#905): set once it is written, and
 	// kept as it is when the account is renamed or its plan changes — a
@@ -278,6 +299,7 @@ func writeLogins(ls []savedLogin) error {
 	lastLoginsMu.Lock()
 	lastLogins, loginsKnown = slices.Clone(ls), true
 	lastLoginsMu.Unlock()
+	notifyAccountChanges()
 	return nil
 }
 

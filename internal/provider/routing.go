@@ -642,6 +642,7 @@ func Allowances(agent string) map[string]Allowance {
 				tellRenewed(agent, user)
 			}
 			close(done)
+			notifyAllowanceChanges()
 		}()
 	}
 	_, known := c.m[agent]
@@ -741,6 +742,7 @@ func tellRenewed(agent, user string) {
 	for _, f := range fs {
 		f(agent, user)
 	}
+	notifyAllowanceChanges()
 }
 
 // AwaitAllowance has agent's accounts read again unless a reading is out,

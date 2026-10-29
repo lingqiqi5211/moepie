@@ -1,5 +1,13 @@
 # Providers and accounts
 
+`AccountChanges` broadcasts remembered-account writes; `AllowanceChanges`
+broadcasts quota-card refreshes, routing allowance refresh completion and
+renewal notifications. Waiting Codex requests subscribe before re-reading
+the route to avoid missed notifications. A refreshed quota card invalidates
+routing's separate allowance cache before notifying waiters. The channels
+are replaced after each broadcast, so all current waiters wake without a
+polling loop. See `allowance_changes.go` and `logins.go`.
+
 The gateway can send a request to three kinds of upstream:
 
 - A **provider** in `providers.json`: an endpoint with one or more API keys. Google Vertex AI's has no key: it is signed with the user's Google credentials.

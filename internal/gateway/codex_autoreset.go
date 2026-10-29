@@ -18,6 +18,12 @@ import (
 // autoResetTimeout bounds the look at an account's week and the reset.
 var autoResetTimeout = 20 * time.Second
 
+// codexQuotaResumeMax is the longest reset wait an in-flight Codex request
+// keeps open before returning its normal 429. It is bounded by the same
+// longest quota window used for account rests; the client may still cancel
+// the request while it waits.
+var codexQuotaResumeMax = longestQuota
+
 // autoReset spends a reset of one of cands' Codex accounts, c — the last
 // one, just out of its allowance — first: only when every other one of
 // them sits out too. held are accounts left out as they won't spend their

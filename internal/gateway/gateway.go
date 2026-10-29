@@ -2266,16 +2266,15 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 	if sealedTask {
 		cands, pl = s.sealedReaders(cands, pl, sealers)
 	}
-	// a compaction a provider set to compact natively sealed goes only to
-	// the key or account that sealed it, or is refused saying so: never
-	// to another, to be refused, dropped or summarised (#1099). Codex's
-	// trigger goes only where it can be asked as Codex sent it.
+	// Official Codex checkpoints follow eligible Responses candidates;
+	// other providers' checkpoints stay with their writer. Neither is
+	// dropped or summarised. Triggers go only to a compatible wire.
 	var checkpoint *checkpointWriter
 	if from == provider.Responses {
 		if cp, ok := checkpointOf(body); ok {
 			checkpoint = &cp
 			var left bool
-			if cands, pl, left = checkpointReaders(cands, pl, cp); !left {
+			if cands, pl, left = s.checkpointReaders(cands, pl, cp); !left {
 				call.Status, call.Error = 400, "native compaction sealed elsewhere"
 				writeError(w, from, 400, checkpointError(call.Model, cp))
 				turnedAway()
@@ -2500,6 +2499,53 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 	// whole list still finds a Codex account to spend a reset on
 	all := cands
 	cands = probeOne(cands)
+	quotaResume := from == provider.Responses && pin == "" && mode != provider.AffinityStrict && !sealedTask &&
+		codexQuotaResumeMax > 0 && slices.ContainsFunc(all, func(c candidate) bool { return c.p.ID == "codex" && c.p.Account != nil })
+	var quotaBack time.Time
+	// Rebuild the original route, not a new unrestricted Codex route. Keep
+	// its member selection, key/account limits and checkpoint compatibility.
+	resumeQuota := func() bool {
+		var next []candidate
+		var plan planned
+		if isGroup {
+			members := make([]provider.Member, 0, len(ms))
+			for _, m := range ms {
+				if fresh, err := provider.Find(m.Provider.ID); err == nil {
+					m.Provider = *fresh
+					members = append(members, m)
+				}
+			}
+			next, plan = s.planGroup(g, members, from)
+		} else if fresh, err := provider.Find(p.ID); err == nil {
+			next, plan = s.plan(*fresh, model, from)
+		}
+		if checkpoint != nil {
+			next, plan, _ = s.checkpointReaders(next, plan, *checkpoint)
+		}
+		if compactionTriggerIn(body) {
+			next, plan, _ = s.compactionCarriers(next, plan)
+		}
+		if keyHeld || accHeld {
+			who := keyWho
+			var members map[string]bool
+			if chose {
+				who.Models = nil
+			} else if isGroup {
+				members = groupKeeps(keyWho, g, ms)
+			}
+			next, plan, _ = allowedCandidates(who, next, plan, members)
+		}
+		next, plan, nextSmall, nextSmallW := roomy(next, plan, from, body)
+		if !slices.ContainsFunc(next, func(x candidate) bool {
+			_, resting := restingOf(x)
+			return x.p.ID == "codex" && x.p.Account != nil && !resting
+		}) {
+			return false
+		}
+		all, cands, pl, small, smallW = next, probeOne(next), plan, nextSmall, nextSmallW
+		quotaBack = time.Time{}
+		return true
+	}
 	var cacheReport *Request
 	if wantsClientCache(r, from) && slices.ContainsFunc(cands, func(c candidate) bool { return c.p.Account != nil && c.p.Account.Agent == "claude" }) {
 		var err error
@@ -2584,6 +2630,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 	var firstBegan time.Time // when the first try began
 	streams := streamOf(body)
 	kept.streams = streams
+	kept.events = quotaResume && call.Agent == "codex"
 	if from == provider.Gemini {
 		streams = strings.Contains(r.URL.Path, "streamGenerateContent")
 	}
@@ -2633,6 +2680,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 	}
 	for i := 0; i < len(cands); i++ {
 		c := cands[i]
+		if quotaResume {
+			if back, ok := codexQuotaBack(all); ok {
+				quotaBack = back
+			}
+		}
 		if j := s.laneMate(cands, i, isGroup, gaveWay); j > i {
 			// its key or account is full, and another of its provider's,
 			// or of its group, has a slot free: that one is asked first,
@@ -2657,7 +2709,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 		// and once the agent has the stream's headers from an earlier try's
 		// keepalives, for a failure to be told as the stream's error
 		hw := newHoldWriter(w, !last || again < max(lastRetries, rateRetries) || other != nil || kept.sent || autoPicks(c) && repicked < 2 ||
-			patience > 0 && rounds < replanRounds && (waitFrom.IsZero() || time.Since(waitFrom) < patience) || wantWhole)
+			patience > 0 && rounds < replanRounds && (waitFrom.IsZero() || time.Since(waitFrom) < patience) || wantWhole || quotaResume)
 		// a compaction's summary is held to its end, for a cut or an
 		// error halfway to go to the next candidate (#2274)
 		hw.wantWhole = wantWhole
@@ -2673,6 +2725,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 		// (LuckymanJC on Discord).
 		hw.thinkingShown = !refusesAfterThinking(c.model) || last
 		hw.ctx, hw.alive, hw.streams = r.Context(), kept, streams
+		if quotaResume && c.p.ID != "codex" && !quotaBack.IsZero() && time.Until(quotaBack) <= codexQuotaResumeMax {
+			hw.resumeAt = quotaBack
+		}
 		report := cacheReport
 		if c.p.Account == nil || c.p.Account.Agent != "claude" {
 			report = nil
@@ -3034,6 +3089,16 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			call.Millis = time.Since(start).Milliseconds()
 			logged()
 			break
+		}
+		if hw.resumed && r.Context().Err() == nil && resumeQuota() {
+			s.trace.update(tr, func(t *Route) {
+				tt := &t.Tries[len(t.Tries)-1]
+				tt.Done, tt.Millis = true, time.Since(began).Milliseconds()
+				tt.Error, tt.Replan = errQuotaResumed.Error(), len(cands)
+				t.Order, t.Left = pl.order, pl.left
+			})
+			i, again = -1, 0
+			continue
 		}
 		hw.settle()
 		reasked += hw.reasked
@@ -3715,6 +3780,56 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 				skipped = append(skipped, c.label()+": "+call.Error, pick.label()+": used one of its resets by itself ("+out.Text()+")")
 				cands = append(cands[:len(cands):len(cands)], pick)
 				continue
+			}
+		}
+		// The original pool may have collapsed to one resting probe, or the
+		// last attempt may be a relay. Neither ends the client's request
+		// while every eligible official account is waiting for quota.
+		if last && quotaResume && !hw.passing && hw.failed() && !protected && !hw.refused &&
+			retryable(hw.code(), hw.errBody()) {
+			if c.p.ID == "codex" && failure(hw.code(), hw.errBody()) == failQuota {
+				rest := s.restAfterMarked(c, hw.code(), hw.header, hw.errBody(), hw.sharedPool)
+				try.Fail, try.Rest = rest.Why, &rest
+			}
+			if back, ok := codexQuotaBack(all); ok {
+				quotaBack = back
+			}
+			if !quotaBack.IsZero() {
+				back := quotaBack
+				restartPool := false
+				for {
+					// Subscribe before re-reading: a login added around the
+					// replan must either be seen now or wake this wait.
+					changes := provider.AccountChanges()
+					allowancesChanged := provider.AllowanceChanges()
+					if resumeQuota() {
+						s.trace.update(tr, func(t *Route) { t.Order, t.Left = pl.order, pl.left })
+						i, again = -1, 0
+						restartPool = true
+						break
+					}
+					wait := time.Until(back)
+					if wait <= 0 {
+						break // the refreshed route has no eligible recovered account
+					}
+					if wait > codexQuotaResumeMax {
+						break
+					}
+					try.Fail, try.Again = failQuota, wait.Milliseconds()
+					s.trace.update(tr, func(t *Route) { t.Tries[len(t.Tries)-1] = try })
+					if !pauseAlive(r.Context(), w, kept, streams, start, wait, changes, allowancesChanged) {
+						call.Status, call.Error = canceled(r.Context())
+						try.Gone = true
+						s.trace.update(tr, func(t *Route) { t.Tries[len(t.Tries)-1] = try })
+						break
+					}
+					if next, ok := codexQuotaBack(all); ok {
+						back = next
+					}
+				}
+				if restartPool {
+					continue
+				}
 			}
 		}
 		// the body is read for why last, once the try is known to have

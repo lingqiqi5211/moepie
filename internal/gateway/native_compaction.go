@@ -4,15 +4,13 @@ package gateway
 // (provider.Provider.NativeCompaction) is asked Codex's compaction_trigger
 // as Codex sent it, and the compaction item it writes back goes to Codex
 // as it came, sealed (encrypted_content), not as magpie's "magpie1:"
-// summary. Only the key or account that sealed it can read it again, so
-// magpie remembers who wrote each one (compactions.json, beside
-// affinity.json), and a later request carrying it goes only there — a
-// writer whose own list has since dropped the model included, tried as
-// the last resort an account whose list lacks the model is. When that one
-// can't be asked — switched off, removed, out of the group — the request
-// is refused, saying why: the compaction is never sent to another to be
-// refused, dropped (withoutCompaction), or summarised in its place, which
-// would lose the conversation's earlier context unasked.
+// summary. Official Codex accounts may read a checkpoint across their account
+// pool (verified against the ChatGPT backend on 2026-10-17). Selected Responses
+// relays may also receive an official checkpoint intact; their backend decides
+// whether it can read it. Other providers' own checkpoints
+// remain bound to the key or account that wrote it. Writer provenance is
+// retained in compactions.json; no native checkpoint is dropped or replaced
+// by a summary when an upstream refuses it.
 
 import (
 	"bytes"
@@ -161,7 +159,7 @@ func (s *Server) keepsCompaction(from provider.Protocol, p provider.Provider, mo
 		return true
 	}
 	cp, ok := checkpointOf(body)
-	return ok && cp.Provider == p.ID
+	return ok && (cp.Provider == p.ID || codexPoolCheckpoint(cp))
 }
 
 // checkpointWriter is who sealed a compaction: the key or account
@@ -311,8 +309,31 @@ func saveCheckpoints() {
 	}
 }
 
-// checkpointReaders keeps of cands those of the key or account that
-// sealed cp (behind a remote magpie, of the provider there too), pl's
+// codexPoolCheckpoint identifies checkpoints recorded from the built-in
+// official Codex account provider, never a relay, API key or plugin.
+func codexPoolCheckpoint(cp checkpointWriter) bool {
+	return cp.Provider == "codex" && strings.HasPrefix(cp.Who, "codex@")
+}
+
+// checkpointReaders keeps Responses-capable candidates in the caller's
+// existing routing plan for an official Codex checkpoint. Account/model permissions, caps and strict affinity
+// still apply; a checkpoint does not grant access to another account.
+func (s *Server) checkpointReaders(cands []candidate, pl planned, cp checkpointWriter) ([]candidate, planned, bool) {
+	if codexPoolCheckpoint(cp) {
+		kept, pool, left := keepCandidates(cands, pl, func(c candidate) bool {
+			return s.carriesCompaction(c.p, c.model)
+		})
+		if left {
+			return kept, pool, true
+		}
+		// Preserve the last-resort writer when every account's model list
+		// has become stale. No unrelated provider is added to the plan.
+		return checkpointReaders(kept, pool, cp)
+	}
+	return checkpointReaders(cands, pl, cp)
+}
+
+// checkpointReaders keeps of cands those of the key or account who, pl's
 // order with them; left says one is left, if only held or capped. One
 // whose own list lacks the model now (planned.unlisted) is kept too: it
 // is tried as the last resort an account whose list lacks the model is,
@@ -355,7 +376,7 @@ func checkpointReaders(cands []candidate, pl planned, cp checkpointWriter) (_ []
 // compaction cp a request carries, when it is held there (in pl, which
 // checkpointReaders left only it in); nil when the request carries none.
 func checkpointHeld(cp *checkpointWriter, held []Weighed, pl planned) []Weighed {
-	if cp == nil {
+	if cp == nil || codexPoolCheckpoint(*cp) {
 		return nil
 	}
 	ids := map[string]bool{}
@@ -409,6 +430,9 @@ func compactionWho(cp *checkpointWriter) string {
 // (#2642: it said "switched off, removed, or no longer serves" of an
 // account that was on, and "switch it on again" changed nothing).
 func checkpointError(model string, cp checkpointWriter) string {
+	if codexPoolCheckpoint(cp) {
+		return fmt.Sprintf("This conversation contains an official Codex native checkpoint, but no allowed Responses endpoint can serve %s under the current model, account and gateway-key settings. Select an allowed Responses provider or Codex account for this model. The checkpoint was preserved and was not replaced with a summary.", model)
+	}
 	what := "account"
 	if strings.Contains(cp.Who, "#") {
 		what = "key"
