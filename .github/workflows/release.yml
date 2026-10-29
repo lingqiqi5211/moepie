@@ -1,11 +1,7 @@
 name: Release
 
-# Build this fork after its exact main commit passes Test.
+# Build and publish only when explicitly requested; Test still gates the SHA.
 on:
-  workflow_run:
-    workflows: [Test]
-    branches: [main]
-    types: [completed]
   workflow_dispatch:
     inputs:
       ref:
@@ -31,11 +27,6 @@ concurrency:
 
 jobs:
   prepare:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.version.outputs.sha }}
@@ -44,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha || inputs.ref || 'main' }}
+          ref: ${{ inputs.ref || 'main' }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -383,7 +374,7 @@ jobs:
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       GH_TOKEN: ${{ github.token }}
-      PUBLISH: ${{ github.event_name == 'workflow_run' || inputs.publish }}
+      PUBLISH: ${{ inputs.publish }}
     steps:
       - uses: actions/checkout@v6
         with:

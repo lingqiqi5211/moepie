@@ -92,7 +92,10 @@ on three systems, the site worker tests and CLI builds). Browser tests run
 separately with Playwright. It is upstream's
 gate, with local release-script regressions added, and the release reads its result.
 
-`.github/workflows/release.yml` builds after Test passes on a push to `main`:
+`.github/workflows/release.yml` runs only through **Actions → Release → Run workflow**.
+A push to `main` runs Test and Docker, but does not start a release build or
+publish a version. Select `main` as the workflow branch, set `ref` to the main
+commit to build (default `main`), and optionally set `version` to `0.1.N`:
 
 1. **prepare** checks the commit is on `main`, that Test passed for it as a
    push, and allocates the next `0.1.N`. A manual run can supply a version. It also reuses the version of
@@ -107,9 +110,10 @@ gate, with local release-script regressions added, and the release reads its res
    creation conflict; it checks again immediately before making the draft
    public. `--target` is retry metadata, not proof of the tag's commit.
 
-Manual runs are artifacts-only unless `publish` is ticked. Whatever is built
-is attached to a release whose assets are exactly the 16 files the updater
-looks for; anything else fails the run instead of shipping.
+Runs are artifacts-only unless `publish` is ticked. To make a public release,
+tick it explicitly; the exact commit must already have a successful main-push
+Test run. A published release contains exactly the 16 files the updater looks
+for; anything else fails the run instead of shipping.
 
 Signing is optional. Without `MAC_CERTIFICATE_P12` the mac build is ad-hoc
 signed and not notarised; without `DEEPSEEK_API_KEY` the notes stay English
