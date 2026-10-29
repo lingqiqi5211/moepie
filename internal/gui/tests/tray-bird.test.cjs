@@ -79,12 +79,17 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     assert(["chromium", "webkit"].includes(engine), "BROWSER must be chromium or webkit");
     const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
     const pages = [];
+    // a page whose test passed is closed: no shot of it, and the browser shut
+    // whatever the shots do, or the run never ends
     t.after(async () => {
-      if (process.env.ARTIFACT_DIR) {
-        await fs.mkdir(process.env.ARTIFACT_DIR, { recursive: true });
-        for (const [i, p] of pages.entries()) await p.screenshot({ path: path.join(process.env.ARTIFACT_DIR, `${engine}-tray-bird-${i}.png`) });
+      try {
+        if (process.env.ARTIFACT_DIR) {
+          await fs.mkdir(process.env.ARTIFACT_DIR, { recursive: true });
+          for (const [i, p] of pages.entries()) if (!p.isClosed()) await p.screenshot({ path: path.join(process.env.ARTIFACT_DIR, `${engine}-tray-bird-${i}.png`) });
+        }
+      } finally {
+        await browser.close();
       }
-      await browser.close();
     });
 
     for (const [lang, name, off, on] of [
