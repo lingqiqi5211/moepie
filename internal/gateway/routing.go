@@ -1039,7 +1039,10 @@ func (s *Server) restAfterMarked(c candidate, status int, header http.Header, bo
 		// as soon as the switch is off
 		return Rest{Why: why, Status: status, By: "off", Until: now}
 	}
-	if status == http.StatusBadRequest {
+	if status == http.StatusBadRequest || status == http.StatusForbidden {
+		// a 403 too: Factory's usage policy check refuses at 403
+		// (content_policy_rejected), which failureOf alone reads as the
+		// account's
 		if _, ok := policyRefusal(body); ok {
 			// the safety filter refused the request's content (#3274:
 			// Codex's 400 cyber_policy), read from the vendor's error
