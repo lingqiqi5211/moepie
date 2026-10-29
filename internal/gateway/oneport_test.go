@@ -31,7 +31,7 @@ func TestClientPathCoversHandler(t *testing.T) {
 		"AlphaSearchPath": AlphaSearchPath, "HeapPath": HeapPath, "CPUPath": CPUPath,
 		"GoroutinesPath": GoroutinesPath, "ClaudeRunsPath": ClaudeRunsPath, "SearchMCPPath": SearchMCPPath, "VisionMCPPath": VisionMCPPath,
 		"ImageMCPPath": ImageMCPPath, "ImageMCPFiles": ImageMCPFiles,
-		"ToolsMCPPath": ToolsMCPPath, "provider.RemoteCardsPath": provider.RemoteCardsPath,
+		"ToolsMCPPath": ToolsMCPPath, "HubMCPPath": HubMCPPath, "HubMCPAll": HubMCPAll, "provider.RemoteCardsPath": provider.RemoteCardsPath,
 		"provider.RemoteRefreshPath": provider.RemoteRefreshPath,
 	}
 	re := regexp.MustCompile(`mux\.HandleFunc\(((?:"[^"]*"|[A-Za-z.]+)(?:\s*\+\s*(?:"[^"]*"|[A-Za-z.]+))*),`)
@@ -51,7 +51,7 @@ func TestClientPathCoversHandler(t *testing.T) {
 		if i := strings.IndexByte(pat, ' '); i >= 0 {
 			pat = pat[i+1:]
 		}
-		p := strings.NewReplacer("{$}", "", "{id...}", "x", "{call...}", "x", "{id}", "x", "{token}", "x", "{name}", "x").Replace(pat)
+		p := strings.NewReplacer("{$}", "", "{id...}", "x", "{call...}", "x", "{id}", "x", "{token}", "x", "{name}", "x", "{agent}", "x").Replace(pat)
 		n++
 		stays := p == "/" || strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/_magpie/")
 		if ClientPath(p) == stays {

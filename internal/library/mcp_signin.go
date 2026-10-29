@@ -22,10 +22,11 @@ import (
 
 func init() {
 	mcpauth.Changed = func(string) { _, _ = Sync() }
-	// an agent beyond loopback is given a relayed server with the LAN key
-	// (through), which is the one there is no longer
+	// an agent beyond loopback is given a relayed server, or the MCP hub,
+	// with the LAN key (through, hubServerFor), which is the one there is
+	// no longer
 	access.LANChanged = func() {
-		if relaysAny() {
+		if relaysAny() || (theHub{}).On() {
 			_, _ = Sync()
 		}
 	}

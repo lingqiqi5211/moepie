@@ -512,8 +512,19 @@ type Connection struct {
 	Value string `json:"value,omitempty"`
 }
 
+// Rewired, when set, is told of an agent that Connect or Disconnect
+// changed: the library gives Codex its servers another way on magpie.
+var Rewired func(id string)
+
+func (a *Agent) rewired(err error) {
+	if err == nil && Rewired != nil {
+		Rewired(a.ID)
+	}
+}
+
 // ConnectHow is Connect, saying how the model was chosen.
-func (a *Agent) ConnectHow() (Connection, error) {
+func (a *Agent) ConnectHow() (c Connection, err error) {
+	defer func() { a.rewired(err) }()
 	if a.Native != nil {
 		return Connection{How: "joined"}, a.Native.Connect()
 	}
@@ -721,7 +732,8 @@ func connectWas(v string, opts []Option) string {
 // still on magpie goes to its default, as picking it does, and so does
 // each one magpie set that reads as magpie set it (an effort). What magpie
 // remembered setting is forgotten.
-func (a *Agent) Disconnect() error {
+func (a *Agent) Disconnect() (err error) {
+	defer func() { a.rewired(err) }()
 	if a.Native != nil {
 		plan, err := a.Native.Disconnect()
 		if err != nil {

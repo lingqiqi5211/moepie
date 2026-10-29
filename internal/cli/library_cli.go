@@ -22,6 +22,7 @@ const libraryUsage = `magpie library                     what the library gives 
   magpie library mcp add <name> <url | command args…> [agents=a,b…]
   magpie library mcp agents <name> <a,b…|none>
   magpie library mcp rm <name>
+  magpie library mcp hub on|off      give each agent one MCP server, magpie, in place of the library's (magpie runs them, once for every agent)
   magpie library skill agents <name> <a,b…|none>
   magpie library skill off-here <name>   turn it off on this computer only: a sync neither carries that nor turns it back on
   magpie library skill on-here <name>    …and on again here
@@ -119,6 +120,8 @@ func libraryCmd(args []string) error {
 			}
 		case len(rest) == 2 && rest[0] == "rm":
 			res, err = library.RemoveServer(rest[1])
+		case len(rest) == 2 && rest[0] == "hub" && (rest[1] == "on" || rest[1] == "off"):
+			res, err = library.SetMCPHub(rest[1] == "on")
 		default:
 			return fmt.Errorf("usage:\n  %s", libraryUsage)
 		}
@@ -409,6 +412,31 @@ func libraryStatus() error {
 		fmt.Printf("  %s %s → %s\n", bold.Render(s.Name), muted.Render(what), on(s.Agents))
 		for a, e := range s.Problems {
 			fmt.Println("   ", amber.Render("!"), a, muted.Render(e))
+		}
+	}
+	if v.MCPHub {
+		var given []string
+		keep := map[string][]string{}
+		for _, a := range v.Agents {
+			switch a.Hub {
+			case "":
+			case "on":
+				given = append(given, a.ID)
+			default:
+				keep[a.Hub] = append(keep[a.Hub], a.ID)
+			}
+		}
+		fmt.Printf("  %s → %s\n", bold.Render("magpie")+muted.Render(" (one server in place of these, at "+v.HubPath+"<agent>)"), on(given))
+		for _, why := range []string{"no-remote", "taken", "own"} {
+			if len(keep[why]) == 0 {
+				continue
+			}
+			say := map[string]string{
+				"no-remote": "reaches no MCP server over HTTP, so it keeps each server's own entry",
+				"taken":     "a library server is called magpie, so each agent keeps each server's own entry",
+				"own":       "has an MCP server called magpie of its own, so it keeps each server's own entry",
+			}[why]
+			fmt.Println("   ", amber.Render("!"), strings.Join(keep[why], ", "), muted.Render(say))
 		}
 	}
 	var found, own []string

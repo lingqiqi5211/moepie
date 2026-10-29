@@ -46,6 +46,10 @@ type Library struct {
 	// copy (#896, skill_how.go)
 	CopySkills bool              `json:"copySkills,omitempty"`
 	SkillHow   map[string]string `json:"skillHow,omitempty"`
+	// MCPHub gives each agent that can reach it magpie's one MCP server,
+	// which hands each call on to the library's servers ticked for it, in
+	// place of their own entries (#2679, mcp_hub.go)
+	MCPHub bool `json:"mcpHub,omitempty"`
 	// SeenSkills are, by repository and ref ("owner/repo@ref"), the
 	// folders of skills there the page has offered: picked or not at
 	// install, or set aside after a check. A check offers only the others

@@ -436,6 +436,7 @@ func libraryRoutes(mux *http.ServeMux, w Windows) {
 			// a subagent saved (#2283)
 			Subagent library.Subagent
 			Agent    string            // the agent whose own skill is in the library's way
+			App      string            // the app the MCP hub is added to (servers/hub-open)
 			ID       string            // a market server's, or a market skill's in its repository
 			Values   map[string]string // what a market server needs
 			Dir      string            // a project's folder
@@ -465,6 +466,16 @@ func libraryRoutes(mux *http.ServeMux, w Windows) {
 			res, err = library.SaveServer(in.Old, in.Server)
 		case "servers/agents":
 			res, err = library.ServerAgents(in.Name, in.Agents)
+		case "servers/hub":
+			// magpie as the agents' one MCP server (#2679)
+			res, err = library.SetMCPHub(in.On)
+		case "servers/hub-open":
+			// the hub added to another app through its install link,
+			// built here: the page names the app, never the link
+			var link string
+			if link, err = library.HubLink(in.App); err == nil {
+				err = w.OpenURL(link)
+			}
 		case "servers/tools":
 			// the tools its agents leave out (nf1qaz2w on Discord)
 			res, err = library.ServerTools(in.Name, in.Names)
