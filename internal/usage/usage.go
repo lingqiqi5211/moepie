@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -940,191 +941,13 @@ func summarize(p Period, now time.Time, recs []Record) Summary {
 }
 
 func summarizeFrom(p Period, now time.Time, first time.Time, historicalKeys map[string]bool, read func(func(Record))) Summary {
-	renamed := provider.UsageRenames()
-	// the names models' usage is counted under (SlouchyQuill507): a model's
-	// row sums its ids, each call priced by its own id first
-	alias := provider.UsageAlias()
-	normalizedKeys := map[string]bool{}
-	for id := range historicalKeys {
-		for _, next := range renamed.Each(id) {
-			normalizedKeys[next] = true
-		}
-	}
-	historicalKeys = normalizedKeys
-	// the user's clears (cleared.go): a call cleared is in no figure, and a
-	// clear of everything starts the timeline again
-	cleared := readCleared()
-	first = cleared.clearedSince(first)
-	// a picked range's own days alone: its chart can start on the Monday
-	// before its first, and it ends before now (#1492)
-	from, until := p.Since(now), p.Until(now)
-	visit := func(fn func(Record)) {
-		read(func(r Record) {
-			if r.Time.Before(from) || after(until, r.Time) {
-				return
-			}
-			r.renameBy(renamed)
-			if cleared.hides(&r) {
-				return
-			}
-			fn(r)
-		})
-	}
-	s := Summary{Period: p, Bucket: "day", Agents: []Group{}, Models: []Group{}, ProviderKeys: []Group{}, Accounts: []Group{}, CallerKeys: []Group{}, Sessions: []Group{}, Series: []Point{}}
-	s.Since, s.Bucket, s.Series = timeline(p, now, first)
-	s.Period = p.shown()
-
-	priceOf := Pricer()
-	// the places each provider id went in the period, and goes now
-	hosts := map[string]map[string]bool{}
-	// the providers whose calls are told apart by account: those an
-	// account answered for in the period, and those signed in now
-	accountProviders := map[string]bool{}
-	visit(func(r Record) {
-		if r.IsRejected() {
-			return
-		}
-		if r.Account() != "" && !r.Time.Before(s.Since) {
-			accountProviders[r.Provider] = true
-		}
-		if r.Host != "" && !r.Time.Before(s.Since) {
-			if hosts[r.Provider] == nil {
-				hosts[r.Provider] = map[string]bool{}
-			}
-			hosts[r.Provider][who(r.Host)] = true
-		}
-	})
-	goesNow := map[string]string{}
-	keyProviders := map[string]bool{}
-	for _, p := range provider.All() {
-		goesNow[p.ID] = who(p.Where())
-		keyProviders[p.ID] = p.Account == nil && p.Key != ""
-		if p.Account != nil {
-			accountProviders[p.ID] = true
-		}
-	}
-	for id := range historicalKeys {
-		keyProviders[id] = true
-	}
-	agents := map[string]*Group{}
-	models := map[string]*Group{}
-	keys := map[string]*Group{}
-	accounts := map[string]*Group{}
-	callerKeys := map[string]*Group{}
-	sessions := map[string]*Group{}
-	visit(func(r Record) {
-		if r.IsRejected() {
-			return
-		}
-		t := r.Time.In(now.Location())
-		if t.Before(s.Since) {
-			return
-		}
-		pr := priceOf(r)
-		s.Totals.add(r, pr)
-		i := bucketIndex(s.Bucket, s.Since, t)
-		if i >= 0 && i < len(s.Series) {
-			s.Series[i].add(r, pr)
-		}
-		id := ReportedAs(r.Agent) // one kept before magpie knew the agent by name
-		a := agents[id]
-		if a == nil {
-			a = &Group{ID: id}
-			agents[id] = a
-		}
-		a.add(r, pr)
-		model := r.Model
-		if alias != nil {
-			model = alias(model)
-		}
-		k, host := r.Provider+"/"+model, ""
-		if w := who(r.Host); w != "" && (len(hosts[r.Provider]) > 1 || w != goesNow[r.Provider]) {
-			k, host = k+" @ "+w, w
-		}
-		m := models[k]
-		if m == nil {
-			m = &Group{ID: k, Provider: r.Provider, Model: model, Host: host}
-			models[k] = m
-		}
-		m.add(r, pr)
-		m.addOwn(r, pr)
-		if r.CallerKeyID != "" {
-			g := callerKeys[r.CallerKeyID]
-			if g == nil {
-				g = &Group{ID: r.CallerKeyID, CallerKeyID: r.CallerKeyID}
-				callerKeys[r.CallerKeyID] = g
-			}
-			g.CallerKeyName = r.CallerKeyName
-			g.add(r, pr)
-		}
-		if keyProviders[r.Provider] {
-			id := r.Provider + "#" + r.ProviderKeyID
-			g := keys[id]
-			if g == nil {
-				g = &Group{ID: id, Provider: r.Provider, ProviderKeyID: r.ProviderKeyID}
-				keys[id] = g
-			}
-			g.ProviderKeyName = r.ProviderKeyName
-			g.add(r, pr)
-			g.addOwn(r, pr)
-		}
-		if accountProviders[r.Provider] {
-			who := r.Account()
-			id := r.Provider + "@" + who
-			g := accounts[id]
-			if g == nil {
-				g = &Group{ID: id, Provider: r.Provider, Account: who}
-				accounts[id] = g
-			}
-			g.add(r, pr)
-			g.addOwn(r, pr)
-		}
-		if r.Session != "" {
-			g := sessions[id+"|"+r.Session]
-			if g == nil {
-				g = &Group{ID: r.Session, Agent: id}
-				sessions[id+"|"+r.Session] = g
-			}
-			g.add(r, pr)
-		}
-	})
-	for _, g := range agents {
-		s.Agents = append(s.Agents, *g)
-	}
-	for _, g := range models {
-		s.Models = append(s.Models, *g)
-	}
-	byTokens := func(gs []Group) {
-		sort.SliceStable(gs, func(i, j int) bool {
-			if a, b := gs[i].Tokens(), gs[j].Tokens(); a != b {
-				return a > b
-			}
-			if gs[i].Calls != gs[j].Calls {
-				return gs[i].Calls > gs[j].Calls
-			}
-			return gs[i].ID < gs[j].ID
-		})
-	}
-	byTokens(s.Agents)
-	byTokens(s.Models)
-	for _, g := range keys {
-		s.ProviderKeys = append(s.ProviderKeys, *g)
-	}
-	byTokens(s.ProviderKeys)
-	for _, g := range accounts {
-		s.Accounts = append(s.Accounts, *g)
-	}
-	byTokens(s.Accounts)
-	for _, g := range callerKeys {
-		s.CallerKeys = append(s.CallerKeys, *g)
-	}
-	byTokens(s.CallerKeys)
-	for _, g := range sessions {
-		s.Sessions = append(s.Sessions, *g)
-	}
-	byTokens(s.Sessions)
-	s.SessionCount = len(s.Sessions)
-	return s
+	u := newSummaryRun(p, now, first, historicalKeys)
+	hosts := newSummaryHosts()
+	u.read(read, func(r Record) { hosts.note(r, u.since) })
+	keyed := u.keying(hosts)
+	counts := u.newCounts()
+	u.read(read, func(r Record) { counts.add(u, &keyed, r) })
+	return counts.summary(u)
 }
 
 // ---- last seen --------------------------------------------------------------
@@ -1157,19 +980,37 @@ func Vias(since time.Time) ViaIndex {
 // A provider renamed since is listed by the id it has now (renames): the
 // Sessions tab named a renamed one by its old id (cybercaius).
 func buildVias(snapshot *logSnapshot, since time.Time, renames provider.Renames) *viaLists {
-	out := map[string][]Via{}
-	first := map[string]time.Time{}
-	keep := keptStrings{}
-	snapshot.visit(since, func(r Record) {
+	counted := map[string]viaAcc{}
+	countVias(snapshot.blocks, since, renames, nil, counted, keptStrings{})
+	return listedVias(&viaLists{m: map[string][]Via{}, first: map[string]time.Time{}}, counted)
+}
+
+// viaAcc is one session's lists as counted, in the order its calls first
+// named each, and when its first call was.
+type viaAcc struct {
+	vs    []Via
+	first time.Time
+}
+
+// countVias counts blocks' calls into own, a session's counts begun from
+// a copy of base's: base is never written.
+func countVias(blocks []*rowChunk, since time.Time, renames provider.Renames, base, own map[string]viaAcc, keep keptStrings) {
+	visitBlocks(blocks, since, func(r Record) {
 		if r.IsRejected() || r.IsReported() || r.Session == "" || r.Model == "" {
 			return
 		}
 		r.Provider, r.Model, r.Effort = keep.of(renames.Of(r.Provider, r.Time)), keep.of(r.Model), keep.of(r.Effort)
 		k := ReportedAs(r.Agent) + "|" + r.Session
-		vs := out[k]
-		if t, seen := first[k]; !seen || r.Time.Before(t) {
-			first[k] = r.Time
+		a, seen := own[k]
+		if !seen {
+			if b, ok := base[k]; ok {
+				a, seen = viaAcc{vs: slices.Clone(b.vs), first: b.first}, true
+			}
 		}
+		if !seen || r.Time.Before(a.first) {
+			a.first = r.Time
+		}
+		vs := a.vs
 		i := slices.IndexFunc(vs, func(v Via) bool { return v.Provider == r.Provider && v.Model == r.Model && v.Effort == r.Effort })
 		if i < 0 {
 			vs, i = append(vs, Via{Provider: r.Provider, Model: r.Model, Effort: r.Effort}), len(vs)
@@ -1183,12 +1024,24 @@ func buildVias(snapshot *logSnapshot, since time.Time, renames provider.Renames)
 		if r.Time.After(vs[i].Last) {
 			vs[i].Last = r.Time
 		}
-		out[k] = vs
+		a.vs = vs
+		own[k] = a
 	})
-	for _, vs := range out {
-		sort.SliceStable(vs, func(i, j int) bool { return vs[i].Calls > vs[j].Calls })
+}
+
+// listedVias is lists with each session counted in counted listed in
+// place of its own, the most calls first; lists itself is not written.
+func listedVias(lists *viaLists, counted map[string]viaAcc) *viaLists {
+	if len(counted) == 0 {
+		return lists
 	}
-	return &viaLists{m: out, first: first}
+	out := &viaLists{m: maps.Clone(lists.m), first: maps.Clone(lists.first)}
+	for k, a := range counted {
+		vs := slices.Clone(a.vs)
+		sort.SliceStable(vs, func(i, j int) bool { return vs[i].Calls > vs[j].Calls })
+		out.m[k], out.first[k] = vs, a.first
+	}
+	return out
 }
 
 // Saw notes a request from an agent arriving now.

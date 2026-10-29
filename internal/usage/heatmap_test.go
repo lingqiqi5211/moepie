@@ -1,7 +1,10 @@
 package usage
 
 import (
+	"bytes"
+	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -139,5 +142,180 @@ func TestHeatmapKeptWhileOnlySessionsChange(t *testing.T) {
 	t.Cleanup(func() { heatFresh = old })
 	if n := calls(); n != 4 {
 		t.Fatalf("heatFresh up, %d calls", n)
+	}
+}
+
+// A call through magpie changes the gateway's log, and the heatmap is
+// worked out again at once: from the sums of the chunks it had, adding up
+// again only those the call changed, not every row of the year (#2278).
+// What it shows is what a cold build shows.
+func TestHeatmapAfterACallAddsUpOnlyWhatChanged(t *testing.T) {
+	pageHome(t)
+	now := holdClock(t, time.Date(2026, 9, 30, 12, 0, 0, 0, time.Local))
+	const files = 8
+	for i := range files {
+		at := now.AddDate(0, 0, -3*i).Add(-time.Hour)
+		id := string(rune('a' + i))
+		path := filepath.Join(sessions.CodexDir(), "sessions", at.Format("2006/01/02"), "rollout-"+at.Format("2006-01-02T15-04-05")+"-"+id+".jsonl")
+		writeCodexCall(t, path, id, "s"+id, `"vscode"`, "resp-"+id, "m", "low", at, 100+i, 10)
+	}
+	Append(Record{Time: now.AddDate(0, 0, -40), Agent: "claude-code", Provider: "anthropic", Model: "x", Input: 3, Status: 200})
+	// the gateway is in use: its log has a call of the last days already
+	Append(Record{Time: now.AddDate(0, 0, -1), Agent: "claude-code", Provider: "anthropic", Model: "x", Input: 4, Status: 200})
+	read := 0
+	heatReading = func(*rowChunk) { read++ }
+	t.Cleanup(func() { heatReading = nil })
+	calls := func(h Heatmap) int {
+		n := 0
+		for _, d := range h.Days {
+			n += d.Calls
+		}
+		return n
+	}
+	if h := HeatmapOf(Filter{}); calls(h) != files+2 || read < files {
+		t.Fatalf("cold: %d calls, %d chunks added up", calls(h), read)
+	}
+	read = 0
+	Append(Record{Time: now.Add(-time.Minute), Agent: "claude-code", Provider: "anthropic", Model: "x", Input: 5, Status: 200})
+	warm := HeatmapOf(Filter{})
+	if calls(warm) != files+3 {
+		t.Fatalf("a call through magpie isn't counted at once: %d calls", calls(warm))
+	}
+	if read > 1 {
+		t.Fatalf("a call added up %d chunks again, want only the one it changed", read)
+	}
+	requestCache.Lock()
+	requestCache.heatParts, requestCache.heatOld, requestCache.heats, requestCache.pages = nil, nil, nil, map[pageKey]RequestPage{}
+	requestCache.Unlock()
+	if cold := HeatmapOf(Filter{}); !reflect.DeepEqual(cold, warm) {
+		t.Fatalf("kept sums %+v, cold %+v", warm, cold)
+	}
+}
+
+// A call through magpie pairs again only the chunks of the last days: the
+// days before are the last pairing's of every chunk (#2278). What it shows
+// is what a cold build shows, with calls paired across the days' edge, a
+// session file of old and new calls, and the pairing kept no longer than
+// heatOldFresh, or once a settled file changes.
+func TestHeatmapAfterACallPairsOnlyTheLastDays(t *testing.T) {
+	pageHome(t)
+	now := holdClock(t, time.Date(2026, 9, 30, 12, 0, 0, 0, time.Local))
+	cut := time.Date(2026, 9, 28, 0, 0, 0, 0, time.Local)
+	write := func(id string, at time.Time, input int) string {
+		path := filepath.Join(sessions.CodexDir(), "sessions", at.Format("2006/01/02"), "rollout-"+at.Format("2006-01-02T15-04-05")+"-"+id+".jsonl")
+		writeCodexCall(t, path, id, "s"+id, `"vscode"`, "resp-"+id, "m", "low", at, input, 10)
+		return path
+	}
+	// the gateway's calls of the session files' own: each counted once
+	gateway := func(id string, at time.Time, input int) {
+		Append(Record{Time: at, Agent: "codex", Provider: "openai", Model: "m", Input: input, Output: 10, Status: 200, ResponseID: "resp-" + id, Session: "s" + id})
+	}
+	// a full block of the gateway's log whose newest call is before cut,
+	// the call of a session file's row after it
+	for range logBlockRows - 1 {
+		Append(Record{Time: now.AddDate(0, 0, -30), Agent: "claude-code", Provider: "anthropic", Model: "x", Input: 1, Status: 200})
+	}
+	gateway("x", cut.Add(-time.Minute), 120)
+	write("x", cut.Add(time.Minute), 120)
+	for i, at := range []time.Time{now.AddDate(0, 0, -40), now.AddDate(0, 0, -10), now.AddDate(0, 0, -5), cut.Add(-time.Minute), cut.Add(time.Minute), now.Add(-time.Hour)} {
+		id := string(rune('a' + i))
+		write(id, at, 100+i)
+		if i%2 == 1 {
+			// two minutes on: the call at cut-1m is the gateway's after cut
+			gateway(id, at.Add(2*time.Minute), 100+i)
+		}
+	}
+	settledFile := write("old", now.AddDate(0, 0, -20), 7)
+	for i := range 6 {
+		write(fmt.Sprintf("o%d", i), now.AddDate(0, 0, -12-3*i), 5)
+	}
+	Append(Record{Time: now.AddDate(0, 0, -60), Agent: "claude-code", Provider: "anthropic", Model: "x", Input: 3, Status: 200})
+	paired := []int{}
+	heatPairing = func(n int) { paired = append(paired, n) }
+	t.Cleanup(func() { heatPairing = nil })
+	cold := func() Heatmap {
+		requestCache.Lock()
+		requestCache.heatParts, requestCache.heatOld, requestCache.heats, requestCache.pages = nil, nil, nil, map[pageKey]RequestPage{}
+		requestCache.Unlock()
+		return HeatmapOf(Filter{})
+	}
+	first := HeatmapOf(Filter{})
+	if len(paired) != 1 {
+		t.Fatalf("paired %v", paired)
+	}
+	all := paired[0]
+	call := 0
+	next := func() Heatmap {
+		call++
+		gateway(fmt.Sprintf("new%d", call), now.Add(-time.Duration(call)*time.Second), 50)
+		return HeatmapOf(Filter{})
+	}
+	for range 3 {
+		warm := next()
+		if n := paired[len(paired)-1]; n >= all/2 {
+			t.Fatalf("a call paired %d of %d chunks again", n, all)
+		}
+		if c := cold(); !reflect.DeepEqual(warm, c) {
+			t.Fatalf("after the last days' pairing %+v, cold %+v", warm, c)
+		}
+	}
+	if reflect.DeepEqual(first, cold()) {
+		t.Fatal("the calls weren't counted")
+	}
+	// a session file of the last days that holds a call of the days before
+	write("e", cut.Add(time.Minute), 104)
+	path := filepath.Join(sessions.CodexDir(), "sessions", cut.Add(-30*time.Hour).Format("2006/01/02"), "rollout-"+cut.Add(-30*time.Hour).Format("2006-01-02T15-04-05")+"-mixed.jsonl")
+	writeCodexCall(t, path, "mixed", "smixed", `"vscode"`, "resp-mixed-old", "m", "low", cut.Add(-30*time.Hour), 9, 1)
+	cold()
+	writeCodexCall(t, path, "mixed", "smixed", `"vscode"`, "resp-mixed-new", "m", "low", now.Add(-time.Minute), 9, 1)
+	if warm := next(); !reflect.DeepEqual(warm, cold()) {
+		t.Fatalf("a file of old and new calls: %+v, cold %+v", warm, cold())
+	}
+	// a new session file that holds a call of last week too (a rollout
+	// forked from an old one): its call of then is counted
+	next() // kept: the pairing the call below starts from
+	scratch := t.TempDir()
+	writeCodexCall(t, filepath.Join(scratch, "then"), "fork", "sfork", `"vscode"`, "resp-fork-then", "m", "low", now.AddDate(0, 0, -7), 30, 3)
+	writeCodexCall(t, filepath.Join(scratch, "now"), "fork", "sfork", `"vscode"`, "resp-fork-now", "m", "low", now.Add(-2*time.Minute), 31, 3)
+	then, err := os.ReadFile(filepath.Join(scratch, "then"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	later, err := os.ReadFile(filepath.Join(scratch, "now"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, later, _ = bytes.Cut(later, []byte("\n")) // its session_meta is then's
+	// the session began then
+	then = bytes.Replace(then, []byte(`"2026-09-30T10:00:00Z"`), []byte(`"`+now.AddDate(0, 0, -7).Add(-time.Minute).UTC().Format(time.RFC3339)+`"`), 1)
+	forked := filepath.Join(sessions.CodexDir(), "sessions", now.Format("2006/01/02"), "rollout-"+now.Add(-2*time.Minute).Format("2006-01-02T15-04-05")+"-fork.jsonl")
+	if os.WriteFile(forked, append(then, later...), 0600) != nil {
+		t.Fatal("fork")
+	}
+	if warm := next(); !reflect.DeepEqual(warm, cold()) {
+		t.Fatalf("a new file with a call of last week: %+v, cold %+v", warm, cold())
+	}
+	// a settled file written again: every chunk is paired again
+	next()
+	writeCodexCall(t, settledFile, "old", "sold", `"vscode"`, "resp-old", "m", "low", now.AddDate(0, 0, -20), 70, 10)
+	if os.Chtimes(settledFile, now.AddDate(0, 0, -20), now.AddDate(0, 0, -20)) != nil {
+		t.Fatal("chtimes")
+	}
+	before := len(paired)
+	warm := next()
+	if paired[before] < all {
+		t.Fatalf("a settled file changed, paired %d of %d", paired[before], all)
+	}
+	if !reflect.DeepEqual(warm, cold()) {
+		t.Fatalf("a settled file changed: %+v, cold %+v", warm, cold())
+	}
+	// past heatOldFresh every chunk is paired again
+	old := heatOldFresh
+	heatOldFresh = 0
+	t.Cleanup(func() { heatOldFresh = old })
+	before = len(paired)
+	next()
+	if paired[before] < all {
+		t.Fatalf("past heatOldFresh, paired %d of %d", paired[before], all)
 	}
 }

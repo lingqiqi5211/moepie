@@ -17,6 +17,9 @@ import (
 // Visit (key spending limits, window holds) still counts them all.
 func TestClearedUsageLeavesThePages(t *testing.T) {
 	resetUsageTest(t)
+	// the clears read last stay read for a test that builds a page without
+	// reading them again (readCleared)
+	t.Cleanup(func() { clearedAs.Store(nil) })
 	now := Clock()
 	at := now.Add(-2 * time.Hour)
 	Append(Record{Time: at, Agent: "codex", Provider: "ollama", Model: "qwen3:32b", Input: 100, Output: 10, Status: 200})

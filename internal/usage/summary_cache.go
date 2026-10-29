@@ -88,7 +88,10 @@ func topSummary(p Period, now time.Time, n int) Summary {
 	if ok && old.version == snapshot.version && old.meta == meta && (n >= 0 && n <= len(old.value.Sessions) || old.value.SessionCount == len(old.value.Sessions)) {
 		return topOf(cloneSummary(old.value), n)
 	}
-	value := work()
+	summaries.Lock()
+	summaries.worked++
+	summaries.Unlock()
+	value := foldSummary(k, p, now, snapshot, meta)
 	// the cache keeps a copy with the top sessions only; the answer has as
 	// many as asked
 	kept := value

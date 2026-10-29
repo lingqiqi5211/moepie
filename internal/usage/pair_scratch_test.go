@@ -1,0 +1,93 @@
+package usage
+
+import (
+	"fmt"
+	"maps"
+	"testing"
+	"time"
+
+	"github.com/yetone/magpie/internal/sessions"
+)
+
+// The matcher keeps its maps and slices from one call for the next
+// (#2278): a call after another, on other chunks or on the same ones,
+// matches what a first call does.
+func TestPairScratchKeepsNothingBetweenCalls(t *testing.T) {
+	now := time.Date(2026, 10, 1, 13, 0, 0, 0, time.UTC)
+	xg, xl := pairFixture(40, 30)
+	yg, yl := pairFixture(12, 9)
+	// what was matched, by chunk serial and row: Codex chunks are copied
+	// for each call
+	matched := func(g, l []*rowChunk) map[[2]uint64]bool {
+		out := map[[2]uint64]bool{}
+		for r, v := range pairRows(All, now, g, l, nil, nil).matched {
+			out[[2]uint64{r.Chunk.serial, uint64(r.Index)}] = v
+		}
+		return out
+	}
+	ReleaseScratch()
+	fresh := matched(yg, yl)
+	if len(fresh) != 12*9 {
+		t.Fatalf("a first call matched %d of %d", len(fresh), 12*9)
+	}
+	matched(xg, xl)
+	for round := range 2 {
+		if got := matched(yg, yl); !maps.Equal(got, fresh) {
+			t.Fatalf("round %d after another call matched %d, a first call %d", round, len(got), len(fresh))
+		}
+	}
+	if keptMatch.Load() == nil || keptPicks.Load() == nil {
+		t.Fatal("nothing kept for the next call")
+	}
+	ReleaseScratch()
+	if keptMatch.Load() != nil || keptPicks.Load() != nil {
+		t.Fatal("ReleaseScratch kept the scratch")
+	}
+}
+
+// What one call reserved, used or looked up by id never holds in the next
+// call's matching of the same calls.
+func TestMatchScratchForgetsTheLastCall(t *testing.T) {
+	now := time.Date(2026, 10, 1, 13, 0, 0, 0, time.UTC)
+	call := func(id string, i int) Record {
+		return Record{Time: now.Add(-time.Duration(i) * time.Minute), Agent: "claude", Provider: "relay", Session: "s", Input: 100 + i, Output: 5, Millis: 1000, RequestID: id}
+	}
+	chunk := func(source bool, rs ...Record) *rowChunk {
+		c := &rowChunk{serial: nextChunkSerial()}
+		for i, r := range rs {
+			row := Row{Record: r}
+			if source {
+				c.Source, row.Source = sessions.CallSource{Path: fmt.Sprint("/local/", c.serial)}, "log"
+			}
+			c.add(row, "", int64(i), false)
+		}
+		return c
+	}
+	// the gateway's call req-a, and a local call that names it or one that
+	// names no id, each the same call by session and tokens
+	gateway := chunk(false, call("req-a", 0))
+	named, unnamed := chunk(true, call("req-a", 0)), chunk(true, call("", 0))
+	// another gateway, where req-a is the sixth id
+	other := chunk(false, call("req-0", 9), call("req-1", 8), call("req-2", 7), call("req-3", 6), call("req-4", 5), call("req-a", 4))
+	match := func(gateway, local *rowChunk, pairs map[rowRef]rowRef) bool {
+		return matchedBlocks([]*rowChunk{gateway}, []*rowChunk{local}, nil, pairs, time.Time{}, false)[rowRef{local, 0}]
+	}
+	ReleaseScratch()
+	if !match(gateway, unnamed, nil) || !match(gateway, named, nil) {
+		t.Fatal("a first call left a local call unmatched")
+	}
+	// named's id used the gateway's call: unnamed still matches it after
+	if !match(gateway, unnamed, nil) {
+		t.Fatal("the last call's id match held the gateway's call")
+	}
+	// a response pair reserved the gateway's call
+	match(gateway, unnamed, map[rowRef]rowRef{{gateway, 0}: {named, 0}})
+	if !match(gateway, unnamed, nil) {
+		t.Fatal("the last call's response pair held the gateway's call")
+	}
+	// req-a was the other gateway's sixth id
+	match(other, chunk(true, call("req-a", 4)), nil)
+	if !match(gateway, named, nil) {
+		t.Fatal("the last call's ids were looked up")
+	}
+}

@@ -85,6 +85,8 @@ type chunkPart struct {
 	cells []pageCell
 	kept  int       // rows the filter keeps
 	first time.Time // the oldest charted row's time
+	// days are the heatmap's sums of the chunk, oldest first (heatOf)
+	days []Day
 }
 
 // partKey is what a chunk's cells are of besides the chunk: the page's
@@ -103,6 +105,9 @@ type partCache struct {
 	old, next map[uint64]*chunkPart
 	// pairs is the last pairing of the period, and pairsNext this page's
 	pairs, pairsNext *pairMemo
+	// heatOld is the heatmap's days before its last few the page before
+	// kept, and heatOldNext this page's (heatSplit)
+	heatOld, heatOldNext *heatOld
 }
 
 // partSets bounds the partKeys kept: a page is open on one period and

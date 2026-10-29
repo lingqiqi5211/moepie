@@ -57,10 +57,62 @@ func TestPricedBlocksSharedWhileHeld(t *testing.T) {
 	b.release()
 	b.release() // a second release lets nothing go twice
 	other.release()
+	// the next poll's query reads the same priced block
+	if n := held(); n != 2 {
+		t.Fatalf("%d blocks kept after every query was done, want 2", n)
+	}
+	next := pricer("m")
+	if c := next.block(packed); c != ca {
+		t.Fatal("the next query of one meta priced the block again")
+	}
+	next.release()
+	// kept until pricedLinger passes with no query holding them
+	sharedPriced.Lock()
+	sweepPriced(time.Now().Add(pricedLinger/2), false)
+	sharedPriced.Unlock()
+	if n := held(); n != 2 {
+		t.Fatalf("%d blocks kept before pricedLinger passed, want 2", n)
+	}
+	sharedPriced.Lock()
+	sweepPriced(time.Now().Add(pricedLinger+time.Second), false)
+	sharedPriced.Unlock()
 	if n := held(); n != 0 {
-		t.Fatalf("%d blocks held after every query was done", n)
+		t.Fatalf("%d blocks kept pricedLinger after every query was done", n)
 	}
 	if c := pricer("m").block(packed); c == ca {
 		t.Fatal("a block let go was handed out again")
 	}
+}
+
+// The window's rest lets every priced block no query holds go at once,
+// and one a query still holds stays.
+func TestPricedBlocksGoWithTheScratch(t *testing.T) {
+	var raw rowChunk
+	at := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < logBlockRows; i++ {
+		raw.add(Row{Record: Record{Time: at, Provider: "openai", Model: "gpt-5", Input: 100 + i, Output: 10}}, "", int64(i), false)
+	}
+	packed, other := raw.pack(), (&raw).pack()
+	pricer := func() *blockPricer {
+		b := newBlockPricer(provider.Renames{}, nil, func(Record) *catalog.Price { return nil })
+		b.share(sha256.Sum256([]byte("scratch")))
+		return b
+	}
+	idle, holding := pricer(), pricer()
+	idle.block(packed)
+	idle.release()
+	held := holding.block(other)
+	ReleaseScratch()
+	sharedPriced.Lock()
+	_, kept := sharedPriced.blocks[pricedKey{sha256.Sum256([]byte("scratch")), packed}]
+	_, still := sharedPriced.blocks[pricedKey{sha256.Sum256([]byte("scratch")), other}]
+	sharedPriced.Unlock()
+	if kept {
+		t.Fatal("ReleaseScratch kept a priced block no query held")
+	}
+	if !still || held.row(3).Input != 103 {
+		t.Fatal("ReleaseScratch let go a block a query still held")
+	}
+	holding.release()
+	ReleaseScratch()
 }

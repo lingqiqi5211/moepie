@@ -3,6 +3,7 @@ package usage
 import (
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/provider"
@@ -54,7 +55,16 @@ type pricedBlock struct {
 	c    *rowChunk
 	rows *[]packedRow // pooled, nil when c's rows are not
 	refs int
+	idle time.Time // when the last query holding it was done
 }
+
+// pricedLinger is how long a priced block is kept after the last query
+// holding it is done. It outlasts the GUI's polls (Usage every 10 s,
+// Sessions every 15 s): each poll priced the whole history again, its
+// rows' pool emptied by the collections between, ~920 MB of 5.7 GB
+// allocated in 80 s of polls (#2278). The window's rest lets them go at
+// once (ReleaseScratch).
+const pricedLinger = 30 * time.Second
 
 // sharedPriced are the gateway's blocks the queries reading now priced, by
 // block. A query over the whole history holds every block decoded until it
@@ -67,7 +77,46 @@ type pricedBlock struct {
 var sharedPriced = struct {
 	sync.Mutex
 	blocks map[pricedKey]*pricedBlock
+	sweep  *time.Timer // the idle blocks' going, or nil
 }{blocks: map[pricedKey]*pricedBlock{}}
+
+// sweepPriced lets the blocks no query has held for pricedLinger go, all
+// idle ones when every is true, and is armed again while idle ones are
+// left. Called under sharedPriced's lock.
+func sweepPriced(now time.Time, every bool) {
+	left := time.Duration(0)
+	for k, e := range sharedPriced.blocks {
+		if e.refs != 0 {
+			continue
+		}
+		if wait := pricedLinger - now.Sub(e.idle); !every && wait > 0 {
+			left = max(left, wait)
+			continue
+		}
+		delete(sharedPriced.blocks, k)
+		if e.rows != nil {
+			pricedRows.Put(e.rows)
+		}
+	}
+	if sharedPriced.sweep != nil {
+		sharedPriced.sweep.Stop()
+		sharedPriced.sweep = nil
+	}
+	if left > 0 {
+		sharedPriced.sweep = time.AfterFunc(left, func() {
+			sharedPriced.Lock()
+			defer sharedPriced.Unlock()
+			sweepPriced(time.Now(), false)
+		})
+	}
+}
+
+// releasePriced lets every block no query holds now go.
+func releasePriced() {
+	sharedPriced.Lock()
+	defer sharedPriced.Unlock()
+	sweepPriced(time.Now(), true)
+}
 
 // share has b's blocks shared with the other queries of meta, a hash of
 // requestState's root and meta.
@@ -76,8 +125,8 @@ func (b *blockPricer) share(meta [32]byte) {
 }
 
 // release hands the rows of the blocks it priced back, once the query no
-// longer reads them (a page's rows are copies); a shared block's, once
-// the last query holding it is done.
+// longer reads them (a page's rows are copies); a shared block's,
+// pricedLinger after the last query holding it is done.
 func (b *blockPricer) release() {
 	for _, rows := range b.pooled {
 		pricedRows.Put(rows)
@@ -87,14 +136,15 @@ func (b *blockPricer) release() {
 		return
 	}
 	sharedPriced.Lock()
+	now := time.Now()
 	for _, k := range b.held {
 		e := sharedPriced.blocks[k]
 		if e.refs--; e.refs == 0 {
-			delete(sharedPriced.blocks, k)
-			if e.rows != nil {
-				pricedRows.Put(e.rows)
-			}
+			e.idle = now
 		}
+	}
+	if sharedPriced.sweep == nil {
+		sweepPriced(now, false)
 	}
 	sharedPriced.Unlock()
 	b.held = nil
