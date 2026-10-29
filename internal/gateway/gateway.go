@@ -2266,16 +2266,15 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 	if sealedTask {
 		cands, pl = s.sealedReaders(cands, pl, sealers)
 	}
-	// a compaction a provider set to compact natively sealed goes only to
-	// the key or account that sealed it, or is refused saying so: never
-	// to another, to be refused, dropped or summarised (#1099). Codex's
-	// trigger goes only where it can be asked as Codex sent it.
+	// Official Codex checkpoints follow eligible Responses candidates;
+	// other providers' checkpoints stay with their writer. Neither is
+	// dropped or summarised. Triggers go only to a compatible wire.
 	var checkpoint *checkpointWriter
 	if from == provider.Responses {
 		if cp, ok := checkpointOf(body); ok {
 			checkpoint = &cp
 			var left bool
-			if cands, pl, left = checkpointReaders(cands, pl, cp); !left {
+			if cands, pl, left = s.checkpointReaders(cands, pl, cp); !left {
 				call.Status, call.Error = 400, "native compaction sealed elsewhere"
 				writeError(w, from, 400, checkpointError(call.Model, cp))
 				turnedAway()

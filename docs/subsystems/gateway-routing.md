@@ -1,5 +1,15 @@
 # Gateway routing and fallback
 
+An official Codex native compaction checkpoint stays encrypted and passes
+through unchanged. It can continue on another eligible Responses candidate
+already in the caller's routing plan, including another official account;
+permissions, model/account caps and strict affinity still apply. A selected
+Responses relay may refuse a checkpoint it cannot read: the checkpoint is
+never discarded or replaced with a magpie summary. Other providers' native
+checkpoints retain their writer binding. The legacy Codex `/compact` path
+uses the same eligibility rules. See `Server.checkpointReaders`,
+`TestCodexNativeCompactionPoolFailover` and the checkpoint relay tests.
+
 The gateway is magpie's local LLM endpoint (`127.0.0.1:3425` by default). It
 serves Chat Completions, Responses, Anthropic Messages and Gemini. It finds
 the provider, key or account and model for each request. When the upstream
