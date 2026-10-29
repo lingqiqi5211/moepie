@@ -1774,6 +1774,16 @@ start, so one already open stays on its account until it is opened again;
 a new `codex` session takes the new one. Connected to magpie, Codex's
 requests go through it as before.
 
+*Only switch Claude Code's sign-in* under Providers › Claude (or `magpie
+accounts switch-only claude on`) keeps the Claude accounts to Claude
+Code alone, with one account too: magpie still moves Claude Code's own
+sign-in as above, and serves no request on them. They leave the model
+list, and a request that names them, from any agent, a group, a
+fallback or a Claude Code connected to magpie, is refused as kept to
+Claude Code, so no turn runs through Claude Code's SDK mode, which
+spends more of the allowance than Claude Code used on its own (myduso on
+Discord). Their usage is still read and shown.
+
 **How often an allowance is read.** Routing uses what was read last and
 never waits for a reading, except the first one after magpie starts (3
 seconds at most). A reading over a minute old is read again in the

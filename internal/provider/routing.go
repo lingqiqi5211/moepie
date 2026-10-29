@@ -117,15 +117,16 @@ func SetKeepLogin(id string, keep bool) error {
 	return nil
 }
 
-// SetSwitchOnly has magpie only move Codex's own sign-in between its
-// accounts (Provider.SwitchOnly), its requests never sent through the
-// gateway for account failover, or lets failover go through it again.
+// SetSwitchOnly has magpie only move Codex's or Claude Code's own sign-in
+// between its accounts (Provider.SwitchOnly): Codex's requests never sent
+// through the gateway for account failover, Claude's accounts serving no
+// request through the gateway (KeptToAgent). Off, both are as before.
 func SetSwitchOnly(id string, on bool) error {
 	p, err := Find(id)
 	if err != nil {
 		return err
 	}
-	if p.Account == nil || p.Account.Agent != p.ID || p.ID != "codex" {
+	if p.Account == nil || p.Account.Agent != p.ID || p.ID != "codex" && p.ID != "claude" {
 		return fmt.Errorf("magpie doesn't route %s's own requests for account failover", p.Name)
 	}
 	p.SwitchOnly = on

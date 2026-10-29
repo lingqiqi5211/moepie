@@ -151,7 +151,9 @@ type Provider struct {
 	// own sign-in (auth.json) to the next account with room and back:
 	// Codex's requests then go straight to OpenAI, never through the
 	// gateway for account failover, however many of its accounts are on
-	// (#1907).
+	// (#1907). On Claude's subscription it keeps the accounts to Claude
+	// Code's own sign-in, which magpie still moves: the gateway serves no
+	// request on them (KeptToAgent; myduso on Discord).
 	SwitchOnly bool `json:"switchOnly,omitempty"`
 
 	// MaxConcurrency is how many requests may be out at the vendor at once
@@ -1882,8 +1884,20 @@ func (p Provider) Ready() bool {
 	return p.Account != nil || p.Key != "" || keyOptional(p)
 }
 
-// On is whether the provider takes requests: ready, and not switched off.
-func (p Provider) On() bool { return p.Ready() && !p.Off }
+// On is whether the provider takes requests: ready, not switched off and
+// not kept to its agent's own sign-in (KeptToAgent).
+func (p Provider) On() bool { return p.Ready() && !p.Off && !p.KeptToAgent() }
+
+// KeptToAgent is whether the provider is Claude's subscription with
+// SwitchOnly on: its accounts are Claude Code's own sign-in alone, which
+// magpie moves to the next account with room and back, and the gateway
+// sends no request to them, so none goes through Claude Code's SDK run,
+// which spends more of the allowance than Claude Code's own sessions
+// (myduso on Discord). Codex's SwitchOnly only keeps failover out of its
+// config.
+func (p Provider) KeptToAgent() bool {
+	return p.SwitchOnly && p.ID == "claude" && p.Account != nil && p.Account.Agent == "claude"
+}
 
 // SetOff switches a provider off, or on again (see Provider.Off). Saving
 // it brings the model lists written into agents' files up to date.
@@ -1902,12 +1916,12 @@ func SetOff(id string, off bool) error {
 func SwitchedOff(id string) (Provider, bool) {
 	id = strings.TrimSuffix(strings.TrimSpace(id), "[1m]")
 	if pid, _, ok := strings.Cut(id, "/"); ok {
-		if p, err := Find(pid); err == nil && p.Off {
+		if p, err := Find(pid); err == nil && (p.Off || p.KeptToAgent()) {
 			return *p, true
 		}
 	}
 	for _, p := range All() {
-		if !p.Off || !p.Ready() {
+		if !p.Off && !p.KeptToAgent() || !p.Ready() {
 			continue
 		}
 		if slices.ContainsFunc(p.Exposed(), func(m catalog.Model) bool { return m.ID == id }) {

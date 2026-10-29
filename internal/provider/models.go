@@ -2548,7 +2548,7 @@ func entriesOff(off func(pid, model string) bool) []Entry {
 func heldOffEntries() []Entry {
 	return heldOf("off entries", func() []Entry {
 		return keptOf("off entries", func() []Entry {
-			return slices.Clip(entriesOf(func(p Provider) bool { return p.Ready() && p.Off }, disabledNow()))
+			return slices.Clip(entriesOf(func(p Provider) bool { return p.Ready() && (p.Off || p.KeptToAgent()) }, disabledNow()))
 		})
 	})
 }

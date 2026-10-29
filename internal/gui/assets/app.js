@@ -12957,19 +12957,14 @@ function renderAccounts(a, p) {
     box.append(keep, as);
     list.append(box);
   }
-  // with more of its accounts on, magpie sends Codex's own requests through
-  // the gateway to fail over between them (#1385); this has it only switch
-  // Codex's own sign-in instead, its requests going straight to OpenAI
-  // (#1907: Codex Desktop and the CLI on their own subscription alone)
-  if (a.agent === "codex" && several && p) {
-    const box = el("div", "switch-only");
-    const [only, cb] = tick(t("Only switch {agent}'s sign-in", { agent: a.agentName }), !!p.switchOnly);
-    only.title = t("magpie signs {agent} in to the next account with room when the one it is on is used up, and back once that has room again, by writing {agent}'s own sign-in; {agent}'s requests go straight to OpenAI, never through magpie. A {agent} app or session already open stays on its account until it is opened again. Connected to magpie, {agent}'s requests go through it as before.", { agent: a.agentName });
-    cb.onchange = () => accountAction("provider/switchonly", { id: p.id, switchOnly: cb.checked }, cb.checked
-      ? t("magpie only switches {agent}'s sign-in; its requests go straight to OpenAI", { agent: a.agentName })
-      : t("{agent}'s requests go through magpie to fail over to your other accounts again", { agent: a.agentName }));
-    box.append(only);
-    list.append(box);
+  const cx = a.agent === "codex", ag = { agent: a.agentName };
+  if (p && (cx && several || a.agent === "claude")) {
+    const [only, cb] = tick(t("Only switch {agent}'s sign-in", ag), p.switchOnly);
+    const [tip, on, off] = cx ? [t("magpie signs {agent} in to the next account with room when the one it is on is used up, and back once that has room again, by writing {agent}'s own sign-in; {agent}'s requests go straight to OpenAI, never through magpie. A {agent} app or session already open stays on its account until it is opened again. Connected to magpie, {agent}'s requests go through it as before.", ag), t("magpie only switches {agent}'s sign-in; its requests go straight to OpenAI", ag), t("{agent}'s requests go through magpie to fail over to your other accounts again", ag)]
+      : [t("magpie moves {agent}'s own sign-in to the next account with room when one is used up, and back once it has room. Nothing on these accounts is served through magpie.", ag), t("magpie serves no requests on these accounts"), t("magpie serves requests on these accounts again")];
+    only.title = tip;
+    cb.onchange = () => accountAction("provider/switchonly", { id: p.id, switchOnly: cb.checked }, cb.checked ? on : off);
+    list.append(el("div", "switch-only", only));
   }
   // how a pool ends at its caps (plugins#349)
   const capped = (l) => accountCapOf(p, l.user) || windowCapsOf(p, l.user);
