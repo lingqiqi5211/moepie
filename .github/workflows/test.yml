@@ -177,4 +177,4 @@ jobs:
         if: matrix.goos == 'linux'
         run: |
           sh -n site/public/install.sh
-          node --test site/*.test.mjs
+          node --test site/*.test.mjs .github/scripts/*.test.mjs

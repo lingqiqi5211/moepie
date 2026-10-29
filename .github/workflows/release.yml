@@ -1,121 +1,411 @@
 name: Release
 
-# Pushing a v* tag hands off to yetone/magpie-releases, which builds, signs,
-# notarises and publishes magpie there; that repo is where people download
-# from, and the signing secrets live only there. Once its release has every
-# asset, the same release is copied here, so this repo's Releases page has
-# the installers too (PapainTea on X). Self-update, install.sh and the site
-# still read magpie-releases only.
-
+# Build this fork after its exact main commit passes Test.
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_run:
+    workflows: [Test]
+    branches: [main]
+    types: [completed]
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version to release (e.g., 0.1.0 — no v prefix; the v tag must exist)'
-        required: true
+      ref:
+        description: 'Main commit or tag to build (must have a green Test)'
         type: string
+        default: main
+      version:
+        description: 'Optional 0.1.N version; empty increments the highest local tag'
+        type: string
+      publish:
+        description: 'Publish after checks (off builds artifacts only)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+# Version allocation and publication share one queue.
+concurrency:
+  group: fork-release
+  cancel-in-progress: false
 
 jobs:
-  trigger-release:
+  prepare:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     outputs:
+      sha: ${{ steps.version.outputs.sha }}
       version: ${{ steps.version.outputs.version }}
-      ref: ${{ steps.version.outputs.ref }}
-
+      skip: ${{ steps.version.outputs.skip }}
     steps:
-      - name: Get version
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || inputs.ref || 'main' }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate main, Test and version
         id: version
         env:
-          INPUT_VERSION: ${{ github.event.inputs.version }}
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            REF="$GITHUB_REF_NAME"
-            VERSION="${REF#v}"
-          else
-            VERSION="$INPUT_VERSION"
-            REF="v$INPUT_VERSION"
-          fi
-          # a newline or quote would add outputs or break the JSON below
-          [[ "$VERSION" =~ ^[0-9][0-9A-Za-z.+-]*$ ]] || { echo "bad version: $VERSION" >&2; exit 1; }
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "ref=$REF" >> $GITHUB_OUTPUT
-          echo "Triggering release for version: $VERSION (ref: $REF)"
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: node .github/scripts/release-prepare.mjs
 
-      - name: Trigger release workflow in magpie-releases
-        uses: peter-evans/repository-dispatch@v3
+  mac:
+    needs: prepare
+    if: needs.prepare.outputs.skip != 'true'
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            arch: arm64
+          - os: macos-15-intel
+            arch: amd64
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout moepie source code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
-          # PAT with contents write on yetone/magpie-releases.
-          token: ${{ secrets.RELEASES_REPO_TOKEN }}
-          repository: yetone/magpie-releases
-          event-type: release
-          client-payload: '{"ref": "${{ steps.version.outputs.ref }}", "version": "${{ steps.version.outputs.version }}"}'
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
 
-      - name: Output status
-        run: echo "Watch the build at https://github.com/yetone/magpie-releases/actions"
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
 
-  mirror-release:
-    needs: trigger-release
+      - name: Probe macOS signing secrets
+        id: signing
+        env:
+          P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
+        run: |
+          if [ -n "$P12" ]; then
+            echo "enabled=true" >> $GITHUB_OUTPUT
+          else
+            echo "enabled=false" >> $GITHUB_OUTPUT
+            echo "::warning::MAC_CERTIFICATE_P12 not set — the mac build will be ad-hoc signed and not notarised."
+          fi
+
+      - name: Import macOS certificates
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          CERTIFICATE_P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "$CERTIFICATE_P12" | base64 --decode > $RUNNER_TEMP/certificate.p12
+          security import $RUNNER_TEMP/certificate.p12 -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          rm -f $RUNNER_TEMP/certificate.p12
+
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | awk -F'"' '/Developer ID Application/ {print $2; exit}')
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::No 'Developer ID Application' identity in MAC_CERTIFICATE_P12"
+            security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+            exit 1
+          fi
+          echo "Signing as: $IDENTITY"
+          echo "IDENTITY=$IDENTITY" >> $GITHUB_ENV
+
+      - name: Build moepie.app
+        run: make app VERSION="$VERSION"
+
+      - name: Sign moepie.app
+        run: |
+          if [ -n "$IDENTITY" ]; then
+            codesign --force --options runtime --timestamp --sign "$IDENTITY" moepie.app
+          else
+            codesign --force --sign - moepie.app
+          fi
+          codesign --verify --strict --verbose=2 moepie.app
+          codesign -dv --verbose=2 moepie.app 2>&1 | grep -E 'Authority|TeamIdentifier|flags|Identifier'
+
+      - name: Build dmg
+        run: |
+          DMG=moepie-darwin-${{ matrix.arch }}.dmg
+          mkdir -p $RUNNER_TEMP/dmg
+          cp -R moepie.app $RUNNER_TEMP/dmg/
+          ln -s /Applications $RUNNER_TEMP/dmg/Applications
+          # The Intel runners' hdiutil fails now and then with "create
+          # failed - Resource busy" while something still holds the image
+          # it makes; the release was lost each time (yetone/magpie#1846).
+          for try in 1 2 3 4 5; do
+            hdiutil create -volname moepie -srcfolder $RUNNER_TEMP/dmg -ov -format UDZO "$DMG" && break
+            [ "$try" = 5 ] && exit 1
+            echo "hdiutil create failed (try $try), trying again"
+            rm -f "$DMG"
+            sleep $((try * 10))
+          done
+          if [ -n "$IDENTITY" ]; then
+            codesign --force --timestamp --sign "$IDENTITY" "$DMG"
+          fi
+          echo "DMG=$DMG" >> $GITHUB_ENV
+
+      - name: Notarise and staple
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$APPLE_API_KEY_P8" ]; then
+            echo "$APPLE_API_KEY_P8" > $RUNNER_TEMP/AuthKey.p8
+            AUTH=(--key $RUNNER_TEMP/AuthKey.p8 --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER")
+          else
+            AUTH=(--apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID")
+          fi
+          # The dmg's ticket covers the app inside it too, so one submission
+          # does for both: staple the dmg, and the app for the zip.
+          OUT=$(xcrun notarytool submit "$DMG" "${AUTH[@]}" --wait --timeout 30m --output-format json)
+          echo "$OUT"
+          ID=$(echo "$OUT" | jq -r .id)
+          STATUS=$(echo "$OUT" | jq -r .status)
+          if [ "$STATUS" != "Accepted" ]; then
+            xcrun notarytool log "$ID" "${AUTH[@]}" || true
+            rm -f $RUNNER_TEMP/AuthKey.p8
+            echo "::error::Notarisation $STATUS"
+            exit 1
+          fi
+          rm -f $RUNNER_TEMP/AuthKey.p8
+          # stapler fetches the ticket from Apple's CloudKit, which drops the
+          # connection now and then (error 68): try again, and if it is still
+          # down, ship the build unstapled. It is notarised (Accepted above),
+          # so Gatekeeper looks the ticket up online on first open; failing
+          # here left whole releases unpublished (#2778: v0.1.1284, 1385,
+          # 1386, 1541, 1824, 1827).
+          stapled=1
+          staple() {
+            for i in 1 2 3 4 5; do
+              xcrun stapler staple "$1" && return 0
+              echo "staple $1 failed (try $i), retrying in $((i * 20))s"
+              sleep $((i * 20))
+            done
+            echo "::warning::$1 ships notarised but unstapled: Apple's ticket service stayed unreachable"
+            stapled=0
+          }
+          staple "$DMG"
+          staple moepie.app
+          if [ "$stapled" = 1 ]; then
+            spctl --assess --type execute --verbose=2 moepie.app
+            spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
+          else
+            # spctl would ask the same unreachable service; the signature is
+            # still checked, offline
+            codesign --verify --deep --strict --verbose=2 moepie.app
+            codesign --verify --strict --verbose=2 "$DMG"
+          fi
+
+      - name: Zip moepie.app
+        run: ditto -c -k --keepParent moepie.app moepie-darwin-${{ matrix.arch }}.zip
+
+      - name: Remove signing keychain
+        if: always() && steps.signing.outputs.enabled == 'true'
+        run: security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: build-darwin-${{ matrix.arch }}
+          path: |
+            moepie-darwin-*.dmg
+            moepie-darwin-*.zip
+          if-no-files-found: error
+
+  # The terminal-only moepie (no GUI, no cgo) and the Windows app (WebView2,
+  # no cgo either) cross-compile from one runner.
+  cli:
+    needs: prepare
+    if: needs.prepare.outputs.skip != 'true'
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+
+    steps:
+      - name: Checkout moepie source code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: make release-cli release-windows VERSION="$VERSION"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: build-cli
+          path: |
+            dist/moepie-cli-*
+            dist/moepie-windows-*.exe
+          if-no-files-found: error
+
+  # Launch the Windows app for real: it has to come up and serve the gateway.
+  windows-check:
+    needs: [prepare, cli]
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: amd64
+          - os: windows-11-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Download build
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: build-cli
+          path: dist
+
+      - name: Launch moepie
+        shell: pwsh
+        run: |
+          $env:MAGPIE_UPDATE_FEED = "http://127.0.0.1:9/"
+          $exe = "dist\moepie-windows-${{ matrix.arch }}.exe"
+          $v = (& $exe --version | Out-String).Trim()
+          Write-Output $v
+          if ($v -notlike "moepie $env:VERSION*") { throw "unexpected version: $v" }
+          $log = "$env:RUNNER_TEMP\moepie"
+          $p = Start-Process -FilePath $exe -ArgumentList app -PassThru -RedirectStandardOutput "$log.out" -RedirectStandardError "$log.err"
+          function Fail($why) { Get-Content "$log.out", "$log.err" -ErrorAction SilentlyContinue; throw $why }
+          $ok = $false
+          foreach ($i in 1..30) {
+            Start-Sleep -Seconds 2
+            if ($p.HasExited) { Fail "moepie exited with $($p.ExitCode)" }
+            try { Invoke-WebRequest http://127.0.0.1:3425/v1/models -UseBasicParsing | Out-Null; $ok = $true; break } catch {}
+          }
+          if (-not $ok) { Fail "the gateway never answered" }
+          Start-Sleep -Seconds 5
+          if ($p.HasExited) { Fail "moepie exited with $($p.ExitCode)" }
+          Stop-Process -Id $p.Id
+          Write-Output "moepie ran and served the gateway"
+
+  # The Linux app links GTK 3 and WebKitGTK 4.1, so each arch builds on its
+  # own runner. Ubuntu 22.04 keeps the glibc requirement low.
+  linux:
+    needs: prepare
+    if: needs.prepare.outputs.skip != 'true'
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            arch: amd64
+          - os: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout moepie source code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Install GTK and WebKitGTK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev xvfb dbus-x11
+
+      - name: Build
+        run: make release-linux VERSION="$VERSION"
+
+      - name: Launch moepie
+        run: |
+          BIN=dist/moepie-linux-${{ matrix.arch }}
+          $BIN --version | grep -F "moepie $VERSION"
+          export XDG_CONFIG_HOME="$RUNNER_TEMP/moepie-config"
+          # no update: a release published while this one builds is newer,
+          # and the app would download it beside itself as $BIN.new, which
+          # went out as v0.1.1611's moepie-linux-amd64.new (15.8MB of 1612)
+          export MAGPIE_UPDATE_FEED=http://127.0.0.1:9/
+          xvfb-run -a dbus-launch --exit-with-session $BIN app > $RUNNER_TEMP/moepie.log 2>&1 &
+          for i in $(seq 30); do
+            sleep 2
+            curl -fs -o /dev/null http://127.0.0.1:3425/v1/models && break
+          done
+          sleep 5
+          curl -fs -o /dev/null http://127.0.0.1:3425/v1/models || { cat $RUNNER_TEMP/moepie.log; echo "::error::moepie did not come up"; exit 1; }
+          pkill -f "$BIN" || true
+          echo "moepie ran and served the gateway"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: build-linux-${{ matrix.arch }}
+          path: dist/moepie-linux-${{ matrix.arch }}
+          if-no-files-found: error
+  publish:
+    needs: [prepare, mac, cli, windows-check, linux]
+    runs-on: ubuntu-latest
     permissions:
       contents: write
-      issues: write # to say a release went out without Chinese notes
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      REF: ${{ needs.trigger-release.outputs.ref }}
-      ASSETS: 16 # what every release carries; a smaller count is still uploading
+      VERSION: ${{ needs.prepare.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      PUBLISH: ${{ github.event_name == 'workflow_run' || inputs.publish }}
     steps:
-      - name: Wait for magpie-releases to publish every asset
-        run: |
-          for i in $(seq 1 120); do
-            n=$(gh release view "$REF" -R yetone/magpie-releases --json assets -q '.assets | length' 2>/dev/null || echo 0)
-            echo "attempt $i: $n of $ASSETS assets"
-            [ "$n" -ge "$ASSETS" ] && exit 0
-            sleep 30
-          done
-          echo "magpie-releases never published $REF with $ASSETS assets" >&2
-          exit 1
-
-      - name: Copy the release here
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          gh release download "$REF" -R yetone/magpie-releases -D dist
-          gh release view "$REF" -R yetone/magpie-releases --json body -q .body > notes.md
-          printf '\n\n---\nThe same release, and the feed magpie updates from: https://github.com/yetone/magpie-releases/releases/tag/%s\n' "$REF" >> notes.md
-          if gh release view "$REF" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$REF" -R "$GITHUB_REPOSITORY" --notes-file notes.md
-            gh release upload "$REF" dist/* -R "$GITHUB_REPOSITORY" --clobber
-          else
-            gh release create "$REF" dist/* -R "$GITHUB_REPOSITORY" --verify-tag --title "magpie $REF" --notes-file notes.md
-          fi
-          n=$(gh release view "$REF" -R "$GITHUB_REPOSITORY" --json assets -q '.assets | length')
-          echo "$REF has $n assets here"
-          [ "$n" -ge "$ASSETS" ]
-
-      # The Chinese notes are written by magpie-releases' DeepSeek call, and
-      # when that call fails the release goes out in English alone: a spent
-      # balance did so for v0.1.1233 to v0.1.1242, and Chinese apps showed
-      # English for a day until a user said so (#2122). Its warning is in a
-      # log nobody reads, so a release without them is said here, on one
-      # open issue, where the notes get added by hand.
-      - name: Say when the notes have no Chinese
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Verify complete assets and generate checksums
+        run: node .github/scripts/release-assets.mjs
+      - name: Generate bilingual release notes
         env:
-          GH_REPO: ${{ github.repository }}
-        run: |
-          set -uo pipefail
-          if grep -qF '<!-- lang:zh -->' notes.md; then
-            echo "$REF has Chinese notes"
-            exit 0
-          fi
-          title="Release notes without Chinese"
-          msg="$REF went out with English notes alone: magpie-releases' release run got no Chinese from DeepSeek. Its reason is the \`DeepSeek wrote no Chinese notes\` warning in that run's Generate changelog step (https://github.com/yetone/magpie-releases/actions). Until the Chinese is added below a \`<!-- lang:zh -->\` marker, in the release on yetone/magpie-releases and here, apps set to Chinese show its notes in English (#2122)."
-          n=$(gh issue list --state open --search "\"$title\" in:title" --json number,title -q ".[] | select(.title == \"$title\") | .number" | head -1) || n=""
-          if [ -n "$n" ]; then
-            gh issue comment "$n" --body "$msg" || echo "::warning::could not comment on #$n: $msg"
-          else
-            gh issue create --title "$title" --body "$msg" || echo "::warning::could not file an issue: $msg"
-          fi
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          RELEASE_NOTES_MODEL: ${{ vars.RELEASE_NOTES_MODEL }}
+        run: node .github/scripts/release-notes.mjs
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: release-manifest
+          path: |
+            dist/SHA256SUMS
+            dist/release-notes.md
+      - name: Publish fork release
+        if: env.PUBLISH == 'true'
+        run: node .github/scripts/release-publish.mjs
