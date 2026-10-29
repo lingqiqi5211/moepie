@@ -461,14 +461,7 @@ func Run(version string, showMain bool, link string) error {
 			}
 			return false
 		}
-		// with the gateway busy the first click waits for it to be idle,
-		// and the item then restarts at once (#577)
-		if waiting, _ := updates.waitingFor(); !waiting && !updates.idle() {
-			updates.waitIdle(now)
-			return
-		}
-		updates.cancelWait()
-		now()
+		updates.restartAsked(now)
 	})
 	quit := menu.Add(labels.quit).OnClick(func(*application.Context) { h.app.Quit() })
 	var ready string // the version waiting for a restart; on the main thread
