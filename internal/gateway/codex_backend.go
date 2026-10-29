@@ -1414,12 +1414,7 @@ func (s *Server) codexFallsBack(model string, body []byte) bool {
 	if !ok || p.Account == nil || p.Account.Agent != "codex" {
 		return false
 	}
-	for _, id := range p.Fallback {
-		if _, _, ok := provider.ResolveRoute(id); ok {
-			return true
-		}
-	}
-	return false
+	return len(provider.FallbackModels(p)) > 0
 }
 
 // codexFallBack serves Codex's turn on its own sign-in, which the backend

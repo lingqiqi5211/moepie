@@ -405,6 +405,13 @@ func (s *Server) candidates(p provider.Provider, model string, from provider.Pro
 // plan is candidates, and for the routing trace what each stood where it
 // did by, and those left out.
 func (s *Server) plan(p provider.Provider, model string, from provider.Protocol) ([]candidate, planned) {
+	return s.planPaused(p, model, from, nil)
+}
+
+// planPaused is plan, a routing group among the fallbacks (01huadalang on
+// Discord) less the models paused leaves out of it: its pause rules, as
+// a request to the group would have them; nil pauses none.
+func (s *Server) planPaused(p provider.Provider, model string, from provider.Protocol, paused func(provider.Group, []provider.Member) []provider.Member) ([]candidate, planned) {
 	var pl planned
 	add := func(q provider.Provider, m string, fallback bool) []candidate {
 		cs, aside, left, barred := perKeyBarred(q, m, from)
@@ -436,6 +443,25 @@ func (s *Server) plan(p provider.Provider, model string, from provider.Protocol)
 	}
 	seen := map[string]bool{p.ID + "/" + model: true}
 	for _, id := range p.Fallback {
+		if g, ms, ok := provider.FallbackGroup(id); ok {
+			// a routing group: its members as a request to it has them,
+			// in its order, routing and sink, less any model tried
+			// already (this provider's own, another fallback's); a
+			// member's fallbacks are not followed, so nothing leads back
+			if paused != nil {
+				ms = paused(g, ms)
+			}
+			ms = slices.DeleteFunc(ms, func(m provider.Member) bool {
+				k := m.Provider.ID + "/" + m.Model
+				if seen[k] {
+					return true
+				}
+				seen[k] = true
+				return false
+			})
+			out = append(out, planFallbackGroup(g, ms, from, &pl)...)
+			continue
+		}
 		fp, fm, ok := provider.ResolveRoute(id)
 		if !ok || seen[fp.ID+"/"+fm] {
 			continue
@@ -444,6 +470,36 @@ func (s *Server) plan(p provider.Provider, model string, from provider.Protocol)
 		out = append(out, add(fp, fm, true)...)
 	}
 	return restLast(out, pl)
+}
+
+// planFallbackGroup is planGroup for a routing group a provider falls back
+// to, its rows added to pl as fallbacks reached through g: the group's
+// keys and accounts in its own order, sunk by its own Sink, those set
+// aside after them.
+func planFallbackGroup(g provider.Group, ms []provider.Member, from provider.Protocol, pl *planned) []candidate {
+	if len(ms) == 0 {
+		return nil
+	}
+	at, leftAt, unlistedAt := len(pl.order), len(pl.left), len(pl.unlistedW)
+	var asides []candidate
+	var wAsides []Weighed
+	out := planLevel(g, ms, 0, from, pl, &asides, &wAsides)
+	if sinks(g.Sink, g.Routing) {
+		var order []Weighed
+		out, order = sinkPlanned(out, pl.order[at:])
+		pl.order = append(pl.order[:at], order...)
+	}
+	out, pl.order = append(out, asides...), append(pl.order, wAsides...)
+	via := func(ws []Weighed) {
+		for i := range ws {
+			ws[i].Fallback = true
+			ws[i].Via = append([]string{g.ID}, ws[i].Via...)
+		}
+	}
+	via(pl.order[at:])
+	via(pl.left[leftAt:])
+	via(pl.unlistedW[unlistedAt:])
+	return out
 }
 
 // planGroup is plan for a routing group: every member's keys or accounts

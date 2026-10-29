@@ -332,9 +332,8 @@ func claudeReviewed(catalogs []string, models ...string) bool {
 		if gateway.AutoModeReviewable(p, model) {
 			return true
 		}
-		return slices.ContainsFunc(p.Fallback, func(id string) bool {
-			fp, fm, ok := provider.Resolve(id)
-			return ok && gateway.AutoModeReviewable(fp, fm)
+		return slices.ContainsFunc(provider.FallbackModels(p), func(m provider.Member) bool {
+			return gateway.AutoModeReviewable(m.Provider, m.Model)
 		})
 	}
 	find := provider.GroupFinder()

@@ -116,14 +116,8 @@ func (s *Server) nativeCompactionFor(asked string) bool {
 	if s.plannedCarrier(p, model) {
 		return true
 	}
-	seen := map[string]bool{p.ID + "/" + model: true}
-	for _, id := range p.Fallback {
-		fp, fm, ok := provider.ResolveRoute(id)
-		if !ok || seen[fp.ID+"/"+fm] {
-			continue
-		}
-		seen[fp.ID+"/"+fm] = true
-		if s.plannedCarrier(fp, fm) {
+	for _, m := range provider.FallbackModels(p) {
+		if (m.Provider.ID != p.ID || m.Model != model) && s.plannedCarrier(m.Provider, m.Model) {
 			return true
 		}
 	}

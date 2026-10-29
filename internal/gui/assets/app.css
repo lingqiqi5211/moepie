@@ -2841,6 +2841,9 @@ body.window .ag-sk-icon { width: 22px; height: 22px; border-radius: 6px; }
 .fbrow { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: 12.5px; }
 .fbrow .i { width: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .fbrow .grow { flex: 1; }
+/* a routing group among the fallbacks: its fan, then the muted word */
+.fbrow .mtell { color: var(--muted); font-size: 11px; flex: none; }
+.fbrow > svg { flex: none; color: var(--muted); }
 .fallback .mchips:empty { display: none; }
 .after-list { display: flex; align-items: center; gap: 8px; padding: 8px 4px 0; flex: none; }
 /* the Providers page's add button stays at the view's foot over a long list;
