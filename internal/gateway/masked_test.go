@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unsafe"
 
 	"github.com/yetone/magpie/internal/gwmw"
 	"github.com/yetone/magpie/internal/maskrec"
@@ -139,5 +140,22 @@ func TestMaskedBodyCopiedOnlyWhenKept(t *testing.T) {
 	big := []byte(strings.Repeat("y", maskrec.SentMax+1))
 	if n := allocated(func() { _ = sentOf(maskHits{n: 1}, big) }); n > 64<<10 {
 		t.Fatalf("over SentMax: %d bytes allocated", n)
+	}
+}
+
+// A snip is the text around a value, never a window into the request:
+// a value that is a whole JSON string came back as a substring of the
+// body, and a record holding it kept the whole request (#2278).
+func TestSnipsHoldNoneOfTheBody(t *testing.T) {
+	const p = "{{API_KEY_ccccdddd}}"
+	sent := `{"api_key":"` + p + `","input":"` + strings.Repeat("a", 1<<20) + `"}`
+	snips := snipsOf(sent, []gwmw.Hit{{Placeholder: p}})
+	got, ok := snips[p]
+	if !ok || got != p {
+		t.Fatalf("snips: %q", snips)
+	}
+	start := uintptr(unsafe.Pointer(unsafe.StringData(sent)))
+	if at := uintptr(unsafe.Pointer(unsafe.StringData(got))); at >= start && at < start+uintptr(len(sent)) {
+		t.Fatal("the snip is a window into the request body, which it keeps whole")
 	}
 }

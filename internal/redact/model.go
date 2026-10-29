@@ -84,7 +84,7 @@ func modelSpans(s string, o Options) []span {
 			a, b = zhTrim(s, a, b)
 		}
 		if a < b && utf8.ValidString(s[a:b]) && modelTakes(kind, s[a:b]) && modelFits(s, a, b, kind) && !(kind == "PERSON" && zhWordNotName(s, a, b)) {
-			out = append(out, span{a, b, kind, ByModel, f.Score})
+			out = append(out, span{a, b, kind, ByModel, f.Score, false})
 		}
 	}
 	if o.covers(catPersonal) {

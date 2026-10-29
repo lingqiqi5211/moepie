@@ -168,7 +168,10 @@ func snipsOf(sent string, hits []gwmw.Hit) map[string]string {
 		if b < end {
 			s += "…"
 		}
-		out[x.Placeholder] = s
+		// a value that is a whole string of the body is a snip cut from
+		// it: copied, or the record kept the whole request (up to
+		// SentMax) for as long as memory keeps its snips (#2278)
+		out[x.Placeholder] = strings.Clone(s)
 	}
 	return out
 }

@@ -1737,10 +1737,17 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 	var maskedHits maskHits
 	maskDone, sentWhole := false, false
 	unmask := func() {}
-	defer func() { unmask() }()
-	// the reply's model the member that answered, when asked for (#822)
+	// the reply's model the member that answered, when asked for (#822).
+	// Both writers hold a whole body until the handler is done, the namer
+	// outside: the values are put back first, into the namer, and then it
+	// writes what it holds. The other way round it wrote nothing, and the
+	// values came back after it, into a buffer no one wrote: a 200 with
+	// an empty body whenever a value was masked (#4129)
 	w, r, named := withMemberNames(w, r)
-	defer named()
+	defer func() {
+		unmask()
+		named()
+	}()
 	// an observer may want the bodies uncut (the OTLP export, #538): the
 	// request is already whole in memory, so keep it as it came, and the
 	// reply goes to a spool as it streams
