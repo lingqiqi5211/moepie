@@ -18,6 +18,7 @@ package agent
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -25,6 +26,7 @@ import (
 
 	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/edit"
+	"github.com/yetone/magpie/internal/provider"
 )
 
 // grokEfforts are the reasoning efforts Grok knows.
@@ -43,7 +45,7 @@ func grokModelTables(v1 string) []edit.Table {
 			{Path: "name", Value: m.Name},
 			{Path: "base_url", Value: v1},
 			{Path: "api_key", Value: keyAt(v1)},
-			{Path: "api_backend", Value: "chat_completions"},
+			{Path: "api_backend", Value: grokBackend(m)},
 		}
 		if m.Context > 0 {
 			kvs = append(kvs, edit.KV{Path: "context_window", Value: m.Context})
@@ -60,6 +62,23 @@ func grokModelTables(v1 string) []edit.Table {
 		out = append(out, edit.Table{Name: "model." + strconv.Quote(magpieID+"/"+m.ID), KVs: kvs})
 	}
 	return out
+}
+
+// grokBackend is the api_backend a model of magpie's is asked on: the API
+// its provider serves it on natively, so the gateway relays what Grok sent
+// as it is instead of translating Chat Completions. Grok Build takes
+// "chat_completions" (its default), "responses" and "messages" (Anthropic
+// Messages) on each [model.*] table, and sends each to base_url's
+// /chat/completions, /responses or /messages, so the one /v1 serves all
+// three. A model whose native API is Chat or not known stays on Chat.
+func grokBackend(m catalog.Model) string {
+	switch {
+	case slices.Contains(m.APIs, string(provider.Responses)):
+		return "responses"
+	case slices.Contains(m.APIs, string(provider.Anthropic)):
+		return "messages"
+	}
+	return "chat_completions"
 }
 
 func grok(home string) *Agent { return grokIn(here(home)) }

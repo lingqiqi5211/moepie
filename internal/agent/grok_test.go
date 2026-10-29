@@ -257,3 +257,41 @@ func TestGrokFoldsItsOwnAccount(t *testing.T) {
 		t.Errorf("DeepSeek's row: %v", others)
 	}
 }
+
+// Each of magpie's models is asked on the API its provider serves it on
+// natively (uk.jent on Discord): a model served on OpenAI's Responses API
+// on "responses", one on Anthropic's Messages API on "messages", and the
+// rest on Chat Completions, Grok Build's default. All three go to the
+// gateway's one /v1, where Grok adds /responses, /messages or
+// /chat/completions.
+func TestGrokAsksEachModelNatively(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+	t.Setenv("GROK_HOME", filepath.Join(home, "grok"))
+	for _, p := range []provider.Provider{
+		{ID: "deepseek", Name: "DeepSeek", Key: "k", Chat: "http://127.0.0.1:1/v1", Models: []string{"pro"}},
+		{ID: "resp", Name: "Resp", Key: "k", Responses: "http://127.0.0.1:1/v1", Models: []string{"gpt-6-sol"}},
+		{ID: "anth", Name: "Anth", Key: "k", Anthropic: "http://127.0.0.1:1", Models: []string{"claude-sonnet-5"}},
+	} {
+		if err := provider.Save(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(home, "grok", "config.toml")
+	if err := grok(home).Field("model").Set("magpie/deepseek/pro"); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	for id, want := range map[string]string{"deepseek/pro": "chat_completions", "resp/gpt-6-sol": "responses", "anth/claude-sonnet-5": "messages"} {
+		m, err := edit.GetTOMLTable(path, `model."magpie/`+id+`"`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m["api_backend"] != want || !strings.HasSuffix(m["base_url"], "/v1") {
+			t.Errorf("%s: api_backend %q, base_url %q, want %q on /v1\n%s", id, m["api_backend"], m["base_url"], want, raw)
+		}
+	}
+}
