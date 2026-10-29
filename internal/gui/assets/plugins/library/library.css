@@ -105,6 +105,13 @@ body.window .lib-head { top: -2px; margin: -2px 0 0; padding: 8px 0 4px; --bleed
 .lib-skill .sub { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.4; }
 .lib-skill.missing .name { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--faint); }
 .lib-skill.missing .sub { color: var(--amber); }
+/* off on this computer: its agents' ticks are the other computers', shown faded and not to be changed here */
+.lib-skill.offhere > .lib-glyph, .lib-skill.offhere > .lib-logo, .lib-skill.offhere .sub { opacity: .55; }
+.lib-skill.offhere > .lib-agents { opacity: .4; pointer-events: none; }
+.lib-hereline { display: flex; margin-top: 3px; min-width: 0; }
+.lib-hereline > .lib-tag.lib-offhere { cursor: pointer; margin-left: 0; flex: 0 1 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.lib-tag.lib-offhere:hover { color: var(--fg); }
+.lib-icon.lib-here.on { color: var(--accent); }
 .lib-src { display: flex; align-items: center; gap: 5px; margin-top: 3px; font-size: 11px; color: var(--faint); min-width: 0; }
 /* "linked from" stays whole, one line, and the path beside it gives way:
    CJK can break after any character, so the label shrank to a column of

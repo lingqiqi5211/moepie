@@ -2,6 +2,12 @@
 // kernel adds them to i18n.js's (magpie.strings).
 magpie.strings({
   zh: {
+    "Off on this computer": "本机已关闭",
+    "No agent on this computer gets it. Your other computers keep their own choice, and a sync doesn't turn it on here. Click to turn it on here.": "这台电脑上的 Agent 都不会用到它。其他电脑保持各自的设置，同步也不会在这里把它重新打开。点一下在本机打开。",
+    "{name} is on on this computer": "{name} 已在本机打开",
+    "{name} is off on this computer": "{name} 已在本机关闭",
+    "Turn on on this computer": "在本机打开",
+    "Turn off on this computer only: your other computers keep it": "只在本机关闭：其他电脑照常使用",
     "＋ Add a subagent": "＋ 添加子代理",
     "＋ Add subagent": "＋ 添加子代理",
     "{agent} reads no subagents magpie can write": "{agent} 没有 magpie 能写入的子代理",
@@ -634,6 +640,12 @@ magpie.strings({
     "Not installed here: it isn't given anything new, and what it has can be taken out here": "本机没有安装：不会再分配新的内容，已有的可以在这里移除",
   },
   "zh-TW": {
+    "Off on this computer": "本機已關閉",
+    "No agent on this computer gets it. Your other computers keep their own choice, and a sync doesn't turn it on here. Click to turn it on here.": "這台電腦上的 Agent 都不會用到它。其他電腦保持各自的設定，同步也不會在這裡把它重新開啟。點一下在本機開啟。",
+    "{name} is on on this computer": "{name} 已在本機開啟",
+    "{name} is off on this computer": "{name} 已在本機關閉",
+    "Turn on on this computer": "在本機開啟",
+    "Turn off on this computer only: your other computers keep it": "只在本機關閉：其他電腦照常使用",
     "＋ Add a subagent": "＋ 新增子代理",
     "＋ Add subagent": "＋ 新增子代理",
     "{agent} reads no subagents magpie can write": "{agent} 沒有 magpie 能寫入的子代理",
@@ -1266,6 +1278,12 @@ magpie.strings({
     "Not installed here: it isn't given anything new, and what it has can be taken out here": "本機沒有安裝：不會再分配新的內容，已有的可以在這裡移除",
   },
   ja: {
+    "Off on this computer": "このコンピュータでオフ",
+    "No agent on this computer gets it. Your other computers keep their own choice, and a sync doesn't turn it on here. Click to turn it on here.": "このコンピュータのエージェントには渡されません。ほかのコンピュータはそれぞれの設定のままで、同期してもここでオンに戻りません。クリックするとここでオンにします。",
+    "{name} is on on this computer": "{name} をこのコンピュータでオンにしました",
+    "{name} is off on this computer": "{name} をこのコンピュータでオフにしました",
+    "Turn on on this computer": "このコンピュータでオンにする",
+    "Turn off on this computer only: your other computers keep it": "このコンピュータだけでオフにする：ほかのコンピュータはそのまま",
     "＋ Add a subagent": "＋ サブエージェントを追加",
     "＋ Add subagent": "＋ サブエージェントを追加",
     "{agent} reads no subagents magpie can write": "{agent} には magpie が書き込めるサブエージェントがありません",
@@ -1898,6 +1916,12 @@ magpie.strings({
     "Not installed here: it isn't given anything new, and what it has can be taken out here": "このコンピューターにはインストールされていません：新しいものは割り当てられず、すでにあるものはここで外せます",
   },
   de: {
+    "Off on this computer": "Auf diesem Computer aus",
+    "No agent on this computer gets it. Your other computers keep their own choice, and a sync doesn't turn it on here. Click to turn it on here.": "Kein Agent auf diesem Computer bekommt ihn. Deine anderen Computer behalten ihre Wahl, und ein Sync schaltet ihn hier nicht wieder ein. Klicken, um ihn hier einzuschalten.",
+    "{name} is on on this computer": "{name} ist auf diesem Computer an",
+    "{name} is off on this computer": "{name} ist auf diesem Computer aus",
+    "Turn on on this computer": "Auf diesem Computer einschalten",
+    "Turn off on this computer only: your other computers keep it": "Nur auf diesem Computer ausschalten: deine anderen Computer behalten ihn",
     "＋ Add a subagent": "＋ Subagent hinzufügen",
     "＋ Add subagent": "＋ Subagent hinzufügen",
     "{agent} reads no subagents magpie can write": "{agent} liest keine Subagenten, die magpie schreiben kann",

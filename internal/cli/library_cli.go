@@ -23,6 +23,8 @@ const libraryUsage = `magpie library                     what the library gives 
   magpie library mcp agents <name> <a,b…|none>
   magpie library mcp rm <name>
   magpie library skill agents <name> <a,b…|none>
+  magpie library skill off-here <name>   turn it off on this computer only: a sync neither carries that nor turns it back on
+  magpie library skill on-here <name>    …and on again here
   magpie library skill rm <name>     (skills are installed from the app's Library page)
   magpie library skill rm --all [--yes]   every skill out of the library and the agents (asks first; --yes doesn't)
   magpie library skill rm --gone [--yes]  every skill an update found removed from its source (asks first; --yes doesn't)
@@ -135,6 +137,8 @@ func libraryCmd(args []string) error {
 			if res, err = removeEverySkill(rest[1:]); res == nil && err == nil {
 				return nil
 			}
+		case len(rest) == 2 && (rest[0] == "off-here" || rest[0] == "on-here") && !strings.HasPrefix(rest[1], "-"):
+			res, err = library.SkillHere(rest[1], rest[0] == "on-here")
 		case len(rest) == 2 && rest[0] == "rm":
 			res, err = library.RemoveSkill(rest[1])
 		case len(rest) == 3 && rest[0] == "use-library":
@@ -432,6 +436,9 @@ func libraryStatus() error {
 		}
 		if s.Gone != "" {
 			fmt.Println("   ", amber.Render("!"), muted.Render("removed from "+s.Source+" · magpie library skill rm --gone"))
+		}
+		if s.OffHere {
+			fmt.Println("   ", muted.Render("off on this computer · magpie library skill on-here "+s.Name))
 		}
 	}
 	fmt.Println(muted.Render("  kept in " + v.Dir + " · magpie library help"))

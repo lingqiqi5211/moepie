@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sync"
 	"time"
 )
@@ -102,7 +101,7 @@ func (l *Library) editState(s *Skill, targets []*Target) (edited, known bool) {
 		return true, true
 	}
 	for _, t := range targets {
-		if t.Skills == "" || t.Desktop != nil || !slices.Contains(s.Agents, t.Agent.ID) {
+		if t.Skills == "" || t.Desktop != nil || !s.gives(t.Agent.ID) {
 			continue
 		}
 		p := filepath.Join(t.Skills, s.Name)

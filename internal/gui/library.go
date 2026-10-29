@@ -513,6 +513,8 @@ func libraryRoutes(mux *http.ServeMux, w Windows) {
 			res, err = library.UpdateSomeSkills(in.Names)
 		case "skills/agents":
 			res, err = library.SkillAgents(in.Name, in.Agents)
+		case "skills/here":
+			res, err = library.SkillHere(in.Name, in.On)
 		case "skills/agents-all":
 			res, err = library.EverySkillAgents(in.Agents, in.On)
 		case "skills/agents-some":

@@ -182,6 +182,12 @@ repository can keep the token. The branch is part of the sync state key.
   nothing on one without (`TestArchiveNeverOnDiskUnasked`,
   `TestRequestArchiveLocalIsThisComputers`).
 
+A library skill turned off on one computer (`OffHere`, see
+[library](library.md)) stays off there alone: the library part never carries
+it, and putting another computer's library keeps it, so the others keep the
+skill on and a sync from them doesn't turn it on here
+(`TestSkillOffHereThroughSync`, two computers through the fake S3).
+
 ## Verification
 
 ```sh

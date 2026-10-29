@@ -50,6 +50,7 @@ magpie.plugin("library", (ctx) => {
     subagent: "M6 3a2.2 2.2 0 1 0 0 4.4A2.2 2.2 0 0 0 6 3z M2 13c.5-2.2 2-3.4 4-3.4s3.5 1.2 4 3.4 M11.5 7.5a1.5 1.5 0 1 0 0 .01 M10.2 12.5c.3-1.3 1.1-2 2.3-2s1.6.5 1.9 1.4",
     // a clock with an arrow going back round it, as macOS draws backups
     backup: "M3.2 8a4.8 4.8 0 1 0 1.4-3.4 M2.8 2.6v2.4h2.4 M8 5.3V8l1.9 1.2",
+    power: "M8 2.5v5 M4.7 4.6a4.8 4.8 0 1 0 6.6 0",
   };
 
   const tilde = (p) => (lib?.home && p?.startsWith(lib.home) ? "~" + p.slice(lib.home.length) : p || "");
@@ -4607,7 +4608,7 @@ magpie.plugin("library", (ctx) => {
   }
 
   function skillRow(s, all) {
-    const row = el("div", "row lib-row click lib-skill" + (s.missing ? " missing" : "") + (s.source ? " src" : ""));
+    const row = el("div", "row lib-row click lib-skill" + (s.missing ? " missing" : "") + (s.source ? " src" : "") + (s.offHere ? " offhere" : ""));
     const who = el("div", "who");
     const nm = el("div", "name", s.name);
     const c = s.check;
@@ -4646,7 +4647,24 @@ magpie.plugin("library", (ctx) => {
       };
       nm.append(b);
     }
+    // turned off on this computer alone: no agent here gets it, the ticks
+    // stay what a sync carries to the others, and a sync doesn't turn it
+    // on here again. A line of its own: a narrow row's name has no room
+    let hereLine = null;
+    if (s.offHere) {
+      const b = tag(t("Off on this computer"), "link lib-offhere", t("No agent on this computer gets it. Your other computers keep their own choice, and a sync doesn't turn it on here. Click to turn it on here."));
+      b.setAttribute("role", "button");
+      b.tabIndex = 0;
+      b.onclick = (e) => { e.stopPropagation(); change("skills/here", { name: s.name, on: true }, t("{name} is on on this computer", { name: s.name })); };
+      b.onkeydown = (e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault(); e.stopPropagation(); b.click();
+      };
+      hereLine = el("div", "lib-hereline");
+      hereLine.append(b);
+    }
     who.append(nm);
+    if (hereLine) who.append(hereLine);
     const sub = el("div", "sub", s.missing ? t("Its folder is gone from the library") : s.description || "");
     sub.title = s.description || "";
     who.append(sub);
@@ -4691,6 +4709,12 @@ magpie.plugin("library", (ctx) => {
       if (s.edited) u.title += "\n" + t("Changed here: asks before it replaces your changes");
       acts.append(u);
     }
+    const here = button("", "lib-icon lib-here" + (s.offHere ? " on" : ""), () => change("skills/here", { name: s.name, on: !!s.offHere },
+      s.offHere ? t("{name} is on on this computer", { name: s.name }) : t("{name} is off on this computer", { name: s.name })));
+    here.append(svg(GLYPH.power, 13, 1.5));
+    here.title = s.offHere ? t("Turn on on this computer") : t("Turn off on this computer only: your other computers keep it");
+    here.setAttribute("aria-pressed", s.offHere ? "true" : "false");
+    acts.append(here);
     const rm = button("", "lib-icon danger", () => confirmRemoveSkill(s));
     rm.append(svg(GLYPH.trash, 13, 1.4));
     rm.title = t("Remove");

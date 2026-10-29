@@ -44,6 +44,30 @@ type Skill struct {
 	// Gone is when an update or a check found its source without it: it
 	// was removed there (skill_gone.go). Kept on this computer only.
 	Gone string `json:"gone,omitempty"`
+	// OffHere turns the skill off on this computer alone (hanslin1666 on
+	// Discord): no agent here gets it, whatever Agents says. Agents is
+	// what a sync carries and stays as the other computers have it; this
+	// is never carried (Collect leaves it out) and a sync keeps it (Put).
+	OffHere bool `json:"offHere,omitempty"`
+}
+
+// gives reports whether the agent id gets the skill on this computer: it
+// is ticked for it, and the skill isn't turned off here.
+func (s *Skill) gives(id string) bool {
+	return s != nil && !s.OffHere && slices.Contains(s.Agents, id)
+}
+
+// SkillHere turns a skill on or off on this computer alone. Which agents
+// it is ticked for stays as it is, and so does every other computer's.
+func SkillHere(name string, on bool) (*Result, error) {
+	return change(func(l *Library) error {
+		s := l.skill(name)
+		if s == nil {
+			return fmt.Errorf("no skill called %s", name)
+		}
+		s.OffHere = !on
+		return nil
+	})
 }
 
 // Source is where a skill came from: a GitHub repository it can be updated
@@ -481,7 +505,7 @@ func (l *Library) syncSkills(t *Target, res *Result, all []*Target) {
 		if s == nil {
 			return false
 		}
-		return slices.Contains(s.Agents, id) || slices.ContainsFunc(sharers, func(o string) bool { return slices.Contains(s.Agents, o) })
+		return s.gives(id) || slices.ContainsFunc(sharers, s.gives)
 	}
 	// an agent that reads ~/.agents/skills as well as its own folder finds
 	// a skill magpie put there for another (Kimi Code) already: a link in
@@ -498,7 +522,7 @@ func (l *Library) syncSkills(t *Target, res *Result, all []*Target) {
 		}
 		p := filepath.Join(sharedSkillsDir(), s.Name)
 		return slices.ContainsFunc(all, func(o *Target) bool {
-			return o.Skills != "" && realDir(o.Skills) == shared && slices.Contains(s.Agents, o.Agent.ID)
+			return o.Skills != "" && realDir(o.Skills) == shared && s.gives(o.Agent.ID)
 		}) && (ours(p, s.Name) || realDir(p) == realDir(skillDir(s.Name)))
 	}
 	var mine []string
@@ -521,7 +545,7 @@ func (l *Library) syncSkills(t *Target, res *Result, all []*Target) {
 		res.changed(id)
 	}
 	for _, s := range l.Skills {
-		if !slices.Contains(s.Agents, id) {
+		if !s.gives(id) {
 			continue
 		}
 		// an agent gone from here is given nothing: what it has still

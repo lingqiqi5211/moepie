@@ -377,7 +377,9 @@ func Put(b *Bundle) (*Result, error) {
 		}
 		skills := []*Skill{}
 		for _, s := range b.Skills {
-			skills = append(skills, &Skill{Name: s.Name, Source: s.Source, Agents: slices.Clone(orNone(s.Agents))})
+			// turned off here stays off here: that is this computer's own
+			off := l.skill(s.Name) != nil && l.skill(s.Name).OffHere
+			skills = append(skills, &Skill{Name: s.Name, Source: s.Source, Agents: slices.Clone(orNone(s.Agents)), OffHere: off})
 			if keep[s.Name] {
 				continue
 			}

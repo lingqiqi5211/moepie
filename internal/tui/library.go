@@ -73,6 +73,10 @@ func (m *model) reloadLibrary() {
 		} else if s.Gone != "" {
 			r.about, r.bad = "removed from "+s.Source+" · d takes it out", r.bad+1
 		}
+		if s.OffHere {
+			// ticked agents are other computers' too; none gets it here
+			r.about = "off on this computer · magpie library skill on-here " + s.Name
+		}
 		m.lib = append(m.lib, r)
 	}
 	for _, f := range v.FoundServers {
