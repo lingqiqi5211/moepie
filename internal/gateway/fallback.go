@@ -1381,11 +1381,13 @@ var unsaidWords = regexp.MustCompile(`(?i)(^|"|\\"|: )invalid request error trac
 // member has tried every API it has a URL for (forwardTranslated), and
 // another member, on another API or another vendor, may serve it (#2670:
 // a relay with a Chat URL alone, refusing tools with reasoning there).
+// One that also says the account is out of quota or credit (quotaWords,
+// creditWords: "请充值") is that, and rests it (#4095).
 func shapeRefused(status int, body []byte) bool {
 	// the words are matched decoded, too (#1669)
 	body = wordsOf(body)
 	return (status == 400 || status == 422) && (shapeWords.Match(body) || unsaidWords.Match(body) || customToolRefusal.Match(body) || wrongEndpoint(status, body)) &&
-		!quotaWords.Match(body) && !unservedWords.Match(body) && !refusedWords.Match(body)
+		!quotaWords.Match(body) && !creditWords.Match(body) && !unservedWords.Match(body) && !refusedWords.Match(body)
 }
 
 // regionWords are how a vendor says it doesn't serve where the request
@@ -1479,6 +1481,7 @@ func elsewhere(left []candidate, c candidate) []candidate {
 // that failed this way: the vendor was busy, out of quota or failing, or
 // this key or provider can't serve it — not the request itself at fault.
 func retryable(status int, body []byte) bool {
+	raw := body
 	// the words are matched decoded, too (#1669)
 	body = wordsOf(body)
 	switch {
@@ -1494,6 +1497,14 @@ func retryable(status int, body []byte) bool {
 	case status >= 400 && provider.EdgeBlocked(body):
 		// the vendor's firewall blocked this address (Alibaba Cloud's 405
 		// in front of zcode.z.ai): another provider goes another way
+		return true
+	case status >= 400 && status < 500 && failure(status, raw) == failCredit:
+		// out of credit, as failure reads it, whatever the status: another
+		// account may have a balance. SuperMagic's 400 "您的可用积分已不足…
+		// 通过「充值」通道补充积分" read as credit, but no word of
+		// quotaWords' is in it, so a group never asked the account with
+		// 6,467 points and the empty one was never rested (#4095,
+		// mycf_711)
 		return true
 	case status == 400, status == 422:
 		return quotaWords.Match(body) || unservedWords.Match(body) || refusedWords.Match(body) || shapeWords.Match(body) || unsaidWords.Match(body) || regionWords.Match(body) || wrongEndpoint(status, body)
