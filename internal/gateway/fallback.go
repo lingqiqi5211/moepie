@@ -1244,7 +1244,9 @@ func quotaSaid(msg string) bool {
 
 // unservedWords are how a vendor says the model isn't one it serves this
 // key, or this way — words another provider, or key, may not answer with.
-var unservedWords = regexp.MustCompile(`(?i)model.{0,80}(not (supported|accessible|available|found|enabled|allowed)|unsupported|does ?n[o']t exist|unknown|invalid)|(no such|unknown|invalid|unsupported) model|model_not_found|模型.{0,12}(不存在|不支持|无权|未开通)`)
+// provider.ModelUnserved owns them: a plugin's 401 that says them doesn't
+// mark the account's sign-in either.
+var unservedWords = provider.ModelUnserved
 
 // modelRefused says the vendor turned the request away over its model
 // alone — not one this key's plan, or this key, may use: SenseNova's 403

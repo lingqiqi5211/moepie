@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"slices"
@@ -644,11 +645,48 @@ func pluginFetch(pp plugin.Provider, account string, req *http.Request) (*http.R
 // clears the mark.
 const SignInHeader = "X-Magpie-Sign-In"
 
+// ModelUnserved are how a vendor says the model isn't one it serves this
+// key, or this way — words another provider, or key, may not answer with
+// (the gateway's unservedWords, read decoded: catalog.Words).
+var ModelUnserved = regexp.MustCompile(`(?i)model.{0,80}(not (supported|accessible|available|found|enabled|allowed)|unsupported|does ?n[o']t exist|unknown|invalid)|(no such|unknown|invalid|unsupported) model|model_not_found|模型.{0,12}(不存在|不支持|无权|未开通)`)
+
+// signInWords are words of a refusal about the sign-in itself, which a
+// model named beside them doesn't make the model's: "model gpt-x: invalid
+// token" is the token.
+var signInWords = regexp.MustCompile(`(?i)token|api.?key|credential|sign.?in|log.?in|expired|session|令牌|密钥|登录|过期`)
+
+// modelOnly401 says a 401 a plugin answered without SignInHeader is about
+// the model, not the account's sign-in: its body says the model isn't
+// served (ModelUnserved) and nothing of the sign-in. A plugin answering
+// "this model isn't available to you" with 401 marked every account the
+// request failed over to as needing a new sign-in (plugins#468), for a
+// credential that was fine. Only the start of the body is read, and given
+// back whole for the gateway to read as before.
+func modelOnly401(resp *http.Response) bool {
+	if resp.StatusCode != http.StatusUnauthorized || resp.Body == nil {
+		return false
+	}
+	head, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	resp.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(head), resp.Body), resp.Body}
+	if err != nil || len(head) == 0 {
+		return false
+	}
+	words := catalog.Words(head)
+	return ModelUnserved.Match(words) && !signInWords.Match(words)
+}
+
 // notePluginSignIn marks or clears an account's lapse as the plugin's
-// answer says, and takes SignInHeader off it.
+// answer says, and takes SignInHeader off it. A 401 it says nothing of
+// that is about the model alone leaves the account as it is (kept).
 func notePluginSignIn(pp plugin.Provider, account string, resp *http.Response) {
 	said := strings.ToLower(strings.TrimSpace(resp.Header.Get(SignInHeader)))
 	resp.Header.Del(SignInHeader)
+	if said == "" && modelOnly401(resp) {
+		said = "kept"
+	}
 	notePluginSaid(pp, account, said, resp.StatusCode)
 }
 

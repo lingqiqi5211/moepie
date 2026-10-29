@@ -262,11 +262,12 @@ var warmHost = plugin.Warm
 // slow one isn't cut off when the page stops waiting.
 func pageHost(ctx context.Context) {
 	done := make(chan struct{})
+	warm := warmHost // read here: the start can outlive the page's wait
 	go func() {
 		defer close(done)
 		c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		if err := warmHost(c); err != nil {
+		if err := warm(c); err != nil {
 			log.Printf("plugin page: starting the plugin host: %v", err)
 		}
 	}()

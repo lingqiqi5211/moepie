@@ -26,15 +26,21 @@ const Topic = "magpie-plugin"
 
 // Tagged is a repository tagged with Topic.
 type Tagged struct {
-	Spec        string    `json:"spec"`  // what Install adds: its npm name when npm has it from this repository, else github:owner/repo
-	Repo        string    `json:"repo"`  // owner/repo
-	URL         string    `json:"url"`   // its page on GitHub
-	Owner       string    `json:"owner"` // its owner's login
-	OwnerAvatar string    `json:"ownerAvatar,omitempty"`
-	Description string    `json:"description,omitempty"`
-	Stars       int       `json:"stars"`
-	License     string    `json:"license,omitempty"` // SPDX id
-	Pushed      time.Time `json:"pushed"`
+	Spec        string `json:"spec"`  // what Install adds: its npm name when npm has it from this repository, else github:owner/repo
+	Repo        string `json:"repo"`  // owner/repo
+	URL         string `json:"url"`   // its page on GitHub
+	Owner       string `json:"owner"` // its owner's login
+	OwnerAvatar string `json:"ownerAvatar,omitempty"`
+	Description string `json:"description,omitempty"`
+	Stars       int    `json:"stars"`
+	// License is its SPDX id as GitHub reads its LICENSE file, else as
+	// its package.json says (PkgLicense): a LICENSE GitHub can't match to
+	// one (NOASSERTION: MIT's text with a line of credit added) or none at
+	// all left the card with no licence, while npm shows package.json's
+	// (plugins#468)
+	License    string    `json:"license,omitempty"`
+	PkgLicense string    `json:"pkgLicense,omitempty"`
+	Pushed     time.Time `json:"pushed"`
 	// from its package.json on the default branch: what bun will install
 	// it as, its version, and whether it is gateway middleware or an agent
 	Package string `json:"package,omitempty"`
@@ -261,6 +267,9 @@ func askTagged(ctx context.Context, last []Tagged) (l []Tagged, whole bool, miss
 	// what the search says now, over what is kept of a repository
 	fresh := func(r, t Tagged) Tagged {
 		r.URL, r.Owner, r.OwnerAvatar, r.Description, r.Stars, r.License, r.Pushed = t.URL, t.Owner, t.OwnerAvatar, t.Description, t.Stars, t.License, t.Pushed
+		if r.License == "" {
+			r.License = r.PkgLicense
+		}
 		return r
 	}
 	var mu sync.Mutex // out, keep, done, why; late once the page stops waiting
@@ -394,6 +403,7 @@ func readTagged(pc context.Context, t Tagged, branch string) (Tagged, bool, bool
 		Version string          `json:"version"`
 		Main    string          `json:"main"`
 		Exports json.RawMessage `json:"exports"`
+		License any             `json:"license"`
 		Magpie  struct {
 			Middleware string `json:"middleware"`
 			Agent      string `json:"agent"`
@@ -407,6 +417,14 @@ func readTagged(pc context.Context, t Tagged, branch string) (Tagged, bool, bool
 		return t, false, true, nil
 	}
 	t.Package, t.Version = pj.Name, pj.Version
+	// the licence it names, a string as npm takes it, for when GitHub
+	// couldn't tell one from its LICENSE file
+	if l, ok := pj.License.(string); ok {
+		t.PkgLicense = strings.TrimSpace(l)
+		if t.License == "" {
+			t.License = t.PkgLicense
+		}
+	}
 	// a picture, as host.js's iconOf takes one: magpie checks and
 	// keeps it before the page shows it (the GUI's /api/plugins/github)
 	t.Icon = ownIcon(pj.Magpie.Icon)
