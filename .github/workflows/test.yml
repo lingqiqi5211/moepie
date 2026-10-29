@@ -18,13 +18,19 @@ permissions:
 
 jobs:
   test:
-    name: test (${{ matrix.os }})
+    name: ${{ matrix.check }} (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         # ARM64 hosted capacity left macos-latest without a runner before
         # checkout. Keep the full Darwin checks on the supported Intel pool.
         os: [ubuntu-latest, macos-15-intel, windows-latest]
+        # Ordinary tests and the race detector keep separate runners busy;
+        # neither waits for the other, and both must pass for Test to pass.
+        check: [test, race]
+        exclude:
+          - os: windows-latest
+            check: race
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -54,24 +60,40 @@ jobs:
       # Unformatted files reached main 8 times from 10-01 to 10-06 and each
       # took a gofmt commit of its own. Linux only: Windows checks out CRLF.
       - name: Gofmt
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.check == 'test'
         shell: bash
         run: |
           bad=$(gofmt -l $(git ls-files '*.go'))
           if [ -n "$bad" ]; then echo "not gofmt'd:"; echo "$bad"; exit 1; fi
 
       - name: Vet
+        if: matrix.check == 'test'
         run: go vet -tags "${{ steps.tags.outputs.tags }}" ./...
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
 
-      # internal/gateway takes 450-600s on macOS runners, and go test's
-      # default 10m timed it out in 3 of 8 finished main runs (#2108).
+      # Gateway tests use t.Setenv and cannot use t.Parallel. Run their
+      # compiled binary in isolated processes below, as Race already does;
+      # every other package keeps its ordinary go test invocation.
       - name: Test
-        if: runner.os != 'Windows'
-        run: go test -timeout 30m -tags "${{ steps.tags.outputs.tags }}" ./...
+        if: matrix.check == 'test' && runner.os != 'Windows'
+        shell: bash
+        env:
+          TEST_TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          go list -tags "$TEST_TAGS" ./... | grep -v '/internal/gateway$' |
+            xargs go test -timeout 30m -tags "$TEST_TAGS"
+
+      - name: Gateway tests
+        if: matrix.check == 'test' && runner.os != 'Windows'
+        shell: bash
+        env:
+          TEST_TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          go test -c -o "$RUNNER_TEMP/gateway.test" -tags "$TEST_TAGS" ./internal/gateway/
+          build/race-shards.sh internal/gateway "$RUNNER_TEMP/gateway.test" "$(getconf _NPROCESSORS_ONLN)" -test.timeout=30m
 
       # Windows skips the Test step above, so the two plugin stderr tests run
       # here. The end-to-end one needs bun on PATH; without it it skips.
@@ -83,7 +105,7 @@ jobs:
           go test -v -count=1 ./internal/plugin/ -run '^(TestHostStartsPastAnOverlongStderrLine|TestDrainStderrKeepsTheChildGoing)$'
 
       - name: Production plugin flow
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.check == 'test'
         timeout-minutes: 10
         env:
           MAGPIE_FLOW_BIG: '1'
@@ -96,7 +118,7 @@ jobs:
       # tests can't call t.Parallel (t.Setenv), so its suite runs split over
       # one process per core (#923); each process isolates its own home.
       - name: Race
-        if: runner.os != 'Windows'
+        if: matrix.check == 'race'
         shell: bash
         run: |
           go test -race -c -o "$RUNNER_TEMP/gateway.race" -tags "${{ steps.tags.outputs.tags }}" ./internal/gateway/
@@ -105,7 +127,7 @@ jobs:
 
       # Account usage mixes cached results with concurrent fetches.
       - name: Race account usage
-        if: runner.os != 'Windows'
+        if: matrix.check == 'race'
         run: go test -race -tags "${{ steps.tags.outputs.tags }}" ./internal/provider/ -run '^Test(LoginUsage|SubscriptionUsageEachAccount)'
 
       # Some tests fake a home through $HOME, which Windows doesn't read

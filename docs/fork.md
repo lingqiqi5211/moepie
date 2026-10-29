@@ -91,9 +91,11 @@ commit.
 ## Building and releasing
 
 `.github/workflows/test.yml` runs on main pushes and pull requests (Go checks
-on three systems, the site worker tests and CLI builds). Browser tests run
-separately with Playwright. It is upstream's
-gate, with local release-script regressions added, and the release reads its result.
+on three systems, the site worker tests and CLI builds). Linux and macOS run
+ordinary checks and race checks on separate runners; both must pass. Gateway
+tests run in isolated processes, one per core, in each check. Browser tests
+run separately with Playwright. The release reads the whole Test workflow's
+result for the exact commit.
 
 `.github/workflows/release.yml` runs only through **Actions → Release → Run workflow**.
 A push to `main` runs Test and Docker, but does not start a release build or
