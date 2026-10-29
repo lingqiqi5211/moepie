@@ -145,7 +145,7 @@ func toGuard() {
 // Past it the rules mask alone. AstrLink Guard reads on the CPU, a long
 // history it hasn't seen takes minutes there, and one request at a time
 // is read: unbounded, every request queued behind the first (shensmart
-// on Discord, 10-28: Codex's requests sat "masking…" once the default's
+// on Discord, 10-28: Codex's requests sat masking once the default's
 // download finished). What the model read meanwhile is kept, so the next
 // request finds it. A var for tests.
 var defaultWait = 2 * time.Second

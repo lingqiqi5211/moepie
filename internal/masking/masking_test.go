@@ -167,7 +167,7 @@ func (h hangs) Find(context.Context, []string) ([][]redact.Found, error) {
 }
 
 // shensmart on Discord (10-28): with the model on by default, a request
-// waited for it as long as its client did, "masking…" on the Requests
+// waited for it as long as its client did, masking on the Requests
 // page, every one after it queued behind. On by default, it is waited for
 // defaultWait at most and the rules mask alone; turned on by the user, it
 // is waited for longer (strictWait).
