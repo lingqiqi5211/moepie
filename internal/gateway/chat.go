@@ -331,7 +331,8 @@ func buildChat(r *Request, model, host string, rejectTemp bool) []byte {
 	// interleaved thinking): the decoder takes it out as thinking (#1267),
 	// so it goes back in where it came from. A relay serving MiniMax's
 	// models may give the thinking apart and take it back otherwise.
-	inlineThink := strings.HasSuffix(host, "minimax.io") || strings.HasSuffix(host, "minimaxi.com")
+	// api.minimax.cn is MiniMax China's host beside api.minimaxi.com.
+	inlineThink := strings.HasSuffix(host, "minimax.io") || strings.HasSuffix(host, "minimaxi.com") || strings.HasSuffix(host, "minimax.cn")
 	// Gemini wants each step's thought signature back on its first call
 	// (#687), and one it can't check for a step it didn't sign
 	gemini := geminiCompat(host, model)

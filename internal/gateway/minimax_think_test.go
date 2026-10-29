@@ -88,6 +88,7 @@ func TestMiniMaxThinkingGoesBackInTags(t *testing.T) {
 	for _, c := range []struct{ model, host, want string }{
 		{"MiniMax-M2.7", "api.minimax.io", "<think>\nThe user greets me.\n</think>\n\nHello!"},
 		{"MiniMax-M2.7", "api.minimaxi.com", "<think>\nThe user greets me.\n</think>\n\nHello!"},
+		{"MiniMax-M2.7", "api.minimax.cn", "<think>\nThe user greets me.\n</think>\n\nHello!"},
 		{"minimax/minimax-m3", "openrouter.ai", "Hello!"},
 		{"kimi-k3", "api.moonshot.cn", "Hello!"},
 	} {

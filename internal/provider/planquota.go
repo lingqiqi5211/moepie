@@ -57,9 +57,12 @@ func planQuotaSourceOf(p Provider) (planQuotaSource, bool) {
 			// preset too, and is told the plan's 5-hour and weekly windows;
 			// a pay-as-you-go key has none, and no card
 			return planQuotaSource{"https://api.commandcode.ai/alpha/billing/credits", true, readCommandCodePlan, false}, true
-		case "api.minimaxi.com", "api.minimax.io":
+		case "api.minimaxi.com", "api.minimax.cn", "api.minimax.io":
 			// a Coding Plan key (sk-cp-…) is told its windows; a
-			// pay-as-you-go key isn't, and gets no card (#387)
+			// pay-as-you-go key isn't, and gets no card (#387).
+			// api.minimax.cn is MiniMax China's host since mmx-cli
+			// 8746d48f (2026-09-28), beside api.minimaxi.com, and
+			// answers the same query
 			return planQuotaSource{"https://" + hostOf(base) + "/v1/token_plan/remains", true, readMiniMaxPlan, false}, true
 		case "ollama.com":
 			// Ollama Cloud's included allowance (#1888); a key with none
