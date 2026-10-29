@@ -96,3 +96,21 @@ func TestLockMakesFolderOnlyWhenMissing(t *testing.T) {
 		t.Fatalf("20 takes in a folder that is there made it %d more times", made-1)
 	}
 }
+
+// Take refuses past the wait where Lock goes on without it.
+func TestTakeRefusesPastWait(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "f.json.lock")
+	unlock, held := Lock(path, time.Second)
+	if !held {
+		t.Skip("no file locks here")
+	}
+	if _, err := Take(path, 50*time.Millisecond); err != ErrHeld {
+		t.Fatalf("taken while held: %v", err)
+	}
+	unlock()
+	again, err := Take(path, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again()
+}

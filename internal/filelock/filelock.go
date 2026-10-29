@@ -30,6 +30,28 @@ var mkdirAll = os.MkdirAll
 // held is false when it went on without the lock: on a file system
 // without locks, or after wait.
 func Lock(path string, wait time.Duration) (unlock func(), held bool) {
+	unlock, held, late := take(path, wait)
+	if late {
+		log.Printf("%s: another magpie held it for %v; going on without it", path, wait)
+	}
+	return unlock, held
+}
+
+// ErrHeld is Take's error: another magpie held the lock past the wait.
+var ErrHeld = errors.New("another magpie is changing it; try again")
+
+// Take is Lock, but held past wait it is ErrHeld, not going on without
+// it: for a change better refused than made over another magpie's.
+func Take(path string, wait time.Duration) (unlock func(), err error) {
+	unlock, _, late := take(path, wait)
+	if late {
+		return nil, ErrHeld
+	}
+	return unlock, nil
+}
+
+// take is Lock; late when another magpie held it past wait.
+func take(path string, wait time.Duration) (unlock func(), held, late bool) {
 	// the folder is made only when the file can't be opened for want of
 	// it: made first, each lock asked the system for the folder too, on
 	// every take (#1665: ~190 times in a Windows start's first 25s, each
@@ -40,22 +62,21 @@ func Lock(path string, wait time.Duration) (unlock func(), held bool) {
 		f, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	}
 	if err != nil {
-		return func() {}, false // no lock to be had here: no file to change either
+		return func() {}, false, false // no lock to be had here: no file to change either
 	}
 	start := time.Now()
 	for {
 		got, err := TryLock(f)
 		if err != nil { // a file system without locks, as an NFS home with no lockd
 			f.Close()
-			return func() {}, false
+			return func() {}, false, false
 		}
 		if got {
-			return func() { Unlock(f); f.Close() }, true
+			return func() { Unlock(f); f.Close() }, true, false
 		}
 		if time.Since(start) > wait {
 			f.Close()
-			log.Printf("%s: another magpie held it for %v; going on without it", path, wait)
-			return func() {}, false
+			return func() {}, false, true
 		}
 		time.Sleep(5 * time.Millisecond)
 	}

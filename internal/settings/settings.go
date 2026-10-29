@@ -28,6 +28,7 @@ import (
 	"github.com/yetone/magpie/internal/appdir"
 	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/edit"
+	"github.com/yetone/magpie/internal/filelock"
 	"github.com/yetone/magpie/internal/filememo"
 	"github.com/yetone/magpie/internal/fonts"
 	"github.com/yetone/magpie/internal/lastgood"
@@ -1218,14 +1219,25 @@ var fileMu sync.RWMutex
 // held second would be written over. Only set or read under fileMu.
 var writing bool
 
-// lockFile takes fileMu for a write, and returns what lets it go.
-func lockFile() (unlock func()) {
+// lockWait is how long a write waits for another magpie; a test shortens it.
+var lockWait = filelock.Wait
+
+// lockFile takes fileMu for a write and the lock other magpies take on
+// the file, and returns what lets them go. Another magpie holding it past
+// lockWait is an error, not a write over its change.
+func lockFile() (unlock func(), err error) {
 	fileMu.Lock()
+	held, err := filelock.Take(Path()+".lock", lockWait)
+	if err != nil {
+		fileMu.Unlock()
+		return nil, fmt.Errorf("settings: %w", err)
+	}
 	writing = true
 	return func() {
 		writing = false
+		held()
 		fileMu.Unlock()
-	}
+	}, nil
 }
 
 // Load reads the settings; anything missing or unreadable is the default.
@@ -1430,16 +1442,45 @@ func SavedAddr() string {
 	return fmt.Sprintf("127.0.0.1:%d", p)
 }
 
+// Edit changes the settings as edit makes them from what the file holds
+// now, so a change saved meanwhile, here or by another magpie, isn't
+// written over from an older copy. A file that can't be read is left as
+// it is, with the error, and an error from edit saves nothing. edit must
+// not Load or Save: the file is held.
+func Edit(edit func(*Settings) error) error {
+	unlock, err := lockFile()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	s, err := loadChecked()
+	if err != nil {
+		return err
+	}
+	if err := edit(&s); err != nil {
+		return err
+	}
+	return save(s, false)
+}
+
 // Save validates and writes the settings, preserving current recording consent.
 func Save(s Settings) error {
-	defer lockFile()()
+	unlock, err := lockFile()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	return save(s, false)
 }
 
 // SetGatewayConversations changes local recording consent without overwriting
 // other settings from an earlier snapshot.
 func SetGatewayConversations(on bool) error {
-	defer lockFile()()
+	unlock, err := lockFile()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	s := load()
 	s.GatewayConversations = on
 	return save(s, true)
@@ -1449,7 +1490,11 @@ func SetGatewayConversations(on bool) error {
 // file holds now, so a save elsewhere from an older snapshot isn't undone.
 // A settings file that can't be read is left as it is, with the error.
 func EditCheckinOff(edit func([]string) []string) error {
-	defer lockFile()()
+	unlock, err := lockFile()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	s, err := loadChecked()
 	if err != nil {
 		return err
@@ -1468,7 +1513,11 @@ func EditCheckinOff(edit func([]string) []string) error {
 // error: what it holds is unknown, not "no aliases". edit is given a copy,
 // and an error from it saves nothing.
 func EditUsageAliases(edit func(map[string]string) (map[string]string, error)) error {
-	defer lockFile()()
+	unlock, err := lockFile()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	s, err := loadChecked()
 	if err != nil {
 		return err
@@ -1488,7 +1537,11 @@ func EditUsageAliases(edit func(map[string]string) (map[string]string, error)) e
 // Settings → Privacy does once the model is downloaded; off is the
 // user's own (RedactModelOff), which the default never turns on again.
 func SetRedactModel(on bool) error {
-	defer lockFile()()
+	unlock, err := lockFile()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	s := load()
 	s.RedactModel, s.RedactModelOff = on, !on
 	return save(s, false)
@@ -1498,7 +1551,11 @@ func SetRedactModel(on bool) error {
 // downloaded (RedactModelAuto), unless the user picked one or turned it
 // off in between: it says whether it did.
 func UseDefaultRedactModel(name string) (bool, error) {
-	defer lockFile()()
+	unlock, err := lockFile()
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
 	s := load()
 	if s.RedactModelName != "" || s.RedactModelOff || s.RedactModel {
 		return false, nil
@@ -1510,7 +1567,11 @@ func UseDefaultRedactModel(name string) (bool, error) {
 // SetRedactModelName keeps the local model the user picked while it is
 // off, for turning it on.
 func SetRedactModelName(name string) error {
-	defer lockFile()()
+	unlock, err := lockFile()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	s := load()
 	s.RedactModelName = name
 	return save(s, false)
@@ -1519,7 +1580,11 @@ func SetRedactModelName(name string) error {
 // SetRedactModelScore keeps score as the local model id's threshold; 0
 // is back to the model's own.
 func SetRedactModelScore(id string, score float64) error {
-	defer lockFile()()
+	unlock, err := lockFile()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	s := load()
 	m := maps.Clone(s.RedactModelScore)
 	if m == nil {
@@ -1540,7 +1605,11 @@ func SetRedactModelScore(id string, score float64) error {
 // UseRedactModel turns the local masking model on as name, the model
 // the user picked, once that model is downloaded.
 func UseRedactModel(name string) error {
-	defer lockFile()()
+	unlock, err := lockFile()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	s := load()
 	s.RedactModel, s.RedactModelName, s.RedactModelOff = true, name, false
 	return save(s, false)
@@ -1992,7 +2061,11 @@ func ClearUsage(provider, model string, at time.Time) error {
 	if at.UnixMilli() <= 0 {
 		return fmt.Errorf("a clear of usage needs a time")
 	}
-	defer lockFile()()
+	unlock, err := lockFile()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	s, err := loadChecked()
 	if err != nil {
 		return err
