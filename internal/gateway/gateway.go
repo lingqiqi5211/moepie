@@ -630,7 +630,17 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	})
 	defer stopLimits()
 	freshCtx, stopFresh := context.WithCancel(ctx)
-	defer stopFresh()
+	// The outage probes belong to this serving instance. End and join them
+	// on every return, including an unexpected listener failure.
+	probesDone := make(chan struct{})
+	go func() {
+		defer close(probesDone)
+		s.keepProbingRests(freshCtx)
+	}()
+	defer func() {
+		stopFresh()
+		<-probesDone
+	}()
 	// what another process writes to them is seen at once, not on the
 	// loops' next look (#3185)
 	go filememo.Watch(freshCtx, pluginrt.Path(), settings.Path(), provider.Path(), plugin.ListPath(), plugin.ToolsPath(), access.Path())

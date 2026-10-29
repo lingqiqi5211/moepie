@@ -685,7 +685,7 @@ func providerInfoWith(p provider.Provider, agents []agentUse, desktop map[string
 		}
 		key := restKey(k)
 		if r, ok := keyRestOf(key); ok {
-			out.KeyList[i].Rest = &provider.KeyRest{Why: r.Why, Status: r.Status, Until: r.Until, Key: key}
+			out.KeyList[i].Rest = &provider.KeyRest{Why: r.Why, Status: r.Status, Until: r.Until, Key: key, Probed: r.Probed}
 		}
 	}
 	if !out.Key.Set && p.Ready() {

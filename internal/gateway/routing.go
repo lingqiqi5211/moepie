@@ -72,6 +72,7 @@ func served(rest, key string, tokens int) {
 	delete(routed.failures, rest)
 	routed.Unlock()
 	clearRest(key)
+	probeAnswered(key)
 }
 
 // servedCandidate records an answer and ends both the provider's rest and,
@@ -567,6 +568,10 @@ type Rest struct {
 	Model string `json:"model,omitempty"`
 	// Link: where the vendor said to verify the account, for failVerify
 	Link string `json:"link,omitempty"`
+	// Probed: a key resting after an outage that names no time (a 5xx, its
+	// vendor unreachable) is asked again in the background, and its rest
+	// lifted as soon as it answers (rest_probe.go)
+	Probed bool `json:"probed,omitempty"`
 
 	// the subscription account resting, when it is one; agent "" and its
 	// provider.KeyAllowanceID for a key out of its own windows
@@ -1267,6 +1272,7 @@ func (s *Server) restAfterMarked(c candidate, status int, header http.Header, bo
 	if id == c.restID() {
 		r.Model = c.model
 	}
+	r.Probed = probeable(c, r, header, now) && !probeMissed(id, now)
 	restingUntil.Lock()
 	if why == failQuota || why == failCredit {
 		// out for as long as magpie guessed: refused so the time before
@@ -1282,6 +1288,9 @@ func (s *Server) restAfterMarked(c candidate, status int, header http.Header, bo
 	restingUntil.m[id] = r.Until
 	restingUntil.note[id] = r
 	restingUntil.Unlock()
+	if r.Probed {
+		s.probeLater(c.p, r, now)
+	}
 	if unread && id == c.restKey() && id != c.restID() {
 		narrowing.Add(1)
 		go narrowWhenRead(c, r)

@@ -14196,7 +14196,7 @@ function renderKeyAccounts(p) {
     // a line of its own under the key's, so the row's controls stay in reach
     let restLine = null;
     if (k.rest && new Date(k.rest.until) > Date.now()) {
-      const r = el("span", "key-rest", t("Resting · {why} · back at {time}", { why: (k.rest.status ? k.rest.status + " " : "") + t(KEY_FAIL[k.rest.why] || "failed"), time: new Date(k.rest.until).toLocaleTimeString(intlLang(), { hour: "2-digit", minute: "2-digit" }) }));
+      const r = el("span", "key-rest", t("Resting · {why} · back at {time}", { why: (k.rest.status ? k.rest.status + " " : "") + t(KEY_FAIL[k.rest.why] || "failed"), time: hhmm(k.rest.until) }) + (k.rest.probed ? " · " + t("checked in the background, back as soon as it answers") : ""));
       r.title = t("The gateway passes this key over until then, and tries the next one");
       // lifted by hand (#1869): the next request asks it again, and a
       // refusal then rests it again as before
@@ -17399,12 +17399,9 @@ function resetsUsedLine(q) {
   if (!used.length) return null;
   const line = el("span", "ar-used");
   const last = used[0];
-  line.textContent = t("Last reset used: {when} · {why}", { when: resetUsedWhen(last.at), why: resetUsedWhy(last.why) });
-  line.title = used.map((u) => resetUsedWhen(u.at) + " · " + resetUsedWhy(u.why)).join("\n");
+  line.textContent = t("Last reset used: {when} · {why}", { when: stamp(last.at), why: resetUsedWhy(last.why) });
+  line.title = used.map((u) => stamp(u.at) + " · " + resetUsedWhy(u.why)).join("\n");
   return line;
-}
-function resetUsedWhen(at) {
-  return new Date(at).toLocaleString(intlLang(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 function resetUsedWhy(why) {
   if (why === "week") return t("by itself, its week used up");
@@ -19855,9 +19852,12 @@ function refreshAfterSync() {
   api("state").then((s) => { state = s; renderAgents(); }).catch(() => {});
 }
 
+// hhmm: a time's hours and minutes, in the user's language
+const hhmm = (d) => new Date(d).toLocaleTimeString(intlLang(), { hour: "2-digit", minute: "2-digit" });
+
 function syncWhen(iso) {
   const d = new Date(iso);
-  const time = d.toLocaleTimeString(intlLang(), { hour: "2-digit", minute: "2-digit" });
+  const time = hhmm(d);
   return new Date().toDateString() === d.toDateString() ? t("at {time}", { time }) : d.toLocaleDateString(intlLang()) + " " + time;
 }
 
@@ -21428,7 +21428,7 @@ function searchKeysRow(s, a, row, set) {
       const notes = [];
       if (q.known && q.of === "plan") notes.push(q.plan ? t("{plan} plan, shared by its account's keys", { plan: q.plan }) : t("the plan's, shared by its account's keys"));
       if (q.paygoLeft > 0) notes.push(t("{n} pay-as-you-go left", { n: num(q.paygoLeft) }));
-      if (q.resting) notes.push(t("asked last until {time}: {why}", { time: new Date(q.restUntil).toLocaleTimeString(intlLang(), { hour: "2-digit", minute: "2-digit" }),
+      if (q.resting) notes.push(t("asked last until {time}: {why}", { time: hhmm(q.restUntil),
         why: { "turned away": t("turned away"), "out of credit": t("out of credit"), "rate limited": t("rate limited"), "used up": t("used up") }[q.resting] || q.resting }));
       const used = el("span", q.known ? (q.usedUp ? "used warn" : "used") : "used err", said);
       line.append(el("code", "", q.key), used);

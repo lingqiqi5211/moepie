@@ -635,9 +635,11 @@ function routingPage(part) {
       case "restricted": return t("The vendor restricted the account: it rests {d}, as only the vendor lifting the restriction brings it back. Appeal with the vendor; once it's lifted, try it again here", { d });
       case "backoff": return rest.why === "rate"
         ? t("It was rate limited again as soon as it was back ({n} times in a row): it rests {d}, longer each time until it answers", { n: rest.failures, d })
-        : rest.failures > 1
-        ? t("It has failed {n} times in a row: it rests {d}, longer each time", { n: rest.failures, d })
-        : t("It rests {d}, longer if it fails again", { d });
+        : (rest.failures > 1
+          ? t("It has failed {n} times in a row: it rests {d}, longer each time", { n: rest.failures, d })
+          : t("It rests {d}, longer if it fails again", { d }))
+          // asked in the background meanwhile, and back once it answers
+          + (rest.probed ? " · " + t("checked in the background, back as soon as it answers") : "");
       case "cooldown": return rest.why === "rate"
         ? t("It cools down {d}: the vendor didn't say for how long", { d })
         : t("It rests {d}", { d });

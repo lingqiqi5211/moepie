@@ -441,6 +441,20 @@ func (p Provider) List(ctx context.Context) ([]catalog.Model, error) {
 	return catalog.Chat(l.models), nil
 }
 
+// ListAsks says List asks a vendor over the network, with p's own key,
+// what p serves: a key's provider, not a subscription's account, a
+// plugin's or a decision API, nor a preset with no list to ask, whose List
+// answers the preset's models without asking anyone. The gateway asks it
+// of a key resting after an outage, to tell whether it is back
+// (gateway/rest_probe.go).
+func (p Provider) ListAsks() bool {
+	if p.Account != nil || p.DecideOnly() {
+		return false
+	}
+	pr := Preset(p.Preset)
+	return pr == nil || !pr.NoList || strings.TrimSpace(p.ModelsURL) != "" || p.listRegion(pr)
+}
+
 // newFetches is when each account with no list from its vendor yet was
 // last asked for one by FetchNew.
 var newFetches = struct {
