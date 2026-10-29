@@ -1,0 +1,74 @@
+name: Sync upstream
+
+# Mirror yetone/magpie main onto this fork's `up` branch only. `main` never
+# takes a merge: changes are picked from `up` one commit at a time, so the
+# subtraction stays readable and reversible.
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Update only up to upstream main
+        env:
+          # Mirroring workflow files needs Workflows write, which the
+          # built-in GITHUB_TOKEN cannot grant. Never execute code from up.
+          GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Set UPSTREAM_SYNC_TOKEN with Contents and Workflows write for this repository."
+            exit 1
+          fi
+          upstream=$(gh api repos/yetone/magpie/git/ref/heads/main --jq '.object.sha')
+          refs=$(gh api "repos/$GH_REPO/git/matching-refs/heads/up")
+          current=$(jq -r '.[] | select(.ref == "refs/heads/up") | .object.sha' <<< "$refs")
+          if [ "$current" = "$upstream" ]; then
+            echo "up is already at $upstream" >> "$GITHUB_STEP_SUMMARY"
+          elif [ -n "$current" ]; then
+            gh api --method PATCH "repos/$GH_REPO/git/refs/heads/up" -f sha="$upstream" -F force=true
+            echo "up moved from $current to $upstream" >> "$GITHUB_STEP_SUMMARY"
+          else
+            gh api --method POST "repos/$GH_REPO/git/refs" -f ref=refs/heads/up -f sha="$upstream"
+            echo "up created at $upstream" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "Upstream main: $upstream" >> "$GITHUB_STEP_SUMMARY"
+
+      # The compare API sees ancestry, not patch equivalence. Already picked
+      # commits may appear here; verify locally before cherry-picking.
+      - name: List upstream candidate commits
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          if ! gh api "repos/$GH_REPO/compare/main...up" > "$RUNNER_TEMP/compare.json"; then
+            echo 'Could not compare main and up; inspect `git log --cherry-pick --right-only main...origin/up --oneline` locally.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          total=$(jq -r '.total_commits // 0' "$RUNNER_TEMP/compare.json")
+          {
+            echo ""
+            echo "### Upstream candidates: $total (ancestry comparison)"
+            jq -r '.commits[] | "- `\(.sha[0:8])` \(.commit.message | split("\n")[0])"' "$RUNNER_TEMP/compare.json" | tail -n 40
+            if [ "$total" -gt 40 ]; then
+              echo "_(showing the last 40 returned; the compare API stops at 250)_"
+            fi
+            echo ""
+            echo 'This list may include cherry-picked patches. Check `git log --cherry-pick --right-only --no-merges main...origin/up --oneline` after `git fetch origin up`, then pick with `git cherry-pick -x <sha>`.'
+          } >> "$GITHUB_STEP_SUMMARY"

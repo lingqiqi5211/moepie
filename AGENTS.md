@@ -1,5 +1,11 @@
 # Notes for coding agents
 
+## This fork
+
+`main` takes upstream yetone/magpie commits by cherry-pick only, never by a
+merge, and drops what the fork does not use. Read [fork](docs/fork.md) before
+picking upstream work, cutting a release, or touching a removed subsystem.
+
 ## Subsystem design and review
 
 Before changing a documented subsystem, read its
