@@ -125,6 +125,9 @@ jobs:
           if-no-files-found: ignore
 
   publish:
+    concurrency:
+      group: ui-preview-media
+      cancel-in-progress: false
     needs: [detect, record]
     if: always() && needs.detect.outputs.ui == 'true'
     runs-on: ubuntu-latest

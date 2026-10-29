@@ -6,6 +6,7 @@
 //   node publish.mjs publish  — the recording (OUT_DIR, from record.mjs) onto
 //                               the ui-previews branch, served by Pages, and
 //                               the preview into the PR's description
+//   node publish.mjs cleanup  — remove previews whose PRs are no longer open
 //
 // The preview lives in one fixed block at the foot of the description,
 // between the markers below; each run replaces that block and leaves the
@@ -76,50 +77,88 @@ async function detect() {
 }
 
 function git(args, cwd) {
-  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  try {
+    return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  } catch (e) {
+    // Git errors include the remote URL; never log its credential.
+    const error = new Error(token ? e.message.replaceAll(token, "[redacted]") : e.message);
+    error.status = e.status;
+    throw error;
+  }
 }
 
-// the recording onto the ui-previews branch: one commit, replaced each time
-// so the branch never piles up old videos; another PR's run pushing in
-// between makes this one start over from theirs
+async function openPulls() {
+  const open = new Set();
+  for (let page = 1; ; page++) {
+    const batch = await gh(`/repos/${repo}/pulls?state=open&per_page=100&page=${page}`);
+    for (const p of batch) open.add(p.number);
+    if (batch.length < 100) return open;
+  }
+}
+
+// Publish and cleanup both replace the branch with one root commit. Read
+// again on a lost lease, so neither writer restores what the other removed.
+// With no recording, only prune closed PRs; no change means no commit.
 async function pushMedia(sha, dir) {
   const work = await fs.mkdtemp(path.join(os.tmpdir(), "ui-previews-"));
   const remote = `https://x-access-token:${token}@github.com/${repo}.git`;
-  git(["init", "-q"], work);
-  git(["config", "user.name", "github-actions[bot]"], work);
-  git(["config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"], work);
-  const open = new Set((await gh(`/repos/${repo}/pulls?state=open&per_page=100`)).map((p) => p.number));
-  for (let attempt = 0; attempt < 6; attempt++) {
-    let base = "";
-    try {
-      git(["fetch", "-q", "--depth=1", remote, BRANCH], work);
-      base = git(["rev-parse", "FETCH_HEAD"], work);
-      git(["checkout", "-q", "-f", "--detach", "FETCH_HEAD"], work);
-    } catch { /* the first one */ }
-    // this PR's latest run only, and no PR that's been closed
-    for (const d of await fs.readdir(work).catch(() => [])) {
-      const m = /^pr-(\d+)$/.exec(d);
-      if (m && (Number(m[1]) === pr || !open.has(Number(m[1])))) await fs.rm(path.join(work, d), { recursive: true, force: true });
+  try {
+    git(["init", "-q"], work);
+    git(["config", "user.name", "github-actions[bot]"], work);
+    git(["config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"], work);
+    for (let attempt = 0; attempt < 6; attempt++) {
+      // Finish every page before deleting anything. An API error is not
+      // an empty list, and a recording whose PR closed must not return.
+      const open = await openPulls();
+      if (dir && !open.has(pr)) return false;
+      let base = "", exists = true;
+      try {
+        git(["ls-remote", "--exit-code", remote, `refs/heads/${BRANCH}`], work);
+      } catch (e) {
+        if (e.status !== 2) throw e; // only 2 means a missing branch
+        if (!dir) return false;
+        exists = false;
+      }
+      // A failed fetch must not become an empty branch and erase previews.
+      if (exists) {
+        git(["fetch", "-q", "--depth=1", remote, `refs/heads/${BRANCH}`], work);
+        base = git(["rev-parse", "FETCH_HEAD"], work);
+        git(["checkout", "-q", "-f", "--detach", "FETCH_HEAD"], work);
+        git(["clean", "-fd"], work);
+      }
+      let changed = false;
+      for (const d of await fs.readdir(work)) {
+        const m = /^pr-(\d+)$/.exec(d);
+        if (m && ((dir && Number(m[1]) === pr) || !open.has(Number(m[1])))) {
+          await fs.rm(path.join(work, d), { recursive: true, force: true });
+          changed = true;
+        }
+      }
+      if (dir) {
+        const to = path.join(work, `pr-${pr}`, short(sha));
+        await fs.mkdir(to, { recursive: true });
+        for (const f of await fs.readdir(dir)) await fs.copyFile(path.join(dir, f), path.join(to, f));
+        await fs.writeFile(path.join(to, "index.html"), player(sha, JSON.parse(await fs.readFile(path.join(dir, "manifest.json"), "utf8"))));
+        await fs.writeFile(path.join(work, ".nojekyll"), "");
+        await fs.writeFile(path.join(work, "index.html"), `<!doctype html><meta charset="utf-8"><title>moepie UI previews</title><p>Screenshots and recordings of <a href="https://github.com/${repo}/pulls">${repo}</a> pull requests, made by .github/workflows/ui-preview.yml.</p>`);
+      } else if (!changed) {
+        return false;
+      }
+      git(["checkout", "-q", "--orphan", `tmp-${attempt}`], work);
+      git(["add", "-A"], work);
+      git(["commit", "-q", "-m", dir ? `ui preview for #${pr} at ${short(sha)}` : "ui preview: remove closed pull requests"], work);
+      try {
+        git(["push", "-q", `--force-with-lease=${BRANCH}:${base}`, remote, `HEAD:refs/heads/${BRANCH}`], work);
+        return true;
+      } catch {
+        console.log("preview push failed; rereading the branch before retrying");
+        await new Promise((r) => setTimeout(r, 2000 + Math.random() * 4000));
+      }
     }
-    const to = path.join(work, `pr-${pr}`, short(sha));
-    await fs.mkdir(to, { recursive: true });
-    for (const f of await fs.readdir(dir)) await fs.copyFile(path.join(dir, f), path.join(to, f));
-    await fs.writeFile(path.join(to, "index.html"), player(sha, JSON.parse(await fs.readFile(path.join(dir, "manifest.json"), "utf8"))));
-    await fs.writeFile(path.join(work, ".nojekyll"), "");
-    await fs.writeFile(path.join(work, "index.html"), `<!doctype html><meta charset="utf-8"><title>magpie UI previews</title><p>Screenshots and recordings of <a href="https://github.com/${repo}/pulls">${repo}</a> pull requests, made by .github/workflows/ui-preview.yml.</p>`);
-    git(["checkout", "-q", "--orphan", `tmp-${attempt}`], work);
-    git(["add", "-A"], work);
-    git(["commit", "-q", "-m", `ui preview for #${pr} at ${short(sha)}`], work);
-    try {
-      git(["push", "-q", `--force-with-lease=${BRANCH}:${base}`, remote, `HEAD:refs/heads/${BRANCH}`], work);
-      await fs.rm(work, { recursive: true, force: true });
-      return;
-    } catch (e) {
-      console.log(`push lost a race (${e.message.split("\n")[0]}), again`);
-      await new Promise((r) => setTimeout(r, 2000 + Math.random() * 4000));
-    }
+    throw new Error("couldn't push the preview branch");
+  } finally {
+    await fs.rm(work, { recursive: true, force: true });
   }
-  throw new Error("couldn't push the preview");
 }
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -162,7 +201,7 @@ async function publish() {
     await setBlock(`${head(sha)}\n${m?.summary ? `**改动**（按代码）：${m.summary}\n\n` : ""}${m?.mismatch ? `> [!WARNING]\n> **描述与代码不符**：${m.mismatch}\n\n` : ""}${why}。${runURL ? `详见[运行记录](${runURL})。` : ""}${errs}`);
     return;
   }
-  await pushMedia(sha, dir);
+  if (!await pushMedia(sha, dir)) return; // the PR closed during recording
   const raw = `https://raw.githubusercontent.com/${repo}/${BRANCH}/pr-${pr}/${short(sha)}/`;
   const site = `${await pagesURL()}pr-${pr}/${short(sha)}/`;
   let md = `${head(sha)}\n`;
@@ -184,5 +223,5 @@ async function publish() {
 }
 
 const cmd = process.argv[2];
-(cmd === "detect" ? detect() : cmd === "publish" ? publish() : Promise.reject(new Error("detect | publish")))
+(cmd === "detect" ? detect() : cmd === "publish" ? publish() : cmd === "cleanup" ? pushMedia() : Promise.reject(new Error("detect | publish | cleanup")))
   .catch((e) => { console.error(e); process.exit(1); });
