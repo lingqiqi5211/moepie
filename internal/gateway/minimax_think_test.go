@@ -137,6 +137,8 @@ func TestChatThinkTags(t *testing.T) {
 		{"a thought's close doesn't end it", []string{"<think>a</thought>b</think>c"}, "a</thought>b", "c"},
 		{"a think tag later", []string{"Hi <think>no</think>"}, "", "Hi <think>no</think>"},
 		{"<thin is text", []string{"<thin", "g>"}, "", "<thing>"},
+		{"after a Windows line end", []string{"\r", "\n<think>a</think>\r\n", "b"}, "a", "b"},
+		{"after a tab", []string{"\t<think>a</think>\n\nb"}, "a", "b"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if think, text := run(c.parts...); think != c.think || text != c.text {

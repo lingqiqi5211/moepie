@@ -5179,13 +5179,23 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 	if proto == provider.Responses && sse {
 		ids = &idTidy{}
 	}
-	// out is what a filter let through, through ids and phases
+	// a thinking block with no signature, which a Messages client may read
+	// as required (Grok Build), gets an empty one, as Anthropic's own
+	// blocks start (thinking_signature.go)
+	var thinkSigs *sigFieldTidy
+	if proto == provider.Anthropic {
+		thinkSigs = &sigFieldTidy{sse: sse}
+	}
+	// out is what a filter let through, through ids, phases and thinkSigs
 	out := func(b []byte) []byte {
 		if ids != nil {
 			b = ids.write(b)
 		}
 		if phases != nil {
-			return phases.write(b)
+			b = phases.write(b)
+		}
+		if thinkSigs != nil {
+			b = thinkSigs.write(b)
 		}
 		return b
 	}
@@ -5243,6 +5253,9 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 			}
 			if phases != nil {
 				out = phases.write(out)
+			}
+			if thinkSigs != nil {
+				out = thinkSigs.write(out)
 			}
 			if _, werr := write(out); werr != nil {
 				return res.StatusCode, "", true
@@ -5312,6 +5325,9 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 	}
 	if phases != nil {
 		write(phases.flush())
+	}
+	if thinkSigs != nil {
+		write(thinkSigs.flush())
 	}
 	if sse {
 		sniff.drain()

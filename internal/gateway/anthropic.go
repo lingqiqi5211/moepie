@@ -1555,7 +1555,11 @@ func (e *anthropicEncoder) thinking() {
 		e.close()
 		e.fresh = false
 	}
-	e.openBlock(Thinking, map[string]any{"thinking": ""})
+	// signed empty where it starts, as Anthropic's own stream starts one:
+	// its signature_delta, if any, comes before the block's stop, and a
+	// client that reads the field as required (Grok Build) turns a block
+	// without it away (thinking_signature.go)
+	e.openBlock(Thinking, map[string]any{"thinking": "", "signature": ""})
 }
 
 func (e *anthropicEncoder) delta(d map[string]any) {
