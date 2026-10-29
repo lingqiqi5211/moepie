@@ -107,7 +107,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     assert.deepEqual(busy.anims.filter((a) => a === "rtlive"), [], "the row's pulse started over");
     // (the sizer's probes aside too: unseen, a request's numbers taking
     // another shape is a probe of that shape, measured and never drawn)
-    assert.deepEqual(busy.nodes.filter((n) => !/^rt-sky |^rt-sizer |\bpkt\b|rt-flier|#text/.test(n)), [], "nodes were put in afresh while the same request came (the packet in flight aside)");
+    assert.deepEqual(busy.nodes.filter((n) => !/^rt-sky |^rt-sizer |\bpkt\b|#text/.test(n)), [], "nodes were put in afresh while the same request came (the packet in flight aside)");
     assert.deepEqual(errors, []);
   });
 }

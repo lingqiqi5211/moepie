@@ -149,14 +149,13 @@ button.pm-chip:disabled { cursor: default; opacity: .6; }
 .pm-act:disabled:not(.busy):not(.done) { opacity: .55; }
 .pm-act .spin { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid currentColor; border-right-color: transparent; animation: spin .7s linear infinite; }
 
-/* loading: cards laid out as a card is, in soft bars a light passes
-   over, one card a beat after the one before it */
+/* loading: cards laid out as a card is, in soft bars that pulse, one
+   card a beat after the one before it */
 .pm-card.ghost { gap: 9px; pointer-events: none; border-color: color-mix(in srgb, var(--line) 70%, transparent); }
 .pm-card.ghost .sk {
   border-radius: 5px;
-  background: linear-gradient(100deg, var(--pill) 30%, color-mix(in srgb, var(--pill-hover) 70%, var(--card)) 50%, var(--pill) 70%);
-  background-size: 300% 100%;
-  animation: pm-sheen 1.8s cubic-bezier(.45, 0, .25, 1) infinite;
+  background: var(--pill);
+  animation: pm-pulse 1.8s ease-in-out infinite;
   animation-delay: calc(var(--i, 0) * 120ms);
 }
 .pm-card.ghost .gtop { display: flex; align-items: center; gap: 10px; }
@@ -171,7 +170,6 @@ button.pm-chip:disabled { cursor: default; opacity: .6; }
 .pm-card.ghost .gchip { height: 8px; width: 46px; opacity: .8; }
 .pm-card.ghost .gchip.short { width: 30px; }
 @keyframes pm-pulse { 50% { opacity: .5; } }
-@keyframes pm-sheen { from { background-position: 100% 0; } to { background-position: 0 0; } }
 /* the GitHub section looking: three dots breathing in turn, and the word */
 .pm-sechead .pm-ghlook { display: inline-flex; align-items: center; gap: 7px; margin-left: auto; font-size: 11px; color: var(--faint); animation: pm-fade .4s var(--ease) both .15s; }
 .pm-ghlook .dots { display: inline-flex; gap: 3px; }
@@ -256,10 +254,9 @@ button.pm-chip:disabled { cursor: default; opacity: .6; }
 /* the README's skeleton: strings the bird bounces down (bounceLoader) */
 .pm-bounce { position: relative; height: 108px; }
 .pm-bounce[data-gone] { position: absolute; z-index: 2; pointer-events: none; }
-.pm-bounce > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; transition: opacity .3s ease-out; }
-.pm-bounce[data-gone] > svg { opacity: 0; }
-.pm-bounce path { fill: none; stroke: var(--skel, var(--pill)); stroke-width: 10; stroke-linecap: round; transition: stroke .35s ease-out; }
-.pm-bounce path[data-lit] { stroke: color-mix(in srgb, var(--accent) 18%, var(--skel, var(--pill))); }
+.pm-bounce > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; transition: opacity .3s ease-out; animation: skeleton-pulse 1.4s ease-in-out infinite; }
+.pm-bounce[data-gone] > svg { opacity: 0; animation: none; }
+.pm-bounce path { fill: none; stroke: var(--skel, var(--pill)); stroke-width: 10; stroke-linecap: round; }
 
 /* a README */
 .pm-md { font-size: 12.5px; line-height: 1.6; color: var(--fg-2); overflow-wrap: anywhere; }
@@ -297,6 +294,6 @@ button.pm-chip:disabled { cursor: default; opacity: .6; }
 }
 @media (prefers-reduced-motion: reduce) {
   .pm-card { transition: none; }
-  .pm-card.ghost .sk, .pm-ghlook, .pm-ghlook .dots i, .pm-arrive .pm-card { animation: none; }
+  .pm-card.ghost .sk, .pm-bounce > svg, .pm-ghlook, .pm-ghlook .dots i, .pm-arrive .pm-card { animation: none; }
   .pm-ghlook .dots i { opacity: .5; }
 }

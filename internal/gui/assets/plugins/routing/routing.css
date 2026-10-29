@@ -9,18 +9,20 @@
 .rt-stage { position: relative; display: grid; grid-template-columns: 124px 124px minmax(0, 1fr); column-gap: 56px; align-items: center; padding: 22px 2px; }
 .rt-wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .rt-wires path { fill: none; stroke: var(--line); stroke-width: 1.5; transition: opacity .3s; }
-.rt-wires path.live { stroke: var(--agent, var(--muted)); stroke-dasharray: 3 5; animation: rtflow .7s linear infinite; }
+.rt-wires path.live { stroke: var(--agent, var(--muted)); stroke-dasharray: 3 5; }
 /* lit: the way the request shown went, over; only a request in flight flows (#2386) */
 .rt-wires path.lit { stroke: var(--agent, var(--muted)); }
 .rt-wires path.rest { stroke-dasharray: 2 6; opacity: .45; }
 /* a flowing wire is drawn by its copy in .rt-flows, a layer of its own, so
    the wires that don't move aren't drawn again each frame (#3164) */
 .rt-wires path.flown { visibility: hidden; animation: none; }
+/* the layer pulses, not its dashes: an opacity the compositor changes,
+   where moving dashes were stroked again each frame */
 .rt-flows { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; will-change: transform; }
-.rt-flows path { fill: none; stroke: var(--agent, var(--muted)); stroke-width: 1.5; stroke-dasharray: 3 5; animation: rtflow .7s linear infinite; }
-@keyframes rtflow { to { stroke-dashoffset: -8; } }
-/* the magpies, over the nodes: one carries each request out, another
-   brings its answer back — the dot at the tip of its beak */
+.rt-flows:not(:empty) { animation: rtflow 1.4s ease-in-out infinite; }
+.rt-flows path { fill: none; stroke: var(--agent, var(--muted)); stroke-width: 1.5; stroke-dasharray: 3 5; }
+@keyframes rtflow { 50% { opacity: .4; } }
+/* the dots, over the nodes: each request out, and its answer back */
 .rt-sky { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 /* each agent's requests and answers fly in its colour: a request filled
    with it, an answer ringed with it, a failure ringed red */
@@ -30,18 +32,6 @@
 .rt-sky path.via { fill: none; stroke: none; }
 .rt-sky .pkt.held { animation: rtheld 1.2s ease-in-out infinite; }
 @keyframes rtheld { 50% { opacity: .45; } }
-.rt-flier { color: var(--fg); }
-.rt-flier .body, .rt-flier .tail, .rt-flier .wing path:first-child, .rt-flier .wing.far { fill: currentColor; }
-.rt-flier .wing.far { opacity: .45; }
-.rt-flier .belly { fill: var(--card); }
-.rt-flier .wing .bar { fill: none; stroke: var(--card); stroke-width: 1.3; stroke-linecap: round; }
-/* the wings beat from the shoulder: down hard, up easy */
-.rt-flier .wing { transform-box: fill-box; transform-origin: 50% 100%; animation: rtflap .42s cubic-bezier(.45, 0, .3, 1) infinite; }
-.rt-flier .wing.far { animation-delay: -.03s; }
-@keyframes rtflap { 0%, 100% { transform: scaleY(1); } 55% { transform: scaleY(-.62) skewX(-8deg); } }
-.rt-flier .rt-lift { animation: rtcome .3s ease-out; transition: transform .45s cubic-bezier(.3, 0, .2, 1), opacity .45s; }
-.rt-flier.away .rt-lift { transform: translate(14px, -16px) scale(.8); opacity: 0; }
-@keyframes rtcome { from { transform: translate(-6px, -10px) scale(.85); opacity: 0; } }
 .rt-srcs { position: relative; z-index: 1; min-width: 0; display: grid; gap: 10px; }
 .rt-srcs.many .rt-node { padding: 8px 8px 7px; }
 .rt-src b::before { content: ""; display: inline-block; width: 7px; height: 7px; margin: 0 6px 1px 0; border-radius: 50%; background: var(--agent); vertical-align: middle; }
@@ -173,7 +163,7 @@
 .rt-time .vendor { --rt-time: var(--fg-2); }
 .rt-off { padding: 18px 4px; text-align: center; color: var(--muted); font-size: 13px; }
 @media (prefers-reduced-motion: reduce) {
-  .rt-accts li.now .dot, .rt-wires path.live, .rt-flows path, .rt-sky .pkt.held, .rt-accts li.new, .rt-accts li.hit, .rt-hub.tick, .rt-src.tick, .rt-cap.in, .rt-steps li.wait::before, .masking .pii { animation: none; }
+  .rt-accts li.now .dot, .rt-flows, .rt-sky .pkt.held, .rt-accts li.new, .rt-accts li.hit, .rt-hub.tick, .rt-src.tick, .rt-cap.in, .rt-steps li.wait::before, .masking .pii { animation: none; }
   .rt-accts li { transition: none; }
 }
 /* The narrow and wide layouts below go by a box's own width, as container

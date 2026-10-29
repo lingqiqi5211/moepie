@@ -115,9 +115,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           assert.equal((await look.innerText()).trim(), w.look);
           assert.equal(await look.getAttribute("role"), "status");
           assert.equal(await sec.locator(".pm-card.ghost").count(), 3);
-          // the light moves: a ghost's bar is animated, and each card a beat after the last
+          // the bars pulse: a ghost's bar is animated, and each card a beat after the last
           const anim = await sec.locator(".pm-card.ghost .sk").evaluateAll((es) => es.map((e) => [getComputedStyle(e).animationName, getComputedStyle(e).animationDelay]));
-          assert.ok(anim.every(([n]) => n === "pm-sheen"), "sheen: " + JSON.stringify(anim));
+          assert.ok(anim.every(([n]) => n === "pm-pulse"), "pulse: " + JSON.stringify(anim));
           assert.notEqual(anim[0][1], anim.at(-1)[1], "a beat apart");
           // a ghost is laid out as a card: nothing spills at this width
           for (const g of await sec.locator(".pm-card.ghost").all()) {

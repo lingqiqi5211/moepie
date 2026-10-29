@@ -1081,12 +1081,12 @@ body.masked :hover > .acct-eye, body.masked .pq-card:hover .acct-eye, body.maske
 @media (prefers-reduced-motion: reduce) { .quota-refresh.spun svg > *, .quota-refresh.reading svg > * { animation: none; } }
 @media (hover: none) { .quota-refresh { width: 14px; margin: 0 -2px 0 3px; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .quota-refresh { transition: none; } }
-.skeleton { display: block; border-radius: 5px; background: linear-gradient(90deg, var(--skel, var(--pill)) 25%, var(--skel-hi, var(--pill-hover)) 45%, var(--skel, var(--pill)) 65%); background-size: 240% 100%; animation: skeleton-shift 1.4s ease-in-out infinite; }
-@keyframes skeleton-shift { from { background-position: 100% 0; } to { background-position: -100% 0; } }
-/* magpie's bird on what is loading, placed by its feet (skelBird, and the
-   plugin page's README strings) */
+/* a pulse, not a sheen: opacity is the compositor's, a moving background
+   was painted again each frame */
+.skeleton { display: block; border-radius: 5px; background: var(--skel, var(--pill)); animation: skeleton-pulse 1.4s ease-in-out infinite; }
+@keyframes skeleton-pulse { 50% { opacity: .5; } }
+/* magpie's bird on the plugin page's README strings, placed by its feet */
 .sk-bird { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 1; pointer-events: none; }
-.sk-bird.roam { position: fixed; z-index: 32; }
 .sk-bird svg { position: absolute; left: -13.2px; top: -19.6px; width: 22px; height: 22px; color: var(--fg); fill: currentColor; overflow: visible; }
 .sk-bird .tail { transform-box: view-box; transform-origin: 14px 22px; }
 .sk-bird .wing { transform-box: view-box; transform-origin: 30px 19.8px; }

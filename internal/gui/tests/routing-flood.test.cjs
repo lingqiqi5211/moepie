@@ -125,16 +125,16 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal(feed.q.length, 0, "the page must have taken every update");
         await page.waitForTimeout(1500);
 
-        // back in sight: the birds in the sky, looked at every 40ms
+        // back in sight: the dots in the sky, looked at every 40ms
         await page.evaluate(() => {
           window.__most = 0;
-          window.__look = setInterval(() => { window.__most = Math.max(window.__most, document.querySelectorAll(".rt-sky .rt-flier").length); }, 40);
+          window.__look = setInterval(() => { window.__most = Math.max(window.__most, document.querySelectorAll(".rt-sky .pkt").length); }, 40);
         });
         await how.show(page);
         await page.waitForTimeout(3000);
         const most = await page.evaluate(() => { clearInterval(window.__look); return window.__most; });
-        // at most the ones under way: a carrier each, and one let go
-        assert(most <= 2 * LIVE, `${most} magpies flew at once after coming back (at most ${2 * LIVE})`);
+        // at most the ones under way, a dot each
+        assert(most <= LIVE, `${most} dots flew at once after coming back (at most ${LIVE})`);
         assert(most >= 1, "the requests still under way must fly");
         // and every request is listed
         await page.waitForFunction((n) => document.querySelectorAll(".rt-req").length === n, 1 + DONE + LIVE);

@@ -1,8 +1,9 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
-// A plugin's README loads under magpie's bird: it drops onto the skeleton's
-// lines, each one bending under it as it bounces down them. When the README
-// comes the bird flies off and the box goes. With reduced motion the lines
-// stay straight and the bird sits still on the first.
+// A plugin's README loads under magpie's bird, sitting still on the first
+// of the skeleton's lines while they pulse (it bounced down them until
+// 10-30, a frame of script each). When the README comes the bird flies off
+// and the box goes. With reduced motion nothing moves, and the box goes at
+// once.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -66,31 +67,22 @@ async function open(browser, reduced) {
 }
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
-  test(engine + ": the README loads under a bird bouncing down its lines, and it flies off when the README comes", async (t) => {
+  test(engine + ": the README loads under a bird sitting still on its pulsing lines, and it flies off when the README comes", async (t) => {
     const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
     t.after(() => browser.close());
     const { page, errors, release } = await open(browser, false);
+    await page.waitForFunction(() => document.querySelector("#modal .pm-bounce path").getAttribute("d"));
     const first = await look(page);
     assert.equal(first.paths.length, 4, "four lines");
     assert(first.feet > 10, `the bird is drawn: ${JSON.stringify(first)}`);
-    // over a round, a line bends under the bird and the bird moves
-    const seen = await page.evaluate(() => new Promise((done) => {
-      const b = document.querySelector("#modal .pm-bounce"), t0 = performance.now(), out = { bend: 0, places: new Set(), lit: 0 };
-      const step = () => {
-        for (const p of b.querySelectorAll("path")) {
-          const n = (p.getAttribute("d") || "").match(/-?[\d.]+/g)?.map(Number) || [];
-          if (n.length >= 14) out.bend = Math.max(out.bend, n[7] - n[1]);
-        }
-        out.lit = Math.max(out.lit, b.querySelectorAll("path[data-lit]").length);
-        out.places.add(b.querySelector(".sk-bird").style.transform);
-        if (performance.now() - t0 > 2000) return done({ bend: out.bend, places: out.places.size, lit: out.lit });
-        requestAnimationFrame(step);
-      };
-      step();
-    }));
-    assert(seen.bend > 4, `a line bent under the bird: ${JSON.stringify(seen)}`);
-    assert(seen.places > 20, `the bird moved: ${JSON.stringify(seen)}`);
-    assert(seen.lit >= 2, `the lines it landed on lit: ${JSON.stringify(seen)}`);
+    for (const d of first.paths) assert.equal(bend(d), 0, `straight: ${d}`);
+    await page.waitForTimeout(600);
+    const later = await look(page); // its size eases in with the dialog
+    assert.deepEqual([later.paths, later.bird], [first.paths, first.bird], "neither the bird nor a line moves");
+    // only the lines' opacity is animated
+    assert.deepEqual(await page.evaluate(() => document.querySelector("#modal .pm-bounce").getAnimations({ subtree: true })
+      .map((a) => [a.animationName, Object.keys(a.effect.getKeyframes()[1] || {}).filter((k) => !/offset|easing|composite/i.test(k))])),
+    [["skeleton-pulse", ["opacity"]]]);
 
     // read at the swap itself: a few frames on, the dialog has moved on its
     // spring and the leaving box has not, so a later read measures timing

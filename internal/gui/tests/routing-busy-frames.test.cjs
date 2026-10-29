@@ -111,7 +111,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         for (let i = 6; i > 3; i--) if (id - i >= 100) feed.q.push(req(id - i, false)); // the ones before, answered
       }, 400);
       t.after(() => clearInterval(pump));
-      await page.waitForFunction(() => document.querySelectorAll(".rt-sky .rt-flier").length > 0);
+      await page.waitForFunction(() => document.querySelectorAll(".rt-sky .pkt:not([visibility])").length > 0);
       const before = await page.evaluate(() => ({ ...window.__n }));
       await page.waitForTimeout(3000);
       const after = await page.evaluate(() => ({ ...window.__n }));

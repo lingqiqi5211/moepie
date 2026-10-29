@@ -1,9 +1,8 @@
 // Routing, live: the gateway's own trace of each request, played as it
-// happens. A magpie carries each request from its agent through magpie to
-// the account routing put first; another brings the answer back — or,
-// from one that can't answer, the failure back to magpie, and the first
-// takes the request on to the next. Every agent sending at once plays at
-// once, each from its own place on the left. Every row, number and sentence comes from what the gateway
+// happens. A dot carries each request from its agent through magpie to
+// the account routing put first, and the answer back — or, from one that
+// can't answer, the failure back to magpie, and on to the next. Every
+// agent sending at once plays at once, each from its own place on the left. Every row, number and sentence comes from what the gateway
 // recorded while deciding (see internal/gateway/trace.go) — the order it
 // weighed the accounts in, what it weighed them by, what each answered,
 // how long a failed one rests. Nothing here is worked out again or made up.
@@ -1419,11 +1418,10 @@ function routingPage(part) {
     ticking = requestAnimationFrame(frame);
   }
 
-  // fly carries a dot along paths one after another, as one flight — and
-  // the magpie holding it in its beak, if there is one
-  const fly = (dot, bird, legs, ms) => new Promise((res) => {
+  // fly carries a dot along paths one after another, as one flight
+  const fly = (dot, legs, ms) => new Promise((res) => {
     if (!shown()) { res(); return; } // no hidden frame is needed to finish it
-    const tr = { dot, bird, legs, t0: performance.now(), ms: still() ? 0 : ms, res, g: gen };
+    const tr = { dot, legs, t0: performance.now(), ms: still() ? 0 : ms, res, g: gen };
     pose(tr, 0);
     trips.push(tr);
     kick();
@@ -3973,33 +3971,6 @@ function routingPage(part) {
 
   const flying = new Map(); // packet → { id: the row it is at, agent }
 
-  // A magpie, drawn to fly: facing right, the dot it carries at the tip
-  // of its beak where the flight puts it; its wings beat from the shoulder.
-  const FLIER = '<g class="rt-lift"><g transform="scale(1.2) translate(-6.5 3.2)">'
-    + '<path class="wing far" d="M-14.5 -3.4C-16.5 -9.5 -14.2 -15 -8.6 -18.6C-9.4 -12.6 -9.6 -7.4 -9.2 -3.2Z"/>'
-    + '<path class="tail" d="M-31.5 3.1L-18.6 -1.8L-17.4 1.2L-30.8 4.6Z"/>'
-    + '<ellipse class="body" cx="-12.2" cy="-1.4" rx="7.6" ry="3.9"/>'
-    + '<ellipse class="belly" cx="-12.8" cy="0.4" rx="4.3" ry="1.6"/>'
-    + '<circle class="body" cx="-4.9" cy="-3.7" r="3.1"/>'
-    + '<path class="body" d="M-2.3 -4.8L1.4 -3.3L-2.3 -2.2Z"/>'
-    + '<g class="wing near"><path d="M-15.6 -3.2C-17.8 -10.2 -15.2 -16.4 -8.4 -20.4C-9.3 -13.6 -9.4 -7.8 -8.8 -2.8Z"/>'
-    + '<path class="bar" d="M-14.6 -5.6C-15.4 -10.4 -13.8 -14.4 -10.4 -17.2"/></g>'
-    + "</g></g>";
-
-  function bird(kind) {
-    if (still() || !shown()) return null;
-    const g = document.createElementNS(NS, "g");
-    g.setAttribute("class", "rt-flier " + kind);
-    g.innerHTML = FLIER;
-    sky.appendChild(g);
-    return g;
-  }
-  // off it goes, up and away, once it has let go of the dot
-  function away(b) {
-    if (!b) return;
-    b.classList.add("away");
-    setTimeout(() => b.remove(), 450);
-  }
   function packet() {
     const dot = document.createElementNS(NS, "circle");
     dot.setAttribute("r", 4.5);
@@ -4009,10 +3980,11 @@ function routingPage(part) {
     return dot;
   }
 
-  // play: one magpie carries the request from the agent through magpie to
-  // who routing put first, and lets it go there while it answers; another
-  // picks up the answer and brings it back — a failure only as far as
-  // magpie, where the first takes the request on to the next.
+  // play: the dot carries the request from the agent through magpie to
+  // who routing put first, and waits there while it answers; then it
+  // brings the answer back — a failure only as far as magpie, which hands
+  // the request on to the next. No magpie flies it any more (10-30): its
+  // wings beat every frame.
   async function play(id, synced) {
     const routes = src(); // a replay's, if it is one
     let r = routes.get(id);
@@ -4034,14 +4006,14 @@ function routingPage(part) {
     const dot = packet();
     dot.style.setProperty("--agent", hueOf(r.agent));
     // from: where in magpie the dot is, once it is — the way it came in
-    let carrier = bird("req"), from = null, back = null;
+    let from = null;
     // rt: the route as the gateway has it now — or, dropped from what it
     // keeps, as it was last, over
     const rt = () => routes.get(id) || { ...r, done: true, tries: r.tries.map((x) => ({ ...x, done: true })) };
     try {
       tick(A.node);
       if (!r.tries.length) { // routing hasn't picked yet: to magpie, to wait there
-        await fly(dot, carrier, [{ p: A.wire }], 620);
+        await fly(dot, [{ p: A.wire }], 620);
         from = tip(A.wire, true);
         tick(hub);
       }
@@ -4056,15 +4028,12 @@ function routingPage(part) {
         const row = shownRow(tryseat(r, r.tries[i])); // a folded key's fold
         if (!row) { i++; continue; }
         flying.set(dot, { id: tryseat(r, r.tries[i]), agent: r.agent });
-        if (!carrier) carrier = bird("req");
         if (from) tick(hub);
         const ws = wiresTo(row);
         const out = [via(from || tip(A.wire, true), tip(ws[0], false)), ...ws.map((p) => ({ p }))];
-        await fly(dot, carrier, from ? out : [{ p: A.wire }, ...out], from ? 900 : 1400);
+        await fly(dot, from ? out : [{ p: A.wire }, ...out], from ? 900 : 1400);
         if (g !== gen) break;
         // let go at the account: it waits there while it answers
-        away(carrier);
-        carrier = null;
         dot.classList.add("held");
         holds.set(dot, row);
         holdAll();
@@ -4084,10 +4053,8 @@ function routingPage(part) {
           renderAll();
           dot.classList.add("back");
           dot.setAttribute("r", 4);
-          back = bird("res");
-          await fly(dot, back, home(row, A), 1400);
+          await fly(dot, home(row, A), 1400);
           flying.delete(dot);
-          away(back);
           tick(A.node);
           break;
         }
@@ -4097,25 +4064,20 @@ function routingPage(part) {
         say(tryWhy(r, i));
         renderAll();
         dot.classList.add("back", "err");
-        back = bird("res");
         if (!tr.rest && !tr.credits && (!tr.again || tr.gone)) { // that was the answer: the agent gets the error, or has gone
-          await fly(dot, back, home(row, A), 1350);
+          await fly(dot, home(row, A), 1350);
           flying.delete(dot);
-          away(back);
           tick(A.node);
           break;
         }
         // back to magpie, which hands the request on to the next
-        await fly(dot, back, [...ws].reverse().map((p) => ({ p, rev: true })), 620);
+        await fly(dot, [...ws].reverse().map((p) => ({ p, rev: true })), 620);
         flying.delete(dot);
-        away(back);
         dot.classList.remove("back", "err");
         from = tip(ws[0], false, true);
         i++;
       }
     } finally { // however it ended, nothing of it stays behind
-      away(carrier);
-      away(back);
       flying.delete(dot);
       holds.delete(dot);
       dot.remove();
@@ -4134,7 +4096,7 @@ function routingPage(part) {
   // clears up after itself
   function stopPlays() {
     gen++; flying.clear(); holds.clear(); playing.clear();
-    for (const p of sky.querySelectorAll(".pkt, .rt-flier")) p.remove();
+    for (const p of sky.querySelectorAll(".pkt")) p.remove();
     wake();
   }
 
@@ -4309,16 +4271,6 @@ function routingPage(part) {
     setAttr(tr.dot, "cx", String(pt.x));
     setAttr(tr.dot, "cy", String(pt.y));
     tr.dot.removeAttribute("visibility");
-    const b = tr.bird;
-    if (!b) return;
-    const p0 = point(d - 3), p1 = point(d + 3);
-    let vx = p1.x - p0.x, vy = p1.y - p0.y;
-    if (Math.abs(vx) + Math.abs(vy) < .01) { vx = b._vx ?? (tr.legs[0].rev ? -1 : 1); vy = 0; }
-    b._vx = vx;
-    const aim = Math.max(-24, Math.min(24, Math.atan2(vy, Math.abs(vx)) * 180 / Math.PI));
-    b._a = b._a === undefined || b._flip !== (vx < 0) ? aim : b._a + (aim - b._a) * .12;
-    b._flip = vx < 0;
-    b.setAttribute("transform", `translate(${pt.x.toFixed(1)} ${pt.y.toFixed(1)}) scale(${b._flip ? -1 : 1} 1) rotate(${b._a.toFixed(1)})`);
   }
 
   // resume: the page back in sight — another tab left, the window shown

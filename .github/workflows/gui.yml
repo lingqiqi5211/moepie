@@ -52,7 +52,7 @@ jobs:
           export NODE_PATH="$RUNNER_TEMP/pw/node_modules"
           cd internal/gui/tests
           node --test --test-concurrency=4 \
-            reduce-motion.test.cjs skeleton-bird.test.cjs tray-bird.test.cjs \
+            reduce-motion.test.cjs skeleton-pulse.test.cjs tray-bird.test.cjs \
             i18n-keys.test.cjs header-relang.test.cjs lightweight.test.cjs \
             plugin-kernel.test.cjs plugin-page.test.cjs \
             sessions-paging.test.cjs sessions-folder-paging.test.cjs \

@@ -1,8 +1,8 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
-// What is loading has magpie's bird on it (the owner, 10-26): skeletons
-// still up after a moment, as on a slow page, get the bird, which hops from
-// bar to bar, each bar dipping under it, and flies off once they are gone.
-// A quick load never sees it, and with reduced motion no bird comes.
+// What is loading pulses, and nothing else moves: the bird that hopped over
+// a slow page's skeletons, a frame of script each, is gone (10-30), and
+// the bars' sheen, painted again each frame, is an opacity pulse. With
+// reduced motion the bars stand still.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -40,66 +40,48 @@ async function open(browser, reduced, market) {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.addInitScript(() => {
-    // every bird that came, and every bar that dipped
-    window.seen = { birds: 0, places: new Set(), dips: 0 };
+    // every bird that came
+    window.seen = { birds: 0 };
     new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.classList?.contains("sk-bird")) seen.birds++; })
       .observe(document, { childList: true, subtree: true });
-    const step = () => {
-      const b = document.querySelector(".sk-bird.roam");
-      if (b) seen.places.add(b.style.transform);
-      seen.dips = Math.max(seen.dips, document.getAnimations().filter((a) => a.effect?.target?.matches?.(".skeleton, .pm-card.ghost .sk")
-        && a.effect.getKeyframes().some((k) => /translateY/.test(k.transform || ""))).length);
-      requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
   });
   await page.route("**/*", server(market));
   await page.goto("http://magpie.test/?view=plugins");
   return { page, errors };
 }
 
+// what the bars' animations change, each named once
+const moving = (page) => page.evaluate(() => [...new Set(document.getAnimations()
+  .filter((a) => a.effect?.target?.matches?.(".skeleton, .pm-card.ghost .sk"))
+  .flatMap((a) => a.effect.getKeyframes().flatMap((k) => Object.keys(k).filter((p) => !["offset", "computedOffset", "easing", "composite"].includes(p)))))].sort());
+
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
   const launch = () => (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
 
-  test(engine + ": a slow page's skeletons get the bird, hopping bar to bar, and it flies off when they go", async (t) => {
+  test(engine + ": a slow page's skeletons pulse, and no bird comes", async (t) => {
     const browser = await launch();
     t.after(() => browser.close());
     let release;
     const held = new Promise((r) => { release = r; });
     const { page, errors } = await open(browser, false, () => held);
     await page.locator("#view-plugins .pm-card.ghost").first().waitFor();
-    await page.locator(".sk-bird.roam").waitFor({ state: "attached", timeout: 3000 });
-    await page.waitForFunction(() => seen.places.size > 30 && seen.dips > 0, null, { timeout: 4000 });
-    const feet = await page.evaluate(() => {
-      const r = document.querySelector(".sk-bird.roam svg").getBoundingClientRect();
-      return { w: r.width, h: r.height };
-    });
-    assert(feet.w > 10 && feet.h > 10, `the bird is drawn: ${JSON.stringify(feet)}`);
+    await page.waitForTimeout(1200);
+    assert.deepEqual(await moving(page), ["opacity"]);
+    assert.equal(await page.evaluate(() => seen.birds), 0, "no bird came");
     release();
     await page.waitForFunction(() => !document.querySelector("#view-plugins .pm-card.ghost"));
-    await page.waitForFunction(() => !document.querySelector(".sk-bird"), null, { timeout: 2000 });
     assert.deepEqual(errors, []);
   });
 
-  test(engine + ": a quick load never sees the bird", async (t) => {
-    const browser = await launch();
-    t.after(() => browser.close());
-    const { page, errors } = await open(browser, false, () => new Promise((r) => setTimeout(r, 150)));
-    await page.waitForFunction(() => !document.querySelector("#view-plugins .pm-card.ghost"));
-    await page.waitForTimeout(800);
-    assert.equal(await page.evaluate(() => seen.birds), 0, "no bird came");
-    assert.deepEqual(errors, []);
-  });
-
-  test(engine + ": with reduced motion no bird comes and no bar moves", async (t) => {
+  test(engine + ": with reduced motion no bar moves", async (t) => {
     const browser = await launch();
     t.after(() => browser.close());
     let release;
     const held = new Promise((r) => { release = r; });
     const { page, errors } = await open(browser, true, () => held);
     await page.locator("#view-plugins .pm-card.ghost").first().waitFor();
-    await page.waitForTimeout(1200);
-    assert.deepEqual(await page.evaluate(() => [seen.birds, seen.dips]), [0, 0]);
+    await page.waitForTimeout(600);
+    assert.deepEqual(await moving(page), []);
     release();
     await page.waitForFunction(() => !document.querySelector("#view-plugins .pm-card.ghost"));
     assert.deepEqual(errors, []);

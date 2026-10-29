@@ -117,10 +117,12 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           const live = [...document.querySelectorAll(".rt-wires path.live[d]")], copies = [...document.querySelectorAll(".rt-flows path[d]")];
           return {
             hidden: live.filter((p) => getComputedStyle(p).visibility === "hidden" && getComputedStyle(p).animationName === "none").length,
-            moving: copies.filter((p) => getComputedStyle(p).animationName === "rtflow").length,
-            layer: getComputedStyle(document.querySelector(".rt-flows")).willChange,
+            copies: copies.length,
+            // the layer pulses, not each copy's dashes
+            layer: [getComputedStyle(document.querySelector(".rt-flows")).willChange, getComputedStyle(document.querySelector(".rt-flows")).animationName],
+            dashes: copies.filter((p) => getComputedStyle(p).animationName !== "none").length,
           };
-        }), { hidden: 2, moving: 2, layer: "transform" });
+        }), { hidden: 2, copies: 2, layer: ["transform", "rtflow"], dashes: 0 });
         assert.match((await fold.locator("em").textContent()).trim(), new RegExp("^ag-2: " + (await say("answering…")).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 
         // opened, the key with the request is the one that flows

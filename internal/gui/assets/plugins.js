@@ -1497,88 +1497,45 @@
     return d;
   }
 
-  // a README on its way: its lines are strings, and magpie's bird drops in
-  // and bounces down them, each bending under its feet and wobbling after
-  // it; leave() sends it off when the README comes. Its marks are data-*,
-  // not classes, so the dialog's observer doesn't place it again each hop
+  // a README on its way: its lines pulse under magpie's bird, sitting
+  // still on the first (it bounced down them, a frame of script each until
+  // 10-30); leave() sends it off when the README comes. Its marks are data-*,
+  // not classes, so the dialog's observer doesn't place it again
   function bounceLoader() {
     const box = el("div", "pm-bounce"), s = document.createElementNS("http://www.w3.org/2000/svg", "svg"), b = el("div", "sk-bird");
     s.innerHTML = "<path/><path/><path/><path/>";
     b.innerHTML = BIRD;
     box.append(s, b);
-    const ps = [...s.children], ws = [1, .94, .6, .82], at = [.16, .44, .3, .58];
-    const L = ws.map((w, i) => ({ y: 31 + i * 22, d: 0, v: 0, bx: 0, hold: false }));
+    const ps = [...s.children], ws = [1, .94, .6, .82];
     // the bird is placed by its feet: f faces it, r leans it, sx/sy squash it
     let W = 0, x = 0, y = 0, f = 1, r = 0, sx = 1, sy = 1, gone = false;
     const put = (o) => { ({ x = x, y = y, f = f, r = r, sx = sx, sy = sy } = o); b.style.transform = `translate(${x}px,${y}px) rotate(${r * f}deg) scale(${f * sx},${sy})`; };
-    const draw = () => L.forEach((l, i) => {
-      const h = l.y, d = l.d, x1 = W * ws[i] - 5, c = Math.min(x1 - 12, Math.max(17, l.bx));
-      ps[i].setAttribute("d", `M5 ${h}C${(5 + c) / 2} ${h} ${c - (c - 5) * .35} ${h + d} ${c} ${h + d}C${c + (x1 - c) * .35} ${h + d} ${(c + x1) / 2} ${h} ${x1} ${h}`);
-    });
-    // a step over frames; it stops when the box is gone, or the README came
-    const tween = (ms, fn, ease = (t) => t, exit) => new Promise((ok, no) => {
+    // a step over frames; it stops when the box is gone
+    const tween = (ms, fn, ease = (t) => t) => new Promise((ok, no) => {
       const t0 = performance.now();
       const step = (now) => {
-        if (!box.isConnected || (gone && !exit)) return no();
+        if (!box.isConnected) return no();
         const t = Math.min(1, (now - t0) / ms);
         fn(ease(t), t);
         t < 1 ? requestAnimationFrame(step) : ok();
       };
       requestAnimationFrame(step);
     });
-    const easeIn = (t) => t * t * t, easeOut = (t) => 1 - (1 - t) ** 3;
+    const easeIn = (t) => t * t * t;
     (async () => {
       await new Promise(requestAnimationFrame);
       if (!box.isConnected || gone) return;
       W = box.clientWidth;
-      if (calm()) return draw(), put({ x: at[0] * W, y: L[0].y - 5 });
-      // each string a damped spring, let go of when the bird leaves it
-      (async () => {
-        let last = performance.now();
-        for (;;) {
-          const now = await new Promise(requestAnimationFrame), dt = Math.min(.032, (now - last) / 1000);
-          if (!box.isConnected || gone) return;
-          last = now;
-          for (const l of L) if (!l.hold) { l.v += (-625 * l.d - 6 * l.v) * dt; l.d += l.v * dt; }
-          draw();
-        }
-      })();
-      for (;;) {
-        W = box.clientWidth;
-        ps.forEach((p) => delete p.dataset.lit);
-        const x0 = at[0] * W;
-        await tween(300, (e, t) => put({ x: x0 - 24 + 24 * t, y: -30 + (L[0].y + 25) * e, f: 1, r: 0, sx: 1 - .05 * t, sy: 1 + .08 * t }), easeIn);
-        for (let i = 0; i < L.length; i++) {
-          const l = L[i], top = l.y - 5, deep = i === L.length - 1 ? 16 : 10;
-          l.hold = true;
-          l.bx = x;
-          ps[i].dataset.lit = "";
-          await tween(140, (e) => { put({ y: top + deep * e, sx: 1 + .16 * e, sy: 1 - .2 * e }); l.d = y - top; }, easeOut);
-          await tween(90, (e) => { put({ y: top + deep * (1 - e), sx: 1.16 - .16 * e, sy: .8 + .3 * e }); l.d = y - top; }, easeIn);
-          l.hold = false;
-          l.v = -deep * 14;
-          const xa = x, ya = y;
-          if (i + 1 < L.length) {
-            const xb = at[i + 1] * W, yb = L[i + 1].y - 5;
-            put({ f: xb > xa ? 1 : -1 });
-            await tween(340, (e, t) => put({ x: xa + (xb - xa) * t, y: ya + (yb - ya) * t - 72 * t * (1 - t), sx: 1 - .06 * Math.sin(Math.PI * t), sy: 1 + .12 * Math.sin(Math.PI * t), r: (t - .5) * 20 }));
-          } else {
-            // the last one throws it high, out of sight, and it drops in again
-            b.dataset.flap = "";
-            await tween(520, (e) => put({ x: xa + 70 * e, y: ya - (ya + 60) * e, f: 1, r: -12, sx: 1, sy: 1 }), easeOut);
-            delete b.dataset.flap;
-            await tween(260, () => {});
-          }
-        }
-      }
+      ps.forEach((p, i) => p.setAttribute("d", `M5 ${31 + i * 22}H${W * ws[i] - 5}`));
+      put({ x: .16 * W, y: 26 });
     })().catch(() => {});
     box.leave = () => {
       gone = true;
       box.dataset.gone = b.dataset.flap = "";
       const xa = x, ya = y;
-      tween(420, (e) => put({ x: xa + (W + 60 - xa) * e, y: ya - (ya + 80) * e, f: 1, r: -14, sx: 1, sy: 1 }), easeIn, true)
+      tween(420, (e) => put({ x: xa + (W + 60 - xa) * e, y: ya - (ya + 80) * e, f: 1, r: -14, sx: 1, sy: 1 }), easeIn)
         // gone once the dialog has grown to the README, not while it does
-        .then(() => tween(200, () => {}, undefined, true)).then(() => box.remove(), () => {});
+        .then(() => tween(200, () => {})).then(() => box.remove(), () => {});
     };
     return box;
   }
