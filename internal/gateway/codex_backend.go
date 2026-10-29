@@ -203,11 +203,47 @@ func (s *Server) codexBackend(w http.ResponseWriter, r *http.Request) {
 			// with nothing asked of OpenAI — and refused when the sign-in
 			// can't be shown to be the key's, switched off or gone
 			on := compactOn(r, model)
-			// a seal only its writer reads (#1099, #2271): a compact
-			// carrying one magpie recorded the writer of is judged here —
-			// the writer on in magpie answers it signed as the writer, a
-			// gone writer is refused with the reason — not relayed to be
-			// refused there (#2727)
+			// a Codex account's seal: the first Codex account routing
+			// allows; any other seal is judged by its writer below (#2727)
+			if cp, ok := checkpointOf(body); ok && codexPoolCheckpoint(cp) &&
+				(r.Header.Get("chatgpt-account-id") == "" || r.Header.Get("chatgpt-account-id") == provider.CodexSignedInAccount()) {
+				p, m, found := provider.Resolve("codex/" + model)
+				if !found || p.Account == nil || p.Account.Agent != "codex" {
+					writeError(w, provider.Responses, 400, checkpointError(model, cp))
+					return
+				}
+				p.Fallback = nil // this legacy endpoint keeps the requested model
+				cs, pl := s.plan(p, m, provider.Responses)
+				cs, pl, _ = s.checkpointReaders(cs, pl, cp)
+				who, held := keyHolds(r)
+				_, accountsHeld := accountHolds(r)
+				if held && !modelAllowed(who, p, m) {
+					writeError(w, provider.Responses, 403, keyModelError(who, model))
+					return
+				}
+				denied := false
+				if held || accountsHeld {
+					cs, pl, denied = allowedCandidates(who, cs, pl, nil)
+				}
+				if denied {
+					writeError(w, provider.Responses, 403, keyAccountsError(who, model))
+					return
+				}
+				if pin := strings.TrimSpace(r.Header.Get(AccountHeader)); pin != "" {
+					var status int
+					var msg string
+					if cs, pl, status, msg = pinTo(pin, cs, pl); status != 0 {
+						writeError(w, provider.Responses, status, msg)
+						return
+					}
+				}
+				if len(cs) == 0 {
+					writeError(w, provider.Responses, 400, checkpointError(model, cp))
+					return
+				}
+				s.codexUpstreamOn(w, r, rest, body, &cs[0].p)
+				return
+			}
 			writer, gone, _ := sealedCompact(r, model, body)
 			if writer != nil {
 				on = writer
@@ -239,9 +275,8 @@ func (s *Server) codexBackend(w http.ResponseWriter, r *http.Request) {
 		if ok {
 			// through magpie's accounts, Codex's compaction is the codex
 			// provider's to decide as a magpie model's is: sealed natively
-			// only with its native compaction on, as only the account that
-			// sealed it can read it; off, magpie's summary, which any of
-			// them reads (#2582, #2642: one of Codex's own models compacted
+			// only with its native compaction on; off, magpie's summary
+			// (#2582, #2642: one of Codex's own models compacted
 			// natively whatever the setting, and the conversation was held
 			// to that account)
 			body, compact := codexInputAs(withModel(body, id), true, s.nativeCompactionFor(id))

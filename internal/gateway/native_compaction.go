@@ -12,7 +12,8 @@ package gateway
 // can't be asked — switched off, removed, out of the group — the request
 // is refused, saying why: the compaction is never sent to another to be
 // refused, dropped (withoutCompaction), or summarised in its place, which
-// would lose the conversation's earlier context unasked.
+// would lose the conversation's earlier context unasked. A Codex
+// account's seal is the exception: any Codex account reads it.
 
 import (
 	"bytes"
@@ -311,6 +312,27 @@ func saveCheckpoints() {
 	}
 }
 
+// codexPoolCheckpoint: sealed by one of magpie's Codex accounts.
+func codexPoolCheckpoint(cp checkpointWriter) bool {
+	return cp.Provider == "codex" && strings.HasPrefix(cp.Who, "codex@")
+}
+
+// checkpointReaders keeps the Codex accounts among cands for a Codex
+// account's seal, else only its writer.
+func (s *Server) checkpointReaders(cands []candidate, pl planned, cp checkpointWriter) ([]candidate, planned, bool) {
+	if codexPoolCheckpoint(cp) {
+		kept, pool, left := keepCandidates(cands, pl, func(c candidate) bool {
+			return c.p.ID == "codex" && s.carriesCompaction(c.p, c.model)
+		})
+		if left {
+			return kept, pool, true
+		}
+		// none lists the model: the writer, as the last resort
+		return checkpointReaders(kept, pool, cp)
+	}
+	return checkpointReaders(cands, pl, cp)
+}
+
 // checkpointReaders keeps of cands those of the key or account that
 // sealed cp (behind a remote magpie, of the provider there too), pl's
 // order with them; left says one is left, if only held or capped. One
@@ -355,7 +377,7 @@ func checkpointReaders(cands []candidate, pl planned, cp checkpointWriter) (_ []
 // compaction cp a request carries, when it is held there (in pl, which
 // checkpointReaders left only it in); nil when the request carries none.
 func checkpointHeld(cp *checkpointWriter, held []Weighed, pl planned) []Weighed {
-	if cp == nil {
+	if cp == nil || codexPoolCheckpoint(*cp) {
 		return nil
 	}
 	ids := map[string]bool{}
@@ -409,6 +431,9 @@ func compactionWho(cp *checkpointWriter) string {
 // (#2642: it said "switched off, removed, or no longer serves" of an
 // account that was on, and "switch it on again" changed nothing).
 func checkpointError(model string, cp checkpointWriter) string {
+	if codexPoolCheckpoint(cp) {
+		return fmt.Sprintf("This conversation was compacted natively by a Codex account, and only a Codex account can read that compaction, but none this request may use serves %s now (switched off, kept from the model, or not allowed for this key). Let a Codex account serve %s, or start a new conversation. The compaction was kept, not replaced with a summary.", model, model)
+	}
 	what := "account"
 	if strings.Contains(cp.Who, "#") {
 		what = "key"
