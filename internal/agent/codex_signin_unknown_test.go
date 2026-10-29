@@ -62,11 +62,9 @@ func TestCodexHalfWrittenAuthKeepsSignIn(t *testing.T) {
 	}
 }
 
-// The same while the Codex app holds the account and magpie is Codex's
-// provider for that (codex.out): a pick in that moment keeps the mark, so
-// Sync puts magpie back beside the sign-in once the account has room. It
-// was forgotten, and Codex stayed on magpie as its provider.
-func TestCodexHalfWrittenAuthKeepsOut(t *testing.T) {
+// A partially written token file is unknown even when quota is exhausted.
+// Neither a pick during the rewrite nor quota recovery changes login mode.
+func TestCodexHalfWrittenAuthKeepsOfficialSignInWithNoQuota(t *testing.T) {
 	const signedIn = `{"tokens":{"access_token":"x","id_token":"x.e30.x"}}`
 	home, read := codexHome(t, signedIn, "")
 	cx := codex(home)
@@ -74,8 +72,8 @@ func TestCodexHalfWrittenAuthKeepsOut(t *testing.T) {
 	if err := cx.Fields[0].Set("fake/m1"); err != nil {
 		t.Fatal(err)
 	}
-	if cfg := read(); !strings.Contains(cfg, `model_provider = "magpie"`) {
-		t.Fatalf("held: magpie its provider:\n%s", cfg)
+	if cfg := read(); strings.Contains(cfg, `model_provider = "magpie"`) {
+		t.Fatalf("quota changed official sign-in:\n%s", cfg)
 	}
 	auth := filepath.Join(home, ".codex", "auth.json")
 	os.WriteFile(auth, nil, 0o600)

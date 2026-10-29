@@ -14,8 +14,8 @@ import (
 // (its /model, or a Codex app still running on its old pick): its own
 // models are in its list beside magpie's, as when it joined (#940: Codex
 // read as not connected then, its config still on magpie's gateway).
-// Disconnect leaves it on that model. Made magpie's provider (the Codex
-// app blocking its account), it is not beside the sign-in.
+// Disconnect leaves it on that model. With magpie API explicitly chosen,
+// it is not beside the sign-in.
 func TestCodexOwnPickAfterMagpieModelStaysConnected(t *testing.T) {
 	home, read := codexHome(t, `{"tokens":{"access_token":"x","id_token":"x.e30.x"}}`, "model = \"gpt-5.5\"\n")
 	cx := codex(home)
@@ -42,9 +42,11 @@ func TestCodexOwnPickAfterMagpieModelStaysConnected(t *testing.T) {
 		t.Fatalf("disconnected:\n%s", cfg)
 	}
 
-	// out of its allowance, magpie is its provider: an own model written
+	// Explicit magpie API makes magpie its provider: an own model written
 	// back is a change from outside, not a pick beside magpie's
-	codexUsedUp = func() bool { return true }
+	if err := cx.Field("login").Set("api"); err != nil {
+		t.Fatal(err)
+	}
 	if err := cx.Fields[0].Set("fake/m1"); err != nil {
 		t.Fatal(err)
 	}
@@ -60,8 +62,7 @@ func TestCodexOwnPickAfterMagpieModelStaysConnected(t *testing.T) {
 	}
 }
 
-// Connected while Codex can't join (the Codex app blocking its ChatGPT
-// account, or a provider of its own in config.toml), Codex stays on the
+// Connected with magpie API explicitly chosen, Codex stays on the
 // model it was on as magpie serves it on the ChatGPT account, not the first
 // of magpie's other models (#940: it went to Grok 4.7, "magpie doesn't
 // serve the model it was on").
@@ -72,6 +73,7 @@ func TestCodexConnectKeepsItsOwnModelThroughMagpie(t *testing.T) {
 		{"slug":"gpt-b","display_name":"B","priority":2}]}`), 0o644)
 	codexUsedUp = func() bool { return true }
 	cx := codex(home)
+	stash(map[string]string{"codex.login": "api"})
 	c, err := cx.ConnectHow()
 	if err != nil {
 		t.Fatal(err)

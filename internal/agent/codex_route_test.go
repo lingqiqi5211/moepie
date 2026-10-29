@@ -146,16 +146,15 @@ func TestCodexSignedOutUsesProvider(t *testing.T) {
 	}
 }
 
-// A ChatGPT account that has used its allowance up keeps the Codex app from
-// sending, so magpie is a provider of Codex's then, as when signed out.
-func TestCodexUsedUpUsesProvider(t *testing.T) {
+// Picking a model on an exhausted account keeps the official sign-in.
+func TestCodexUsedUpKeepsSignIn(t *testing.T) {
 	home, read := codexHome(t, `{"tokens":{"access_token":"x","id_token":"x.e30.x"}}`, "")
 	codexUsedUp = func() bool { return true }
 	if err := codex(home).Fields[0].Set("fake/m1"); err != nil {
 		t.Fatal(err)
 	}
 	cfg := read()
-	if !strings.Contains(cfg, "openai_base_url") || !strings.Contains(cfg, `model_provider = "magpie"`) ||
+	if !strings.Contains(cfg, "openai_base_url") || strings.Contains(cfg, `model_provider = "magpie"`) ||
 		!strings.Contains(cfg, "[model_providers.magpie]") || !strings.Contains(cfg, `model = "fake/m1"`) {
 		t.Fatalf("\n%s", cfg)
 	}

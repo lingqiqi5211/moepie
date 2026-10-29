@@ -1,9 +1,7 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
-// Codex's sign-in has three ways: ChatGPT (the default), which says that
-// magpie is Codex's provider while the Codex app blocks the ChatGPT account
-// (out of allowance, no credits left), so the app still sends; Always
-// ChatGPT, which never does that and says what it costs; and magpie API,
-// which says Codex's Chrome control needs the ChatGPT sign-in (#1824).
+// ChatGPT and Always ChatGPT retain the official sign-in across quota
+// changes. API mode is an explicit choice and says that Chrome control
+// needs the ChatGPT sign-in.
 // The square opens the app's picker with each way's sentence whole, in
 // the page's language; Always ChatGPT is posted as "chatgpt" and lights the
 // square, ChatGPT posts "" again. A click scrolls nothing. At 1100px and
@@ -19,8 +17,8 @@ const assets = path.resolve(__dirname, "../assets");
 const models = [{ value: "gpt-5.5", label: "GPT-5.5", ref: "openai/gpt-5.5" }];
 // as internal/agent/codex.go has them
 const ways = [
-  { value: "", label: "ChatGPT", note: "magpie's models join Codex's own; Codex stays signed in to ChatGPT, and while the Codex app blocks its account (out of allowance, no credits left) magpie is Codex's provider, so the app still sends" },
-  { value: "chatgpt", label: "Always ChatGPT", note: "as ChatGPT, and kept so while the Codex app blocks its account: magpie never becomes Codex's provider. The Codex app may then send nothing till the account has room; Codex CLI goes on through magpie" },
+  { value: "", label: "ChatGPT", note: "magpie's models join Codex's own; Codex stays signed in to ChatGPT and magpie never changes it to API automatically. If the account is out of allowance, the Codex app waits; choose magpie API explicitly if you want Codex's provider changed" },
+  { value: "chatgpt", label: "Always ChatGPT", note: "as ChatGPT; magpie never becomes Codex's provider automatically. The Codex app may wait while the account has no allowance; Codex CLI goes on through magpie" },
   { value: "api", label: "magpie API", note: "magpie is Codex's provider; the Codex app is in its API state, with magpie's models only. Codex's Chrome control needs the ChatGPT sign-in, so pick ChatGPT to keep it" },
 ];
 const fresh = () => ({

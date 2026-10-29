@@ -37,7 +37,8 @@ func TestCodexProviderIsNotJoined(t *testing.T) {
 		t.Fatal("magpie API: not wired")
 	}
 
-	// the ChatGPT account held by the Codex app: magpie its provider too
+	// A quota result must not turn the joined official sign-in into magpie's
+	// provider. The user-visible login mode stays official.
 	if err := cx.Field("login").Set(""); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +50,7 @@ func TestCodexProviderIsNotJoined(t *testing.T) {
 	if err := cx.Sync(); err != nil {
 		t.Fatal(err)
 	}
-	if cfg := read(); !strings.Contains(cfg, `model_provider = "magpie"`) || cx.Joined() {
+	if cfg := read(); strings.Contains(cfg, `model_provider = "magpie"`) || !cx.Joined() {
 		t.Fatalf("held: joined %v\n%s", cx.Joined(), cfg)
 	}
 	codexUsedUp = func() bool { return false }

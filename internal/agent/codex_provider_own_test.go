@@ -43,11 +43,14 @@ func TestCodexProviderOwnModelSaysItsPath(t *testing.T) {
 		}
 	})
 
-	t.Run("ChatGPT account out of allowance", func(t *testing.T) {
+	t.Run("magpie API explicitly chosen", func(t *testing.T) {
 		home, read := codexHome(t, `{"tokens":{"access_token":"x","id_token":"x.e30.x"}}`, "")
 		os.WriteFile(filepath.Join(home, ".codex", "models_cache.json"), cache, 0o644)
 		codexUsedUp = func() bool { return true }
 		cx := codex(home)
+		if err := cx.Field("login").Set("api"); err != nil {
+			t.Fatal(err)
+		}
 		if err := cx.Fields[0].Set("fake/m1"); err != nil {
 			t.Fatal(err)
 		}
