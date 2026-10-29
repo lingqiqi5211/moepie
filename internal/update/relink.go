@@ -72,7 +72,8 @@ func CopiedCLI() string {
 }
 
 // cliVersion asks the binary at path what version it is, and is a var so
-// tests need not build or run one. The command prints "magpie <version>".
+// tests need not build or run one. The command prints "moepie <version>";
+// older compatibility commands still print "magpie <version>".
 // The wait is short: it runs while the app is starting to decide whether to
 // say anything, so a copy that hangs must not stall it. Running the old
 // binary isn't purely reading — magpie's start-up runs its migrations first
@@ -85,5 +86,7 @@ var cliVersion = func(path string) string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(out)), "magpie"))
+	v := strings.TrimSpace(string(out))
+	v = strings.TrimPrefix(strings.TrimPrefix(v, "moepie "), "magpie ")
+	return strings.TrimSpace(v)
 }

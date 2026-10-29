@@ -35,11 +35,16 @@ func ownServer(s *Server) bool {
 }
 
 // magpieBinary is whether cmd names a magpie program, by a path of any
-// system's: magpie, magpie.exe, magpie-windows-amd64.exe, the AppImage.
+// system's: moepie, its platform builds, or a compatible magpie program.
 func magpieBinary(cmd string) bool {
 	base := strings.ToLower(cmd[strings.LastIndexAny(cmd, `/\`)+1:])
 	base = strings.TrimSuffix(base, ".exe")
-	return base == magpieCommand || strings.HasPrefix(base, magpieCommand+"-")
+	for _, name := range []string{"moepie", magpieCommand} {
+		if base == name || strings.HasPrefix(base, name+"-") {
+			return true
+		}
+	}
+	return false
 }
 
 // runsHere is whether cmd is a program by full path on this computer.

@@ -238,7 +238,7 @@ func trayTotalCard(id string, t usage.Totals, currency string, rate float64) pro
 		when = "Last 7 days"
 	}
 	rows := []string{"Σ" + trayCount(t.Tokens()+t.CacheRead+t.CacheWrite)}
-	tip := when + " in magpie\n" + trayTokens(t)
+	tip := when + " in moepie\n" + trayTokens(t)
 	if t.Cost > 0 {
 		c := usage.FormatCost(t.Cost, currency, rate)
 		if t.Unpriced > 0 {
@@ -291,7 +291,7 @@ func trayTokens(t usage.Totals) string {
 // tooltip does (NextCommit on Discord), then the cost and the requests.
 func trayIdleTip(t usage.Totals, currency string, rate float64) string {
 	if t.Calls == 0 {
-		return "magpie\nToday: no requests yet"
+		return "moepie\nToday: no requests yet"
 	}
 	line := "Today: " + trayTokens(t) + "\n"
 	if t.Cost > 0 {
@@ -305,7 +305,7 @@ func trayIdleTip(t usage.Totals, currency string, rate float64) string {
 	if t.Calls == 1 {
 		n = "request"
 	}
-	return fmt.Sprintf("magpie\n%s%d %s", line, t.Calls, n)
+	return fmt.Sprintf("moepie\n%s%d %s", line, t.Calls, n)
 }
 
 // trayCount is a count as the Usage page says it in English: 133M, 1.2M,

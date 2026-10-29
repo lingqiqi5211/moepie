@@ -50,8 +50,8 @@ func TestTrayTotals(t *testing.T) {
 			t.Errorf("cell %d: plain %v icon %d bytes letter %q", i, c.Plain, len(c.Icon), c.Letter)
 		}
 	}
-	if want := "Last 7 days in magpie\n47M tokens (41M in · 6.2M out)\n≈$128\n2310 requests\n\n" +
-		"Today in magpie\n6.3M tokens (912K in · 318K out · 5.1M cached)\n≈$3.40+\n152 requests, 2 with no known price"; tip != want {
+	if want := "Last 7 days in moepie\n47M tokens (41M in · 6.2M out)\n≈$128\n2310 requests\n\n" +
+		"Today in moepie\n6.3M tokens (912K in · 318K out · 5.1M cached)\n≈$3.40+\n152 requests, 2 with no known price"; tip != want {
 		t.Errorf("tooltip %q\nwant %q", tip, want)
 	}
 

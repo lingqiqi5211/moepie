@@ -50,7 +50,7 @@ func registerScheme() error {
 	path := filepath.Join(dir, "magpie.desktop")
 	entry := `[Desktop Entry]
 Type=Application
-Name=magpie
+Name=moepie
 Comment=Every agent's model. One place.
 Exec=` + exe + ` %u
 Icon=magpie
@@ -59,7 +59,7 @@ Categories=Development;Utility;
 MimeType=x-scheme-handler/magpie;
 Terminal=false
 `
-	if old, err := os.ReadFile(path); err == nil && strings.Contains(string(old), "Exec="+exe+" %u") && strings.Contains(string(old), "x-scheme-handler/magpie") &&
+	if old, err := os.ReadFile(path); err == nil && strings.Contains(string(old), "\nName=moepie\n") && strings.Contains(string(old), "Exec="+exe+" %u") && strings.Contains(string(old), "x-scheme-handler/magpie") &&
 		strings.Contains(string(old), "\nStartupWMClass="+programName+"\n") {
 		return iconErr
 	}

@@ -16,7 +16,7 @@ func TestMacTrayTipIsSet(t *testing.T) {
 	trayTipNative = func(tip string) bool { got = append(got, tip); return ok }
 	t.Cleanup(func() { trayTipNative = old })
 
-	tip := "Today in magpie\n6.3M tokens (912K in · 318K out · 5.1M cached)\n≈$3.40+\n152 requests"
+	tip := "Today in moepie\n6.3M tokens (912K in · 318K out · 5.1M cached)\n≈$3.40+\n152 requests"
 	if setTrayTip(nil, tip) {
 		t.Error("set before the item is up: want false, to be tried again")
 	}

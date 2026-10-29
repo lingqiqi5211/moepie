@@ -65,6 +65,10 @@ func evalPath(p string) string {
 // every name it can take while it still runs is magpie's.
 func TestIsMagpie(t *testing.T) {
 	for path, want := range map[string]bool{
+		"/Applications/moepie.app/Contents/MacOS/moepie": true,
+		"/opt/moepie-dev":                                true,
+		`C:\Tools\moepie-windows-amd64.exe.old-2`:        true,
+		"/usr/bin/moepies":                               false,
 		"/Applications/Magpie.app/Contents/MacOS/magpie": true,
 		"/usr/local/bin/magpie":                          true,
 		`C:\Users\u\AppData\Local\magpie\magpie.exe`:     true,

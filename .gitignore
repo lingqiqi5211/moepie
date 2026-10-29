@@ -1,9 +1,9 @@
-/magpie
-/magpie.exe
-/magpie.app/
+/moepie
+/moepie.exe
+/moepie.app/
 /dist/
-/magpie-dev
+/moepie-dev
 /rsrc_windows_*.syso
-/magpie-dev-backend
-/magpie-dev.new
+/moepie-dev-backend
+/moepie-dev.new
 /internal/update/launcher-*.com

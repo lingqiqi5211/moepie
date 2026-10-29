@@ -181,7 +181,7 @@ func (h *host) ChooseFolder(title string) (string, error) {
 
 // panelTitle names the panel for Hyprland's rule, which places it, and
 // for niri, which finds it by it (the main window is "magpie")
-const panelTitle = "magpie panel"
+const panelTitle = "moepie panel"
 
 // FitPanel grows or shrinks the panel to its content and keeps it anchored
 // under the tray icon; a shown panel glides there when g says how. height
@@ -371,7 +371,7 @@ func Run(version string, showMain bool, link string) error {
 		// second launch); it hands its arguments to the running one and quits.
 		// The Mac sends the link to the running app itself.
 		SingleInstance: singleInstance(h),
-		Name:           "magpie",
+		Name:           "moepie",
 		Description:    "one place to pick every agent's model",
 		Icon:           appIconFor(),
 		Assets:         application.AssetOptions{Handler: ownWindow(handler)},
@@ -523,10 +523,10 @@ func Run(version string, showMain bool, link string) error {
 	if runtime.GOOS == "linux" {
 		// set before the tray starts, it is the item's id too, which
 		// Omarchy's bar pins it by (Wails calls it "Wails" otherwise)
-		h.tray.SetLabel("magpie")
+		h.tray.SetLabel("moepie")
 		go dropTrayName()
 	}
-	h.tray.SetTooltip("magpie")
+	h.tray.SetTooltip("moepie")
 	if icon, template := trayIconFor(runtime.GOOS, traySchemeLight()); template {
 		h.tray.SetTemplateIcon(icon)
 	} else {
@@ -724,7 +724,7 @@ func (h *host) setBird(b []byte) {
 func panelOptions(goos, theme string) application.WebviewWindowOptions {
 	o := application.WebviewWindowOptions{
 		Name:            "panel",
-		Title:           "magpie",
+		Title:           "moepie",
 		URL:             "/?mode=panel" + theme,
 		Width:           panelWidth,
 		Height:          520,

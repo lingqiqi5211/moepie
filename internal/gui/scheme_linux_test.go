@@ -96,7 +96,7 @@ func TestRegisterScheme(t *testing.T) {
 // is installed, so neither the dock nor the app grid draws a gear (#2626).
 func checkDesktopBinding(t *testing.T, data, entry string) {
 	t.Helper()
-	if !strings.Contains(entry, "\nStartupWMClass="+programName+"\n") || !strings.Contains(entry, "\nIcon=magpie\n") {
+	if !strings.Contains(entry, "\nName=moepie\n") || !strings.Contains(entry, "\nStartupWMClass="+programName+"\n") || !strings.Contains(entry, "\nIcon=magpie\n") {
 		t.Fatalf("desktop entry doesn't bind the window %q and its icon: %q", programName, entry)
 	}
 	icon, err := os.ReadFile(filepath.Join(data, "icons", "hicolor", "256x256", "apps", "magpie.png"))
@@ -108,8 +108,8 @@ func checkDesktopBinding(t *testing.T, data, entry string) {
 	}
 }
 
-// An entry an older magpie (or install.sh) wrote for this executable has no
-// StartupWMClass; it is written again, once, and the icon put beside it.
+// An older entry with the right window class but the upstream display name
+// is rewritten once; its internal filename, icon and import scheme stay put.
 func TestRegisterSchemeBindsAnOlderEntry(t *testing.T) {
 	t.Setenv("FLATPAK_ID", "")
 	root := t.TempDir()
@@ -132,7 +132,7 @@ func TestRegisterSchemeBindsAnOlderEntry(t *testing.T) {
 	dir := filepath.Join(data, "applications")
 	path := filepath.Join(dir, "magpie.desktop")
 	older := "[Desktop Entry]\nType=Application\nName=magpie\nComment=Every agent's model. One place.\nExec=" + exe +
-		" %u\nIcon=magpie\nCategories=Development;Utility;\nMimeType=x-scheme-handler/magpie;\nTerminal=false\n"
+		" %u\nIcon=magpie\nStartupWMClass=" + programName + "\nCategories=Development;Utility;\nMimeType=x-scheme-handler/magpie;\nTerminal=false\n"
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

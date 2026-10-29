@@ -200,11 +200,11 @@ func parse(v string) *semver {
 var GUI bool
 
 // AppAsset and BinaryAsset name the files this machine would install.
-func AppAsset() string { return "magpie-darwin-" + runtime.GOARCH + ".zip" }
+func AppAsset() string { return "moepie-darwin-" + runtime.GOARCH + ".zip" }
 func BinaryAsset() string {
-	name := "magpie-cli-" + runtime.GOOS + "-" + runtime.GOARCH
+	name := "moepie-cli-" + runtime.GOOS + "-" + runtime.GOARCH
 	if GUI && runtime.GOOS != "darwin" {
-		name = "magpie-" + runtime.GOOS + "-" + runtime.GOARCH
+		name = "moepie-" + runtime.GOOS + "-" + runtime.GOARCH
 	}
 	if runtime.GOOS == "windows" {
 		name += ".exe"
@@ -222,7 +222,7 @@ func Bundle() string {
 	if err != nil {
 		return ""
 	}
-	// …/magpie.app/Contents/MacOS/magpie
+	// …/moepie.app/Contents/MacOS/moepie
 	app := filepath.Dir(filepath.Dir(filepath.Dir(exe)))
 	if filepath.Ext(app) != ".app" || filepath.Base(filepath.Dir(exe)) != "MacOS" {
 		return ""
@@ -280,7 +280,7 @@ func Stage(ctx context.Context, rel *Release, bundle string) (string, error) {
 		return "", fmt.Errorf("unzip: %v: %s", err, b)
 	}
 	os.Remove(zip)
-	app := filepath.Join(out, "magpie.app")
+	app := filepath.Join(out, "moepie.app")
 	if err := sameSigner(ctx, bundle, app); err != nil {
 		os.RemoveAll(dir)
 		return "", err
@@ -432,7 +432,7 @@ var bundleExecutableKey = regexp.MustCompile(`<key>CFBundleExecutable</key>\s*<s
 
 // bundleExecutable is the name of the program in bundle's Contents/MacOS:
 // the one its Info.plist names, else this one's own when it runs from
-// that bundle, else magpie.
+// that bundle, else moepie.
 func bundleExecutable(bundle string) string {
 	if b, err := os.ReadFile(filepath.Join(bundle, "Contents", "Info.plist")); err == nil {
 		if m := bundleExecutableKey.FindSubmatch(b); m != nil {
@@ -444,7 +444,7 @@ func bundleExecutable(bundle string) string {
 	if exe, err := Executable(); err == nil && filepath.Dir(exe) == filepath.Join(bundle, "Contents", "MacOS") {
 		return filepath.Base(exe)
 	}
-	return "magpie"
+	return "moepie"
 }
 
 // retried is a shell command that runs command until it succeeds, sleeping

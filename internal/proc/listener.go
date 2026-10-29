@@ -41,8 +41,8 @@ func Terminate(pid int) error { return terminate(pid) }
 // Kill ends process pid at once. ErrDenied when this user may not.
 func Kill(pid int) error { return kill(pid) }
 
-// IsMagpie says whether the program at path is a magpie: magpie, its
-// magpie-* builds or dial, its name before; with .exe, and Windows' .old
+// IsMagpie says whether the program at path is moepie or a compatible
+// magpie/dial build; with .exe, and Windows' .old
 // for one replaced by an update while it ran, or .old-2 when that one was
 // still held.
 func IsMagpie(path string) bool {
@@ -58,7 +58,7 @@ func IsMagpie(path string) bool {
 	n = strings.TrimSuffix(n, ".old")
 	n = strings.TrimSuffix(n, ".new")
 	n = strings.TrimSuffix(n, ".exe")
-	for _, name := range []string{"magpie", "dial"} {
+	for _, name := range []string{"moepie", "magpie", "dial"} {
 		if n == name || strings.HasPrefix(n, name+"-") || strings.HasPrefix(n, name+"_") {
 			return true
 		}

@@ -141,7 +141,7 @@ const usage = `magpie — one place to pick every agent's model
   magpie update [check] [--proxy <url>] [--mirror <prefix>]
                                   install the newest release (check: only say if there is one); --proxy: an
                                   http(s):// or socks5:// proxy for it; --mirror: a GitHub download mirror put
-                                  before the github.com URL (none unless given; still checked against usemagpie.ai's SHA-256)
+                                  before the github.com URL (none unless given; still checked against the fork release's SHA-256)
   magpie update mirror [<prefix>|off]  the mirror every update, the app's own too, is downloaded through
   magpie update channel [stable|every]  which versions updates offer: stable (one a week, an urgent one at
                                   once) or every version as it comes out (the default)
@@ -172,7 +172,7 @@ func Main(v string) {
 		if len(os.Args) > 1 {
 			switch os.Args[1] {
 			case "-v", "--version", "version":
-				fmt.Println("magpie", version)
+				fmt.Println("moepie", version)
 				return
 			case "-h", "--help", "help":
 				fmt.Print(usage)
@@ -419,7 +419,7 @@ func run(args []string) error {
 		fmt.Print(usage)
 		return nil
 	case "-v", "--version", "version":
-		fmt.Println("magpie", version)
+		fmt.Println("moepie", version)
 		return nil
 	case "licenses":
 		fmt.Print(notices.Text)

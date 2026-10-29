@@ -43,7 +43,7 @@ func (h *host) makeMain(url string) *application.WebviewWindow {
 	winOpts, winBg := windowChrome(cmp.Or(os.Getenv("MAGPIE_THEME"), settings.Load().Theme))
 	w := h.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             "main",
-		Title:            "magpie",
+		Title:            "moepie",
 		URL:              url,
 		Width:            width,
 		Height:           height,

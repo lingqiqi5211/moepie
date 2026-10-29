@@ -22,7 +22,7 @@ shell='' backend='' watch='' fsw='' draining=''
 
 stop() { [ -n "$1" ] && kill "$1" 2>/dev/null && wait "$1" 2>/dev/null; }
 
-start_backend() { MAGPIE_DEV_ROLE=backend ./magpie-dev-backend app & backend=$!; }
+start_backend() { MAGPIE_DEV_ROLE=backend ./moepie-dev-backend app & backend=$!; }
 
 # listening waits (up to 30s) for backend $1 to listen on the gateway's
 # port and the backend's; no, once it has exited
@@ -54,7 +54,7 @@ handover() {
 
 # the shell, and a watcher that ends everything once it is quit
 start_shell() {
-	MAGPIE_DEV_ROLE=shell ./magpie-dev app & shell=$!
+	MAGPIE_DEV_ROLE=shell ./moepie-dev app & shell=$!
 	{ while kill -0 "$shell" 2>/dev/null; do sleep 1; done; kill -TERM $$; } & watch=$!
 }
 
@@ -80,15 +80,15 @@ relevant() {
 }
 
 # builds to a new file and moves it in, never over a running binary
-build() { go build -tags dev -o magpie-dev.new . && cp magpie-dev.new magpie-dev-backend.new && mv magpie-dev-backend.new magpie-dev-backend; }
+build() { go build -tags dev -o moepie-dev.new . && cp moepie-dev.new moepie-dev-backend.new && mv moepie-dev-backend.new moepie-dev-backend; }
 
 build || exit 1
-mv magpie-dev.new magpie-dev
+mv moepie-dev.new moepie-dev
 start_backend
 start_shell
-exec 3< <(fswatch -r -e '/\.git/' -e '/site/' -e '/magpie-dev' "$PWD")
+exec 3< <(fswatch -r -e '/\.git/' -e '/site/' -e '/moepie-dev' "$PWD")
 fsw=$!
-echo "  magpie-dev · UI from internal/gui/assets, reload on save · Go changes restart the backend only · gateway $MAGPIE_ADDR"
+echo "  moepie-dev · UI from internal/gui/assets, reload on save · Go changes restart the backend only · gateway $MAGPIE_ADDR"
 
 while read -r -u 3 path; do
 	relevant "$path" || continue
@@ -105,9 +105,9 @@ while read -r -u 3 path; do
 	*/internal/gui/app.go* | */internal/gui/dev_on.go*)
 		echo "  window code changed · reopening the windows"
 		stop_shell
-		mv magpie-dev.new magpie-dev
+		mv moepie-dev.new moepie-dev
 		start_shell
 		;;
-	*) rm -f magpie-dev.new ;;
+	*) rm -f moepie-dev.new ;;
 	esac
 done
