@@ -2421,8 +2421,10 @@ function drawSessWin() {
   const w = sessWin, box = $("#sessList"), view = $("#view-usage");
   if (!w.above?.isConnected) return;
   const n = w.items.length;
-  // out of sight nothing has a height: drawn as last measured
+  // out of sight nothing has a height or a place: the rows drawn stay as
+  // they are, for the page to come back to
   const live = !!box.offsetParent;
+  if (!live && w.above.nextElementSibling !== w.below) return;
   const at = box.clientWidth + "|" + document.documentElement.lang;
   if (live && at !== sessHeightsAt) { sessHeightsAt = at; sessHeights.clear(); }
   const off = new Float64Array(n + 1);
@@ -3785,7 +3787,10 @@ $("#sessQ").oninput = (e) => { sessQuery = e.target.value; if (sessions) renderS
 $("#sessQ").onkeydown = (e) => { if (e.key === "Escape" && e.target.value) { e.stopPropagation(); e.target.value = ""; sessQuery = ""; if (sessions) renderSessions(); } };
 // scrolled, resized or come into sight: the rows now near it drawn (sessWin)
 $("#view-usage").addEventListener("scroll", sessWinSoon, { passive: true });
-new ResizeObserver(sessWinSoon).observe($("#sessList"));
+// the view too: a taller window shows more rows, the list keeping its size
+const sessWinRO = new ResizeObserver(sessWinSoon);
+sessWinRO.observe($("#sessList"));
+sessWinRO.observe($("#view-usage"));
 
 // ---------- settings ----------
 //

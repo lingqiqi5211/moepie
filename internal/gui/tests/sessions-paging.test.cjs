@@ -138,6 +138,27 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.match(await page.locator("#sessNote").innerText(), w.showing(600, N));
       assert(await rows.count() < 200, `${await rows.count()} rows drawn of 600`);
 
+      // A taller window draws the rows it now shows, the list keeping its
+      // size; and a page left and come back to has its rows in sight from the
+      // first frame, not redrawn from the top while out of sight.
+      const lastBelowFoot = () => page.evaluate(() => [...document.querySelectorAll("#sessList .sess-item")].at(-1).getBoundingClientRect().bottom >= document.querySelector("#view-usage").getBoundingClientRect().bottom);
+      await page.setViewportSize({ width: 1000, height: 2000 });
+      await frame();
+      await frame();
+      assert(await lastBelowFoot(), "rows drawn down to a taller window's foot");
+      await page.setViewportSize({ width: 1000, height: 760 });
+      await frame();
+      await page.evaluate(() => document.querySelector('#nav button[data-view="agents"]').click());
+      await frame();
+      const back = await page.evaluate(() => new Promise((done) => {
+        document.querySelector('#nav button[data-view="usage"]').click();
+        requestAnimationFrame(() => {
+          const v = document.querySelector("#view-usage").getBoundingClientRect();
+          done([...document.querySelectorAll("#sessList .sess-item")].filter((e) => { const r = e.getBoundingClientRect(); return r.bottom > v.top && r.top < v.bottom; }).length);
+        });
+      }));
+      assert(back > 0, "rows in sight on the first frame back");
+
       // a keystroke in Search is a new list: it starts at the first page again
       // and, over 2600 sessions, does not take the time the whole list would.
       // 1111 of them name "Session 1" ("1", "1x", "1xx", "1xxx"), so the note
