@@ -48,7 +48,7 @@ func TestPanelShortcutKeepsSettingsSavedWhileBinding(t *testing.T) {
 	onPanelShortcut = func(string) error {
 		// Another settings action completes while the native host binds.
 		return settings.Edit(func(s *settings.Settings) error {
-			s.TextSize = 110
+			s.TextSize = 125
 			return nil
 		})
 	}
@@ -57,7 +57,7 @@ func TestPanelShortcutKeepsSettingsSavedWhileBinding(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
-	if got := settings.Load(); got.PanelShortcut != "Ctrl+K" || got.TextSize != 110 {
+	if got := settings.Load(); got.PanelShortcut != "Ctrl+K" || got.TextSize != 125 {
 		t.Fatalf("shortcut %q, text size %d; binding overwrote the other setting", got.PanelShortcut, got.TextSize)
 	}
 }
