@@ -1184,9 +1184,21 @@ func (s *Server) restAfterMarked(c candidate, status int, header http.Header, bo
 		if unserved {
 			counted = c.restID()
 		}
+		// failing again while it still rests for a failure of this kind —
+		// asked all the same, as the last one left, or by the request's
+		// own patience going over every account again — keeps the count
+		// where it is, as a rate limit does (rateRest): it climbs once a
+		// rest has ended and it fails again. Before, one request whose
+		// model failed alike on every account (a 5xx, asked a dozen times
+		// over by patience) counted each account a dozen times and rested
+		// them all the 10-minute cap at once (ly on Discord: seven Codex
+		// accounts on gpt-6-astra, all resting minutes)
+		again := backingOff(counted, now) || !unserved && c.model != "" && backingOff(c.restID(), now)
 		routed.Lock()
-		routed.failures[counted]++
-		n := routed.failures[counted]
+		if !again {
+			routed.failures[counted]++
+		}
+		n := max(routed.failures[counted], 1)
 		// the model's own count too, which only its own answer clears: on
 		// an account serving several models, a sibling's answer clears
 		// the account's count, and a model that keeps failing between
@@ -1195,7 +1207,9 @@ func (s *Server) restAfterMarked(c candidate, status int, header http.Header, bo
 		// is the model's: it climbs its own ladder and rests alone. A
 		// candidate naming no model has no sibling to tell apart
 		if !unserved && c.model != "" {
-			routed.failures[c.restID()]++
+			if !again {
+				routed.failures[c.restID()]++
+			}
 			if own := routed.failures[c.restID()]; own > n {
 				n, modelBackoff = own, true
 			}
@@ -1379,6 +1393,15 @@ func restSlow(c candidate, now time.Time) (Rest, bool) {
 	restingUntil.m[id] = r.Until
 	restingUntil.note[id] = r
 	return r, true
+}
+
+// backingOff says key still rests after a failure that said nothing of
+// why (failOther), whose count a failure now would climb.
+func backingOff(key string, now time.Time) bool {
+	restingUntil.Lock()
+	defer restingUntil.Unlock()
+	until, ok := restingUntil.m[key]
+	return ok && now.Before(until) && restingUntil.note[key].Why == failOther
 }
 
 // rateRest is how long a rate-limited candidate sits out: as long as the
