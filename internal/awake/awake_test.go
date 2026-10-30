@@ -158,6 +158,7 @@ func TestKeepOffWaitsForTheSetting(t *testing.T) {
 	hold = func(bool) (func(), error) { held.Add(1); return func() { held.Add(-1) }, nil }
 	var looks atomic.Int32
 	var on atomic.Bool
+	started := time.Now()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -177,8 +178,13 @@ func TestKeepOffWaitsForTheSetting(t *testing.T) {
 		}
 	}
 	time.Sleep(50 * time.Millisecond)
-	if n := looks.Load(); n != 1 {
-		t.Fatalf("turned off, Keep looked at the setting %d times in 50ms with nothing written", n)
+	// Keep also checks for other processes' writes at aligned clock beats.
+	// The observation can cross one even though no setting was written.
+	n := looks.Load()
+	every := filememo.OthersEvery()
+	allowed := 1 + int32(time.Now().Truncate(every).Sub(started.Truncate(every))/every)
+	if n > allowed {
+		t.Fatalf("turned off, Keep looked at the setting %d times; only %d reads allowed by clock beats", n, allowed)
 	}
 	on.Store(true)
 	filememo.Forget()
