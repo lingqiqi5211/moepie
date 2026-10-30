@@ -183,10 +183,10 @@
     <div class="table-wrap"><table>
       <tr><th>Stays</th><th>How long a conversation stays with the account or key that answered it</th></tr>
       <tr><td>Auto <code>auto</code></td><td>The default. Within a turn always, across turns while what the vendor cached of it is worth keeping.</td></tr>
-      <tr><td>Session <code>session</code></td><td>The whole session, while it can answer.</td></tr>
+      <tr><td>Session <code>session</code></td><td>The whole session, while it can answer. With Smart, Least used first or Weekly pace, a new session goes to the account or key the fewest other sessions are on, so sessions side by side each keep one of their own.</td></tr>
       <tr><td>Within a turn <code>turn</code></td><td>While the agent sends tool results back; when you speak again, routing decides afresh.</td></tr>
       <tr><td>Off <code>off</code></td><td>Every request is routed afresh.</td></tr>
-      <tr><td>Strict <code>strict</code></td><td>Never moves to another account or key, even past its usage cap: when that one is rate limited or out of quota, the error goes to the agent. New conversations are routed as usual.</td></tr>
+      <tr><td>Strict <code>strict</code></td><td>Never moves to another account or key, even past its usage cap: when that one is rate limited or out of quota, the error goes to the agent. New conversations are spread as with Session.</td></tr>
     </table></div>
     <h3 id="rules">Rules · a turn to a chosen model</h3>
     <p>A group’s <span class="ui">Rules</span> send a turn to one of its models when the turn is of a kind you name: long (<code>tokens ≥ N</code>), carrying an image, asking for reasoning (on, or at least a level), from certain agents, asking for something you describe (an <em>intent</em>), the agent compacting its context, or working in one of some folders (a project). A rule’s conditions all have to hold, so one can say “in ~/work/acme, and long”. They are looked at top first when you send a message; the first that matches puts its model first, with the group’s others behind it if it fails. A turn no rule matches is routed as the group always routes, and keeps to where it was.</p>

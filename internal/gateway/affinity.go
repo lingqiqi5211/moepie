@@ -498,7 +498,7 @@ func stickKey(scope string, in http.Header, body []byte) string {
 // (dirOf): one parse of a held body serves both (factsOf), where counting
 // it in the masked body parsed the conversation a second time, ~27 MB
 // more for each 4 MB Codex request in flight.
-func affine(scope, mode string, rotate bool, in http.Header, from provider.Protocol, body, written []byte, cs []candidate, pl planned) ([]candidate, planned, *Affinity, string) {
+func affine(scope, mode string, rotate, spread bool, in http.Header, from provider.Protocol, body, written []byte, cs []candidate, pl planned) ([]candidate, planned, *Affinity, string) {
 	key := stickKey(scope, in, body)
 	a := &Affinity{Mode: mode}
 	a.Turn, a.Within = turnOf(from, written)
@@ -587,8 +587,15 @@ func affine(scope, mode string, rotate bool, in http.Header, from provider.Proto
 			cs, pl = after(cs, pl, at)
 		}
 	case "first":
-		if rotate {
-			cs, pl = leastHeld(scope, key, cs, pl)
+		switch {
+		case rotate:
+			cs, pl = leastHeld(scope, key, cs, pl, false)
+		case spread && strings.Contains(key, "|agent:"):
+			// a subagent goes with its session's account, not to another
+			// as a session of its own
+			cs, pl = withLead(key, cs, pl)
+		case spread:
+			cs, pl = leastHeld(scope, key, cs, pl, true)
 		}
 	}
 	return cs, pl, a, key
@@ -608,7 +615,13 @@ const heldFor = 30 * time.Minute
 // was sent (sticks.opening, under key until opened ends it): many started
 // at once all went to the one holding the fewest before any of them was
 // answered (#1342: 24 requests at once over 5 accounts).
-func leastHeld(scope, key string, cs []candidate, pl planned) ([]candidate, planned) {
+//
+// ready is for a conversation kept for the whole session (spreadsSessions):
+// it goes only to one routing would put a new conversation on as well —
+// not a fallback while the provider's own model leads, nor one used past
+// lowShare, which Smart puts behind for new conversations — and routing's
+// order is otherwise as it was, its turn marks too.
+func leastHeld(scope, key string, cs []candidate, pl planned, ready bool) ([]candidate, planned) {
 	if len(cs) < 2 || len(pl.order) < len(cs) {
 		return cs, pl
 	}
@@ -629,7 +642,7 @@ func leastHeld(scope, key string, cs []candidate, pl planned) ([]candidate, plan
 	defer sticks.Unlock()
 	for _, m := range []map[string]stick{sticks.m, sticks.opening} {
 		for k, st := range m {
-			if strings.HasPrefix(k, scope+"|") && now.Sub(st.at) <= heldFor {
+			if strings.HasPrefix(k, scope+"|") && now.Sub(st.at) <= heldFor && !(ready && strings.Contains(k, "|agent:")) {
 				held[st.who+"/"+provider.WithMemberEffort(st.model, st.effort)]++
 			}
 		}
@@ -644,7 +657,7 @@ func leastHeld(scope, key string, cs []candidate, pl planned) ([]candidate, plan
 	seat := func(c candidate) string { return c.who() + "/" + provider.WithMemberEffort(c.model, c.effort) }
 	best := -1
 	for i, c := range cs {
-		if pl.order[i].Rest != nil || pl.order[i].Aside {
+		if pl.order[i].Rest != nil || pl.order[i].Aside || ready && i > 0 && !readyForNew(pl.order, i) {
 			continue
 		}
 		if best < 0 || held[seat(c)] < held[seat(cs[best])] {
@@ -656,10 +669,65 @@ func leastHeld(scope, key string, cs []candidate, pl planned) ([]candidate, plan
 	}
 	cs = append(append([]candidate{cs[best]}, cs[:best]...), cs[best+1:]...)
 	pl.order = append(append([]Weighed{pl.order[best]}, pl.order[:best]...), pl.order[best+1:]...)
-	for j := range pl.order {
-		pl.order[j].Turn = j == 0
+	if !ready {
+		for j := range pl.order {
+			pl.order[j].Turn = j == 0
+		}
 	}
 	return cs, pl
+}
+
+// readyForNew says whether order[i], behind order[0], is one routing would
+// put a new conversation on: not resting, nor a key for another protocol,
+// nor a fallback while the provider's own model leads, nor used past
+// lowShare.
+func readyForNew(order []Weighed, i int) bool {
+	w := order[i]
+	return w.Rest == nil && !w.Aside && !(w.Fallback && !order[0].Fallback) && !(w.Known && w.Used >= lowShare)
+}
+
+// withLead puts first, for a subagent's conversation nobody has answered
+// yet (a key stickKey gave "|agent:"), the key or account its session's
+// lead is on, while that one is readyForNew: under spreadsSessions the
+// session keeps its account, subagents included, rather than a subagent
+// counted as a session of its own and sent to another.
+func withLead(key string, cs []candidate, pl planned) ([]candidate, planned) {
+	lead, _, _ := strings.Cut(key, "|agent:")
+	sticks.Lock()
+	st, ok := stickOf(lead)
+	sticks.Unlock()
+	if !ok || time.Since(st.at) > heldFor || len(pl.order) < len(cs) {
+		return cs, pl
+	}
+	for i := 1; i < len(cs); i++ {
+		if cs[i].who() == st.who && cs[i].model == st.model && cs[i].effort == st.effort && readyForNew(pl.order, i) {
+			cs = append(append([]candidate{cs[i]}, cs[:i]...), cs[i+1:]...)
+			pl.order = append(append([]Weighed{pl.order[i]}, pl.order[:i]...), pl.order[i+1:]...)
+			break
+		}
+	}
+	return cs, pl
+}
+
+// spreadsSessions says whether new conversations kept for the whole
+// session (Stays: Session or Strict) go to the key, account or member the
+// fewest others are on (leastHeld), under a routing that picks by what
+// each has left: Smart, Least used first, Weekly pace. Several sessions
+// started side by side then each keep an account of their own until its
+// allowance runs out, as a user picking the mode with several accounts
+// expects (connor_yang on Discord: three sessions on two of three
+// accounts). In order, By weight, Free first, Speed first, Cheapest, Manual
+// and a plugin's routing pick for their own reasons, and keep their order;
+// In turn spreads on its own.
+func spreadsSessions(mode, routing string) bool {
+	if mode != provider.AffinitySession && mode != provider.AffinityStrict {
+		return false
+	}
+	switch routingOf(routing) {
+	case "", provider.LeastUsed, provider.Pace:
+		return true
+	}
+	return false
 }
 
 // after puts first the one after cs[at], round from the end, that isn't

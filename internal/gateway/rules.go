@@ -312,6 +312,7 @@ func ruleFor(key string, g provider.Group, ms []provider.Member, req *Request, a
 		default:
 			t0 := time.Now()
 			v, cached, err := classify(ask, g.Classifier, intents, prev, effort, text)
+			classifiedFor(g.ID, g.Classifier, err)
 			c.Intent, c.Cached, c.Ms = v.Intent, cached, int(time.Since(t0).Milliseconds())
 			if effort {
 				c.Effort, c.Score = v.Effort, v.Score

@@ -519,3 +519,60 @@ func TestUnroutedShownAsItsCaller(t *testing.T) {
 		t.Fatalf("answered %d %q %v", r.code, r.body, r.err)
 	}
 }
+
+// Jason on Discord: a Codex turn on ChatGPT Pro accounts, held while it
+// was masked, showed on the Routing page as "magpie · 0 on" over "Nothing
+// could take ." — the route that shows a held request had no model,
+// because Codex's own path never told the watch what it asked for, as
+// the Chat, Responses, Messages and Gemini paths do. It names it.
+func TestUnroutedCodexPathShowsItsModel(t *testing.T) {
+	unroutedLimits(t, 20*time.Millisecond, time.Hour)
+	s, _ := slowEyed(t, 0)
+	if err := settings.Save(settings.Settings{Redact: true}); err != nil {
+		t.Fatal(err)
+	}
+	withoutMasker(t)
+	m := gatedMasker{gate: make(chan struct{})}
+	var once sync.Once
+	open := func() { once.Do(func() { close(m.gate) }) }
+	t.Cleanup(open)
+	t.Cleanup(gwmw.Mask(m))
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	t.Cleanup(open) // before srv.Close, which waits on the held request
+	got := make(chan int, 1)
+	go func() {
+		c := &http.Client{Timeout: 30 * time.Second}
+		resp, err := c.Post(srv.URL+CodexPath+"/responses", "application/json", strings.NewReader(`{"model":"probe/text","input":"hi"}`))
+		if err != nil {
+			got <- 0
+			return
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		got <- resp.StatusCode
+	}()
+	u := watchedHold(t, s)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		u.f.mu.Lock()
+		shown := u.shown
+		u.f.mu.Unlock()
+		if shown != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the held Codex request never showed on the Routing page")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if rs := routesOf(s, "probe/text"); len(rs) != 1 || rs[0].Done || rs[0].Provider != "magpie" {
+		t.Fatalf("the held Codex request is shown without the model it asked for: %+v", s.Trace(context.Background(), 0, 0).Routes)
+	}
+	open()
+	select {
+	case <-got:
+	case <-time.After(15 * time.Second):
+		t.Fatal("never answered once masked")
+	}
+}

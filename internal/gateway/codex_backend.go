@@ -107,6 +107,10 @@ func (s *Server) codexBackend(w http.ResponseWriter, r *http.Request) {
 			writeError(w, provider.Responses, 400, err.Error())
 			return
 		}
+		// the route that shows it while it is held before routing names
+		// it, as handle's and gemini's do (Jason on Discord: a held Codex
+		// turn showed as no model, "magpie · 0 on")
+		noteAsked(r.Context(), model)
 		// a turn of the conversation's own: the model its side calls may
 		// follow (codexFollowTo)
 		meta := requestSessionMetadata(r.Header, body)
