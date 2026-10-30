@@ -91,11 +91,24 @@ commit.
 ## Building and releasing
 
 `.github/workflows/test.yml` runs on main pushes and pull requests (Go checks
-on three systems, the site worker tests and CLI builds). Linux and macOS run
-ordinary checks and race checks on separate runners; both must pass. Gateway
-tests run in isolated processes, one per core, in each check. Browser tests
-run separately with Playwright. The release reads the whole Test workflow's
-result for the exact commit.
+on three systems, the site worker tests and CLI builds). Linux runs the full
+business suite and race detector on separate runners; gateway tests are split
+into isolated processes, one per core. Windows keeps its native checks.
+
+macOS uses one runner for a bounded native smoke check: whole-repository vet
+and test compilation, tests declared in Darwin test files, process-tree and
+file/update/session/cache checks, and building and starting the app with
+`--version`. This catches native integration failures without repeating the
+full gateway suite and race detector on every push. The smoke job has a
+20-minute execution limit; runner queue time is outside that limit. It does
+not prove full macOS business-suite or race coverage. For that, run Test
+manually with `full_macos` enabled; the full suite and race detector share one
+Mac runner in a separate workflow queue.
+
+Browser tests run separately with Playwright. A release still requires the
+whole main-push Test workflow to pass for its exact commit, including the
+macOS smoke check. Both Intel and Apple Silicon release builds remain native
+and must complete before publication.
 
 `.github/workflows/release.yml` runs only through **Actions → Release → Run workflow**.
 A push to `main` runs Test and Docker, but does not start a release build or

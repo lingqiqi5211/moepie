@@ -5,12 +5,17 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      full_macos:
+        description: 'Run the full macOS suite and race detector instead of native smoke checks'
+        type: boolean
+        default: false
 
 # On main a run finishes: a release waits for a green run, and one cancelled
 # by every next push left none to wait for (LESSONS.md). A newer push still
 # replaces a run that hasn't started. A PR's run is cancelled by its next push.
 concurrency:
-  group: test-${{ github.ref }}
+  group: test-${{ github.ref }}${{ inputs.full_macos && '-full-macos' || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
@@ -22,16 +27,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # ARM64 hosted capacity left macos-latest without a runner before
-        # checkout. Keep the full Darwin checks on the supported Intel pool.
-        os: [ubuntu-latest, macos-15-intel, windows-latest]
-        # Ordinary tests and the race detector keep separate runners busy;
-        # neither waits for the other, and both must pass for Test to pass.
-        check: [test, race]
-        exclude:
-          - os: windows-latest
+        include:
+          # Linux carries the complete business suite and race detector.
+          - os: ubuntu-latest
+            check: test
+          - os: ubuntu-latest
             check: race
+          - os: windows-latest
+            check: test
+          # Request one Mac: a second runner waited eight hours on main.
+          # Full native coverage remains available through workflow_dispatch.
+          - os: macos-15-intel
+            check: ${{ inputs.full_macos && 'full' || 'smoke' }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.check == 'smoke' && 20 || 360 }}
 
     steps:
       - uses: actions/checkout@v4
@@ -67,7 +76,7 @@ jobs:
           if [ -n "$bad" ]; then echo "not gofmt'd:"; echo "$bad"; exit 1; fi
 
       - name: Vet
-        if: matrix.check == 'test'
+        if: matrix.check != 'race'
         run: go vet -tags "${{ steps.tags.outputs.tags }}" ./...
 
       - uses: oven-sh/setup-bun@v2
@@ -78,7 +87,7 @@ jobs:
       # compiled binary in isolated processes below, as Race already does;
       # every other package keeps its ordinary go test invocation.
       - name: Test
-        if: matrix.check == 'test' && runner.os != 'Windows'
+        if: (matrix.check == 'test' || matrix.check == 'full') && runner.os != 'Windows'
         shell: bash
         env:
           TEST_TAGS: ${{ steps.tags.outputs.tags }}
@@ -87,13 +96,36 @@ jobs:
             xargs go test -timeout 30m -tags "$TEST_TAGS"
 
       - name: Gateway tests
-        if: matrix.check == 'test' && runner.os != 'Windows'
+        if: (matrix.check == 'test' || matrix.check == 'full') && runner.os != 'Windows'
         shell: bash
         env:
           TEST_TAGS: ${{ steps.tags.outputs.tags }}
         run: |
           go test -c -o "$RUNNER_TEMP/gateway.test" -tags "$TEST_TAGS" ./internal/gateway/
           build/race-shards.sh internal/gateway "$RUNNER_TEMP/gateway.test" "$(getconf _NPROCESSORS_ONLN)" -test.timeout=30m
+
+      - name: macOS native smoke
+        if: matrix.check == 'smoke'
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          # Pick native tests from tracked Darwin files, including new ones.
+          # An empty list must fail rather than accidentally run the full suite.
+          native=$(git grep -h -E '^func Test[[:alnum:]_]+\(' -- '*_darwin_test.go' |
+            sed -E 's/^func (Test[[:alnum:]_]+)\(.*/\1/' | sort -u | paste -sd'|' -)
+          test -n "$native"
+          # ./... compiles every package's tests, but executes only Darwin cases.
+          go test -count=1 -timeout 5m ./... -run "^($native)$"
+          go test -count=1 -timeout 5m ./internal/proc/ ./internal/update/ ./internal/sessions/ ./internal/usage/ \
+            -run '^Test(Tree|EnvOfChild$|CommandContextTimeoutWithChild$|EndTrees|Relaunch|Install|MoveAside|CopyAll|UsageSameSizeAndMtimeRewrite$|LogGrowingRewriteThenAppend$|LogFileInfoPreservesIdentity$)'
+
+      - name: macOS app smoke
+        if: matrix.check == 'smoke'
+        timeout-minutes: 10
+        run: |
+          make app VERSION=ci
+          plutil -lint moepie.app/Contents/Info.plist
+          moepie.app/Contents/MacOS/moepie --version
 
       # Windows skips the Test step above, so the two plugin stderr tests run
       # here. The end-to-end one needs bun on PATH; without it it skips.
@@ -118,7 +150,7 @@ jobs:
       # tests can't call t.Parallel (t.Setenv), so its suite runs split over
       # one process per core (#923); each process isolates its own home.
       - name: Race
-        if: matrix.check == 'race'
+        if: matrix.check == 'race' || matrix.check == 'full'
         shell: bash
         run: |
           go test -race -c -o "$RUNNER_TEMP/gateway.race" -tags "${{ steps.tags.outputs.tags }}" ./internal/gateway/
@@ -127,7 +159,7 @@ jobs:
 
       # Account usage mixes cached results with concurrent fetches.
       - name: Race account usage
-        if: matrix.check == 'race'
+        if: matrix.check == 'race' || matrix.check == 'full'
         run: go test -race -tags "${{ steps.tags.outputs.tags }}" ./internal/provider/ -run '^Test(LoginUsage|SubscriptionUsageEachAccount)'
 
       # Some tests fake a home through $HOME, which Windows doesn't read
