@@ -19,8 +19,10 @@ const libraryUsage = `magpie library                     what the library gives 
   magpie library instructions        print the shared instructions
   magpie library instructions set <file|->   replace them with a file's text (- for stdin)
   magpie library instructions agents <a,b…|none>   the agents that get them
-  magpie library mcp add <name> <url | command args…> [agents=a,b…]
+  magpie library mcp add <name> <url | command args…> [agents=a,b…] [--local]
   magpie library mcp agents <name> <a,b…|none>
+  magpie library mcp local <name> on|off   keep it to this computer: a sync or a backup never carries it, and one
+                                     coming in neither takes it away nor puts another computer's in its place
   magpie library mcp rm <name>
   magpie library mcp hub on|off      give each agent one MCP server, magpie, in place of the library's (magpie runs them, once for every agent)
   magpie library skill agents <name> <a,b…|none>
@@ -93,8 +95,11 @@ func libraryCmd(args []string) error {
 		switch {
 		case len(rest) >= 3 && rest[0] == "add":
 			var cmd, agents []string
+			local := false
 			for _, a := range rest[2:] {
-				if v, ok := strings.CutPrefix(a, "agents="); ok {
+				if a == "--local" {
+					local = true
+				} else if v, ok := strings.CutPrefix(a, "agents="); ok {
 					if agents, err = libraryAgents(v, "mcp"); err != nil {
 						return err
 					}
@@ -109,6 +114,7 @@ func libraryCmd(args []string) error {
 			if agents != nil {
 				s.Agents = agents
 			}
+			s.Local = local
 			res, err = library.SaveServer("", s)
 			if len(s.Agents) == 0 {
 				unused = s.Name
@@ -117,6 +123,15 @@ func libraryCmd(args []string) error {
 			var as []string
 			if as, err = libraryAgents(rest[2], "mcp"); err == nil {
 				res, err = library.ServerAgents(rest[1], as)
+			}
+		case len(rest) == 3 && rest[0] == "local" && (rest[2] == "on" || rest[2] == "off") && !strings.HasPrefix(rest[1], "-"):
+			if res, err = library.ServerLocal(rest[1], rest[2] == "on"); err == nil && len(res.Changed) == 0 && len(res.Problems) == 0 {
+				if rest[2] == "on" {
+					fmt.Println(green.Render("✓"), rest[1], "is kept to this computer: a sync or a backup never carries it")
+				} else {
+					fmt.Println(green.Render("✓"), rest[1], "goes with the library again at the next sync")
+				}
+				return nil
 			}
 		case len(rest) == 2 && rest[0] == "rm":
 			res, err = library.RemoveServer(rest[1])
@@ -410,6 +425,9 @@ func libraryStatus() error {
 			what = strings.TrimSpace(s.Command + " " + strings.Join(s.Args, " "))
 		}
 		fmt.Printf("  %s %s → %s\n", bold.Render(s.Name), muted.Render(what), on(s.Agents))
+		if s.Local {
+			fmt.Println("   ", muted.Render("this computer only: a sync never carries it · magpie library mcp local "+s.Name+" off"))
+		}
 		for a, e := range s.Problems {
 			fmt.Println("   ", amber.Render("!"), a, muted.Render(e))
 		}

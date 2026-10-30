@@ -51,6 +51,11 @@ type Server struct {
 	// and list its tools: Codex's startup_timeout_sec (#3168), the only
 	// agent given it. 0 leaves it to the agent (Codex's own is 30s).
 	StartupTimeout int `json:"startupTimeout,omitempty"`
+	// Local keeps the server to this computer (huhuy72219405 on X: a
+	// server of a program or folder only this computer has). A backup or
+	// a sync never carries it, and one coming in neither takes it away nor
+	// puts another computer's of that name in its place (carry.go).
+	Local bool `json:"local,omitempty"`
 
 	// startupWrote is the startup_timeout_sec magpie last wrote in the
 	// entry being written, 0 for none: one the entry has otherwise is the

@@ -1856,6 +1856,8 @@ magpie.plugin("library", (ctx) => {
     const nm = el("div", "name mono", s.name);
     if (s.signIn?.dead) nm.append(tag(t("Sign-in ran out"), "warn", t("Open it to sign in again")));
     else if (s.signIn?.signedIn) nm.append(tag(t("Signed in"), "lib-signed", t("The agents given it use magpie's sign-in")));
+    // kept to this computer: sync carries it nowhere (huhuy72219405 on X)
+    if (s.local) nm.append(tag(t("This computer only"), "lib-local", t("Sync never carries it to your other computers")));
     // its status beside the name, not in it: the name is still the name
     who.classList.add("lib-srvwho");
     who.append(nm, healthEl(s.name));
@@ -2416,6 +2418,7 @@ magpie.plugin("library", (ctx) => {
     const d = prefill || (s ? structuredClone(s) : { name: "", transport: "stdio", command: "", args: [], env: {}, url: "", headers: {}, agents: all.map((a) => a.id) });
     if (!d.env) d.env = {};
     if (!d.headers) d.headers = {};
+    d.local = !!d.local;
     const ed = el("div", "editor lib-editor");
     const head = el("div", "ehead");
     head.append(mark(s?.icon, d.transport === "stdio" ? GLYPH.cmd : GLYPH.web), el("b", "", s ? s.name : t("New MCP server")));
@@ -2476,6 +2479,12 @@ magpie.plugin("library", (ctx) => {
     ed.append(slot);
     const agentsBox = el("div");
     ed.append(...field(t("Agents"), agentsBox));
+    // kept to this computer: a sync neither carries it to the others nor
+    // takes it away here (huhuy72219405 on X)
+    const hereBox = el("div", "lib-localbox");
+    const drawHere = () => hereBox.replaceChildren(toggle(d.local, t("This computer only"), (on) => { d.local = on; drawHere(); }));
+    drawHere();
+    ed.append(...field(t("This computer only"), hereBox, t("Sync never carries it to your other computers, and a sync from them neither removes it nor puts theirs in its place")));
     ed.append(err);
 
     function drawAgents() {
@@ -2537,7 +2546,7 @@ magpie.plugin("library", (ctx) => {
     // send saves the form; s is then the server as saved, for a save after
     // a sign-in's to be of it
     const send = async () => {
-      const body = { old: s ? s.name : "", server: { name: d.name, transport: d.transport, agents: d.agents, startupTimeout: d.startupTimeout || 0 } };
+      const body = { old: s ? s.name : "", server: { name: d.name, transport: d.transport, agents: d.agents, startupTimeout: d.startupTimeout || 0, local: !!d.local } };
       if (d.transport === "stdio") Object.assign(body.server, { command: d.command, args: d.args, env: d.env });
       else Object.assign(body.server, { url: d.url, headers: d.headers, oauth: d.transport === "http" && d.oauth?.clientId ? d.oauth : null });
       take(await api("library/servers/save", body));

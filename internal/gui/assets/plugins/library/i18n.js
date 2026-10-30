@@ -2,6 +2,9 @@
 // kernel adds them to i18n.js's (magpie.strings).
 magpie.strings({
   zh: {
+    "This computer only": "只在这台电脑",
+    "Sync never carries it to your other computers": "同步不会把它带到你的其他电脑",
+    "Sync never carries it to your other computers, and a sync from them neither removes it nor puts theirs in its place": "同步不会把它带到你的其他电脑；其他电脑同步过来时，既不会删掉它，也不会用它们的同名服务器替换它",
     "Off on this computer": "本机已关闭",
     "No agent on this computer gets it. Your other computers keep their own choice, and a sync doesn't turn it on here. Click to turn it on here.": "这台电脑上的 Agent 都不会用到它。其他电脑保持各自的设置，同步也不会在这里把它重新打开。点一下在本机打开。",
     "{name} is on on this computer": "{name} 已在本机打开",
@@ -687,6 +690,9 @@ magpie.strings({
     "Not installed here: it isn't given anything new, and what it has can be taken out here": "本机没有安装：不会再分配新的内容，已有的可以在这里移除",
   },
   "zh-TW": {
+    "This computer only": "只在這台電腦",
+    "Sync never carries it to your other computers": "同步不會把它帶到你的其他電腦",
+    "Sync never carries it to your other computers, and a sync from them neither removes it nor puts theirs in its place": "同步不會把它帶到你的其他電腦；其他電腦同步過來時，既不會刪掉它，也不會用它們的同名伺服器取代它",
     "Off on this computer": "本機已關閉",
     "No agent on this computer gets it. Your other computers keep their own choice, and a sync doesn't turn it on here. Click to turn it on here.": "這台電腦上的 Agent 都不會用到它。其他電腦保持各自的設定，同步也不會在這裡把它重新開啟。點一下在本機開啟。",
     "{name} is on on this computer": "{name} 已在本機開啟",
@@ -1372,6 +1378,9 @@ magpie.strings({
     "Not installed here: it isn't given anything new, and what it has can be taken out here": "本機沒有安裝：不會再分配新的內容，已有的可以在這裡移除",
   },
   ja: {
+    "This computer only": "このコンピュータだけ",
+    "Sync never carries it to your other computers": "同期でほかのコンピュータには送られません",
+    "Sync never carries it to your other computers, and a sync from them neither removes it nor puts theirs in its place": "同期でほかのコンピュータには送られません。ほかのコンピュータからの同期で削除されたり、同じ名前のサーバーに置き換えられたりすることもありません",
     "Off on this computer": "このコンピュータでオフ",
     "No agent on this computer gets it. Your other computers keep their own choice, and a sync doesn't turn it on here. Click to turn it on here.": "このコンピュータのエージェントには渡されません。ほかのコンピュータはそれぞれの設定のままで、同期してもここでオンに戻りません。クリックするとここでオンにします。",
     "{name} is on on this computer": "{name} をこのコンピュータでオンにしました",
@@ -2057,6 +2066,9 @@ magpie.strings({
     "Not installed here: it isn't given anything new, and what it has can be taken out here": "このコンピューターにはインストールされていません：新しいものは割り当てられず、すでにあるものはここで外せます",
   },
   de: {
+    "This computer only": "Nur dieser Computer",
+    "Sync never carries it to your other computers": "Die Synchronisierung bringt ihn nicht auf deine anderen Computer",
+    "Sync never carries it to your other computers, and a sync from them neither removes it nor puts theirs in its place": "Die Synchronisierung bringt ihn nicht auf deine anderen Computer, und eine Synchronisierung von dort entfernt ihn weder noch ersetzt sie ihn durch ihren gleichnamigen Server",
     "Off on this computer": "Auf diesem Computer aus",
     "No agent on this computer gets it. Your other computers keep their own choice, and a sync doesn't turn it on here. Click to turn it on here.": "Kein Agent auf diesem Computer bekommt ihn. Deine anderen Computer behalten ihre Wahl, und ein Sync schaltet ihn hier nicht wieder ein. Klicken, um ihn hier einzuschalten.",
     "{name} is on on this computer": "{name} ist auf diesem Computer an",

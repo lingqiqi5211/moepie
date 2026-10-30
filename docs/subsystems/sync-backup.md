@@ -188,6 +188,14 @@ it, and putting another computer's library keeps it, so the others keep the
 skill on and a sync from them doesn't turn it on here
 (`TestSkillOffHereThroughSync`, two computers through the fake S3).
 
+An MCP server kept to one computer (`Server.Local`, see
+[library](library.md)) is never in the library part, so it never reaches
+another computer by sync or backup file. Putting another computer's library
+keeps it, and a server of the same name from there goes to `Library.Away`,
+given to no agent here and carried on unchanged, so neither computer's sync
+removes or replaces the other's (`TestLocalServerThroughSync`, two computers
+through the fake S3; `TestRestoreKeepsLocalServer` for a backup file).
+
 ## Verification
 
 ```sh
