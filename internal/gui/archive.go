@@ -112,13 +112,15 @@ func archiveRoutes(mux *http.ServeMux) {
 			fail(rw, err)
 			return
 		}
-		s := settings.Load()
-		if _, ok := davsync.S3Bucket(); ok {
-			s.RequestArchive = in.On
-		} else {
-			s.RequestArchiveLocal = in.On
-		}
-		if err := settings.Save(s); err != nil {
+		err := settings.Edit(func(s *settings.Settings) error {
+			if _, ok := davsync.S3Bucket(); ok {
+				s.RequestArchive = in.On
+			} else {
+				s.RequestArchiveLocal = in.On
+			}
+			return nil
+		})
+		if err != nil {
 			fail(rw, err)
 			return
 		}

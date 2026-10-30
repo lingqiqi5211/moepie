@@ -57,6 +57,13 @@ func magpieOnPort(port string) bool {
 	return false
 }
 
+func savePort(p int) error {
+	return settings.Edit(func(s *settings.Settings) error {
+		s.Port = p
+		return nil
+	})
+}
+
 // errPortTaken is a port another program listens on.
 func errPortTaken(p int) error {
 	return fmt.Errorf("port %d is in use by another program: pick another one", p)
@@ -87,8 +94,7 @@ func setPort(p int) (portJSON, error) {
 	was := cur.Port
 	if strconv.Itoa(want) == gateway.Port() {
 		if was != p {
-			cur.Port = p
-			if err := settings.Save(cur); err != nil {
+			if err := savePort(p); err != nil {
 				return portJSON{}, err
 			}
 		}
@@ -107,15 +113,12 @@ func setPort(p int) (portJSON, error) {
 	}
 	// the agents reaching the gateway where it is now, to move with it
 	on := agent.OnGateway()
-	cur.Port = p
-	if err := settings.Save(cur); err != nil {
+	if err := savePort(p); err != nil {
 		return portJSON{}, err
 	}
 	if gw != nil {
 		if err := gw.Relisten(); err != nil {
-			back := settings.Load()
-			back.Port = was
-			_ = settings.Save(back)
+			_ = savePort(was)
 			return portJSON{}, errPortTaken(want)
 		}
 	} else {

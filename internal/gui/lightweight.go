@@ -80,8 +80,12 @@ func (h *host) makeMain(url string) *application.WebviewWindow {
 				return
 			}
 			sw, sh := fitScreen(w)
-			if s := settings.Load(); settle(&s, wd, ht, sw, sh, w.IsMaximised()) {
-				settings.Save(s)
+			maxed := w.IsMaximised()
+			if s := settings.Load(); settle(&s, wd, ht, sw, sh, maxed) {
+				settings.Edit(func(s *settings.Settings) error {
+					settle(s, wd, ht, sw, sh, maxed)
+					return nil
+				})
 			}
 		})
 	})

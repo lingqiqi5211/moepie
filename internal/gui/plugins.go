@@ -799,12 +799,14 @@ func pluginProviderByID(id string) (plugin.Provider, bool) {
 // setChinaMirror turns the 「国内镜像」 switch on or off; a plugin list
 // fetched from GitHub's slow address, or not at all, is asked again.
 func setChinaMirror(on bool) error {
-	s := settings.Load()
-	if s.ChinaMirror == on {
+	if settings.Load().ChinaMirror == on {
 		return nil
 	}
-	s.ChinaMirror = on
-	if err := settings.Save(s); err != nil {
+	err := settings.Edit(func(s *settings.Settings) error {
+		s.ChinaMirror = on
+		return nil
+	})
+	if err != nil {
 		return err
 	}
 	if on {
