@@ -485,6 +485,7 @@ input.lib-setname:focus { border-color: var(--accent); box-shadow: 0 0 0 3px col
 .mk-spin { flex: none; width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--line); border-top-color: var(--fg-2); opacity: 0; transition: opacity .15s; }
 .mk.loading .mk-spin { opacity: 1; animation: mk-spin .7s linear infinite; }
 @keyframes mk-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .mk.loading .mk-spin { animation-duration: 2s !important; animation-iteration-count: infinite !important; } }
 .mk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(236px, 1fr)); gap: 10px; transition: opacity .2s var(--ease); }
 .mk.loading .mk-grid { opacity: .55; }
 .mk-card {

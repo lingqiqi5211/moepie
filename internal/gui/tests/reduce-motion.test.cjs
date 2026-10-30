@@ -7,6 +7,8 @@
 //   with the system's switch;
 // - turned off in Settings, the rules are the system's again, and the
 //   Routing page's live dot pulses; turned on, it stops, with no reload;
+// - a loop with no reduced rule of its own stands still too, rather than
+//   landing somewhere new each frame, and a busy spinner turns slowly;
 // - the choice is saved as reduceMotion.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -44,7 +46,7 @@ function serve(st, posted) {
 }
 
 // how many of the stylesheets' reduced-motion rules apply now, of all of
-// them; and what a live dot, put in the page, does
+// them; and what a live dot, a waiting dot and a spinner, put in the page, do
 const looks = (page) => page.evaluate(() => {
   let reduce = 0, all = 0;
   for (const sh of document.styleSheets) for (const r of sh.cssRules) {
@@ -57,7 +59,13 @@ const looks = (page) => page.evaluate(() => {
   document.body.append(dot);
   const anim = getComputedStyle(dot).animationName;
   dot.remove();
-  return { reduce, all, anim, calm: calm(), motion: document.documentElement.dataset.motion || "" };
+  const box = document.createElement("div");
+  box.innerHTML = '<span class="mchip"><i class="tdot wait"></i></span><span class="icon spin"><svg viewBox="0 0 16 16"><path d="M2 8h12"/></svg></span>';
+  document.body.append(box);
+  const loops = box.querySelector(".tdot").getAnimations().filter((a) => a.effect.getComputedTiming().iterations === Infinity).length;
+  const spin = getComputedStyle(box.querySelector("path")).animationDuration;
+  box.remove();
+  return { reduce, all, anim, loops, spin, calm: calm(), motion: document.documentElement.dataset.motion || "" };
 });
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
@@ -77,13 +85,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
 
     const first = await looks(page);
     assert(first.all > 20, `the reduced-motion rules must apply from the start (${JSON.stringify(first)})`);
-    assert.deepEqual({ ...first, all: 0 }, { reduce: 0, all: 0, anim: "none", calm: true, motion: "reduce" });
+    assert.deepEqual({ ...first, all: 0 }, { reduce: 0, all: 0, anim: "none", loops: 0, spin: "2s", calm: true, motion: "reduce" });
     assert.match(await on.getAttribute("class"), /\bon\b/);
 
     await off.click();
     await page.waitForFunction(() => !document.documentElement.dataset.motion);
     const moving = await looks(page);
-    assert.deepEqual({ ...moving, reduce: 0 }, { reduce: 0, all: 0, anim: "rtlive", calm: false, motion: "" });
+    assert.deepEqual({ ...moving, reduce: 0 }, { reduce: 0, all: 0, anim: "rtlive", loops: 1, spin: "0.9s", calm: false, motion: "" });
     assert.equal(moving.reduce, first.all, "every rule held must be the system's again");
     assert.equal(posted.at(-1).reduceMotion, false);
 

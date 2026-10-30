@@ -3724,7 +3724,10 @@ body.panel .modal { padding: 16px 12px; }
 @keyframes content-in { from { opacity: .5; transform: translateY(2px); } }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  /* one pass, so what loops stands still instead of landing somewhere new
+     each frame; a spinner that says "busy" turns slowly instead */
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  :is(.icon.spin, .ag-fix.busy, .usage-refresh .icon.busy) svg > *, .signing .spinner { animation-duration: 2s !important; animation-iteration-count: infinite !important; }
   /* what declares no transition of its own keeps none: its default is
      `all 0s`, which the rule above made `all .01ms`, so a header tab's
      label took a frame to come to its new size, the header was fitted to

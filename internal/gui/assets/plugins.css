@@ -294,6 +294,7 @@ button.pm-chip:disabled { cursor: default; opacity: .6; }
 }
 @media (prefers-reduced-motion: reduce) {
   .pm-card { transition: none; }
+  :is(.pm-foot .pm-check, .pm-act) .spin { animation-duration: 2s !important; animation-iteration-count: infinite !important; }
   .pm-card.ghost .sk, .pm-bounce > svg, .pm-ghlook, .pm-ghlook .dots i, .pm-arrive .pm-card { animation: none; }
   .pm-ghlook .dots i { opacity: .5; }
 }
