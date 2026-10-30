@@ -8818,7 +8818,7 @@ function baseAPIOf(p) {
 
 // draftOf is a saved provider as its editor's form holds it.
 function draftOf(p) {
-  return { id: p.id, name: p.name, preset: p.preset, chat: p.chat, responses: p.responses, anthropic: p.anthropic, gemini: p.gemini || "", catalog: p.catalog, decide: p.decide || "", key: "", api: baseAPIOf(p), chosen: pickedOf(p), none: !!p.noModels, extra: [], headers: headerRows(p.headers), extraBody: extraBodyText(p.extraBody), icon: p.icon || "", fallback: [...(p.fallback || [])], unlisted: !!p.unlisted, searches: !!p.searches, unredacted: !!p.unredacted, insecureTLS: !!p.insecureTLS, limitRestOff: !!p.limitRestOff, nativeCompaction: !!p.nativeCompaction, passUserAgent: !!p.passUserAgent, pinUpstream: !!p.pinUpstream, authHeader: p.authHeader || "", balanceURL: p.balanceURL || "", balancePath: p.balancePath || "", balanceMethod: p.balanceMethod || "", modelsURL: p.modelsURL || "", contexts: contextsText(p.contexts), outputs: contextsText(p.outputs), compacts: contextsText(p.compacts), keysUrl: p.keysUrl || "", ...proxyDraft(p), ...concurrencyDraft(p) };
+  return { id: p.id, name: p.name, preset: p.preset, chat: p.chat, responses: p.responses, anthropic: p.anthropic, gemini: p.gemini || "", catalog: p.catalog, decide: p.decide || "", key: "", api: baseAPIOf(p), chosen: pickedOf(p), none: !!p.noModels, best: !!p.bestInFamily, extra: [], headers: headerRows(p.headers), extraBody: extraBodyText(p.extraBody), icon: p.icon || "", fallback: [...(p.fallback || [])], unlisted: !!p.unlisted, searches: !!p.searches, unredacted: !!p.unredacted, insecureTLS: !!p.insecureTLS, limitRestOff: !!p.limitRestOff, nativeCompaction: !!p.nativeCompaction, passUserAgent: !!p.passUserAgent, pinUpstream: !!p.pinUpstream, authHeader: p.authHeader || "", balanceURL: p.balanceURL || "", balancePath: p.balancePath || "", balanceMethod: p.balanceMethod || "", modelsURL: p.modelsURL || "", contexts: contextsText(p.contexts), outputs: contextsText(p.outputs), compacts: contextsText(p.compacts), keysUrl: p.keysUrl || "", ...proxyDraft(p), ...concurrencyDraft(p) };
 }
 
 // duplicateProvider opens the Add form on a copy of p (#268): its URLs,
@@ -9165,7 +9165,7 @@ function drawEditor(p, presetID) {
       if (priceTypedError(ed)) return;
       const picked = accountModelsDraft(p);
       if (picked === false) return editorError(t("Pick at least one model for the account, or choose All models"), "warn");
-      const body = { id: p.id, models: chosenIds(), noModels: noneChosen(), unlisted: draft.unlisted, fallback: draft.fallback, contexts: cx.map, outputs: ox.map, compacts: cpx.map, proxy, accountProxies: own.map, maxConcurrency, ...queue, priceRate, modelPrefs: modelPrefsOfDraft(), pinUpstream: !!draft.pinUpstream, ...(p.carriesCompaction ? { nativeCompaction: !!draft.nativeCompaction } : {}), ...routingOfDraft(p) };
+      const body = { id: p.id, models: chosenIds(), noModels: noneChosen(), bestInFamily: bestChosen(), unlisted: draft.unlisted, fallback: draft.fallback, contexts: cx.map, outputs: ox.map, compacts: cpx.map, proxy, accountProxies: own.map, maxConcurrency, ...queue, priceRate, modelPrefs: modelPrefsOfDraft(), pinUpstream: !!draft.pinUpstream, ...(p.carriesCompaction ? { nativeCompaction: !!draft.nativeCompaction } : {}), ...routingOfDraft(p) };
       saving(saveBtn, t("Saving…"));
       saveAccountModelsDraft(picked).then(() => savePluginOptions(subOf(a.agent))).then(() => providerAction("save", body, t("{name} saved", { name: p.name })), (e) => { doneSaving(saveBtn); editorError(e.message || String(e)); }); };
     bar.append(cancel, saveBtn);
@@ -9769,7 +9769,7 @@ function drawEditor(p, presetID) {
       body.baseAPI = draft.api === "openai" ? "chat" : draft.api;
     }
     if (custom) { body.icon = draft.icon || "generic"; body.balanceURL = (draft.balanceURL || "").trim(); body.balancePath = (draft.balancePath || "").trim(); body.balanceMethod = draft.balanceMethod || ""; body.modelsURL = (draft.modelsURL || "").trim(); }
-    if (p) { body.fallback = draft.fallback; body.unlisted = draft.unlisted; body.noModels = noneChosen(); body.modelPrefs = modelPrefsOfDraft(); Object.assign(body, routingOfDraft(p)); }
+    if (p) { body.fallback = draft.fallback; body.unlisted = draft.unlisted; body.noModels = noneChosen(); body.bestInFamily = bestChosen(); body.modelPrefs = modelPrefsOfDraft(); Object.assign(body, routingOfDraft(p)); }
     body.searches = !!draft.searches && searchable();
     body.pinUpstream = !!draft.pinUpstream;
     if (twoKeyHeaders()) body.authHeader = draft.authHeader || "";
@@ -10721,10 +10721,12 @@ function chosenIds() {
 // provider's models served, not to agents, not to routing groups, while its
 // balance and usage still show. Without it no picks is the vendor's list.
 const noneChosen = () => !!draft.none && !chosenIds().length;
+// bestChosen: Best in family kept, with nothing picked
+const bestChosen = () => !!draft.best && !draft.none && !chosenIds().length;
 
 // servedIds: the models the provider serves as the editor has it: the
 // picks; none after Select none; else those the vendor's list serves
-const servedIds = (p) => draft.chosen.length ? draft.chosen : draft.none ? [] : p.models.filter((m) => m.on).map((m) => m.id);
+const servedIds = (p) => draft.chosen.length ? draft.chosen : draft.none ? [] : p.models.filter((m) => draft.best ? m.best : m.on).map((m) => m.id);
 
 // modelsOpen: a provider editor's models let out to their full height
 // (#833), kept for the next editor opened. MCHIPS_MAX: the most the box is
@@ -10768,6 +10770,8 @@ function renderModels(p) {
   // agents aren't offered it, so Select all and Free only leave it, and it
   // is drawn dimmed, saying why. As saved (m.noAPI), or as the API set for
   // it in this editor makes it
+  // dashed: what the vendor's list serves (Best in family: m.best)
+  const dashed = () => listModels().filter((m) => !draft.best || m.best).map((m) => m.id);
   const noAPI = (m) => {
     const set = draft.modelPrefs?.[m.id]?.api;
     if (set === undefined || !p.speaks?.length) return !!m.noAPI;
@@ -10892,7 +10896,7 @@ function renderModels(p) {
   };
   const limit = p.modelListLimit ?? prefs?.effectiveModelLimit ?? 24;
   const listModels = () => {
-    const ms = p.models.filter((m) => !noAPI(m));
+    const ms = p.models.filter((m) => !noAPI(m) && (!draft.best || m.best));
     return limit ? ms.slice(0, limit) : ms;
   };
   const draw = () => {
@@ -10906,7 +10910,7 @@ function renderModels(p) {
     // groups alone, those are what the groups use (#1818: drawn as none
     // while the card and the auto groups had all 17); after Select none,
     // none is served
-    const served = draft.chosen.length || decideOnly(p) || draft.none ? new Set() : new Set(listModels().map((m) => m.id));
+    const served = draft.chosen.length || decideOnly(p) || draft.none ? new Set() : new Set(dashed());
     // models that would read alike say what tells them apart (modelTells)
     const tells = modelTells(p.models);
     // a filter is a search: what it doesn't match is left out, picked or not
@@ -10980,6 +10984,8 @@ function renderModels(p) {
     drawServes();
     why.textContent = decideOnly(p) ? t("Agents never see them: a routing group picks one as its classifier.")
       : !draft.chosen.length && draft.none ? t("None selected: no agent or routing group uses its models. Its balance and usage still show. Click a model to pick it.")
+      : bestChosen() && !draft.unlisted ? t("Best in family: agents see the newest model of each family it lists (dashed), up to {n}. A newer one it lists later takes the old one's place.", { n: limit || p.models.length })
+
       : draft.unlisted ? t(draft.chosen.length ? "Agents don't see them: only the routing groups they are in use them." : limit ? "Vendor's list: agents don't see it, the routing groups its models are in use up to {n} of it (dashed). Click a model to pick just it." : "Vendor's list: routing groups use all its models (dashed). Click a model to pick just it.", { n: limit })
       : t(draft.chosen.length ? "Agents see the models picked." : limit ? "Vendor's list: agents see up to {n} of its models (dashed), and those it lists later. Click a model to pick just it." : "Vendor's list: agents see all its models (dashed), and those it lists later. Click a model to pick just it.", { n: limit });
     drawLost();
@@ -11349,32 +11355,23 @@ function renderModels(p) {
     names.style.minHeight = "";
     names.scrollTop = top;
   };
-  // what the provider serves, said in so many words (#1831, kchen0x: with
-  // none picked it served every model, with one picked that one, and with
-  // that one unpicked every model again, while Select none served none and
-  // looked nearly the same): the vendor's list, or the models picked, none
-  // when none are. A click on a model, Select all or Select none is
-  // "Picked"; only "Vendor's list" goes back to the vendor's list. None
-  // picked is Usage only, its own option (#2068, keleus: a subscription
-  // kept for its usage alone took Picked only, then Select none, then Save
-  // to find): nothing routed to it, its balance and usage still shown.
-  // Picked only with none picked starts from what the vendor's list serves
-  // (the dashed ones), to unpick from
+  // what the provider serves, in words (#1831): the vendor's list, the
+  // picks (a click on a model, Select all or none), the newest of each
+  // family, or Usage only (#2068). Picked only starts from the dashed ones
   const serves = el("div", "segs mserves");
-  const servesOpts = [["list", "Vendor's list", "Serve the vendor's list, up to {n} of it (dashed), models it lists later too"], ["picked", "Picked only", "Serve only the models picked"], ["none", "Usage only", "Route nothing to it: no agent or routing group uses its models, and those it lists later aren't added. Its balance and usage still show."]].map(([v, name, tip]) => {
+  const servesOpts = [["list", "Vendor's list", "Serve the vendor's list, up to {n} of it (dashed), models it lists later too"], ["picked", "Picked only", "Serve only the models picked"], ["best", "Best in family", "Best in family: agents see the newest model of each family it lists (dashed), up to {n}. A newer one it lists later takes the old one's place."], ["none", "Usage only", "Route nothing to it: no agent or routing group uses its models, and those it lists later aren't added. Its balance and usage still show."]].map(([v, name, tip]) => {
     const b = el("button", "opt", t(name));
     b.dataset.serves = v;
     b.title = t(v === "list" && !limit ? "Serve all the vendor's models (dashed), models it lists later too" : tip, { n: limit });
     b.onclick = () => {
-      if (v === "list") { draft.chosen = []; draft.typed = ""; draft.none = false; }
-      else if (v === "none") { draft.chosen = []; draft.typed = ""; draft.none = true; }
-      else if (!draft.chosen.length) { draft.chosen = listModels().map((m) => m.id); draft.none = true; }
+      if (v !== "picked") { draft.chosen = []; draft.typed = ""; draft.none = v === "none"; draft.best = v === "best"; }
+      else { if (!draft.chosen.length) { draft.chosen = dashed(); draft.none = true; } draft.best = false; }
       draw();
     };
     serves.append(b);
     return b;
   });
-  const servesMode = () => draft.chosen.length ? "picked" : draft.none ? "none" : "list";
+  const servesMode = () => draft.chosen.length ? "picked" : draft.none ? "none" : draft.best ? "best" : "list";
   const drawServes = () => {
     const now = servesMode();
     for (const b of servesOpts) { b.classList.toggle("on", b.dataset.serves === now); b.setAttribute("aria-pressed", b.dataset.serves === now); }
@@ -11386,7 +11383,7 @@ function renderModels(p) {
   allOn.title = t("Pick every model listed that this provider can serve (those the filter shows)");
   allOn.onclick = () => {
     const f = (q?.value || "").trim().toLowerCase();
-    const ids = p.models.filter((m) => !noAPI(m)).filter((m) => !f || m.id.toLowerCase().includes(f) || (m.name || "").toLowerCase().includes(f) || (m.default || "").toLowerCase().includes(f)).map((m) => m.id);
+    const ids = p.models.filter((m) => !noAPI(m) && (!draft.best || m.best)).filter((m) => !f || m.id.toLowerCase().includes(f) || (m.name || "").toLowerCase().includes(f) || (m.default || "").toLowerCase().includes(f)).map((m) => m.id);
     draft.chosen = [...draft.chosen, ...ids.filter((id) => !draft.chosen.includes(id))];
     draft.none = true;
     draw();

@@ -577,7 +577,8 @@ func buildCodexListTag(kind string) string {
 // A provider switched off picks nothing, as it serves no agent anything
 // (Provider.Off): its picks are kept for when it is switched on again and
 // are not a narrowing now. Usage only narrows the visible native list to
-// none, as it does the general catalog; codexModels keeps hidden jobs.
+// none, as it does the general catalog; codexModels keeps hidden jobs. Best
+// in family narrows it to the newest of each family the account lists.
 func CodexNativePicked() (map[string]bool, bool) {
 	p, ok := find(All(), "codex")
 	if !ok || p.Off {
@@ -585,6 +586,15 @@ func CodexNativePicked() (map[string]bool, bool) {
 	}
 	if p.ServesNone() {
 		return nil, true
+	}
+	if len(p.Models) == 0 && p.BestInFamily {
+		// Best in family: the newest of each family the account lists
+		keep := map[string]bool{}
+		for _, m := range catalog.BestInFamily(p.Available()) {
+			keep[m.ID] = true
+		}
+		// with no list known, the account's own is left whole
+		return keep, len(keep) > 0
 	}
 	if len(p.Models) == 0 {
 		return nil, false
