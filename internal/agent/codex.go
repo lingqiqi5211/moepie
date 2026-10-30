@@ -2335,6 +2335,18 @@ func codexChatGPTKnown(dir string) (signedIn, known bool) {
 	if settings.AccountDiscoveryOff() {
 		return false, true
 	}
+	// forced_login_method = "api" in Codex's own config (another tool or
+	// guide writes it; magpie never does): Codex won't use a ChatGPT
+	// sign-in then. The TUI logs it out on start and the app server reads
+	// no account (openai/codex login/src/auth/manager.rs
+	// enforce_login_restrictions, load_auth), so wired beside it the
+	// Codex app asked for a sign-in and offered an API key alone (Tiger on
+	// Discord: "重启 codex 之后登不回去了"). Counted as no sign-in, magpie
+	// is the provider and Codex needs none. The line is the user's own and
+	// stays: taking it out is how they sign in to ChatGPT again.
+	if v, ok := edit.GetTOMLTop(filepath.Join(dir, "config.toml"), "forced_login_method"); ok && strings.EqualFold(strings.TrimSpace(v), "api") {
+		return false, true
+	}
 	var a struct {
 		Tokens *struct {
 			Access string `json:"access_token"`
