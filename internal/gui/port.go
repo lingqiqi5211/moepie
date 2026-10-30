@@ -3,6 +3,7 @@ package gui
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strconv"
@@ -118,7 +119,9 @@ func setPort(p int) (portJSON, error) {
 	}
 	if gw != nil {
 		if err := gw.Relisten(); err != nil {
-			_ = savePort(was)
+			if err := savePort(was); err != nil {
+				log.Printf("port: putting %d back: %v", was, err)
+			}
 			return portJSON{}, errPortTaken(want)
 		}
 	} else {
