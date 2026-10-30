@@ -78,7 +78,11 @@ func Size() int64 { return modelSize }
 // sync carries to the user's other computers.
 var dir = func() string { return filepath.Join(appdir.Cache(), "privacy-filter") }
 
-func modelPath() string { return filepath.Join(dir(), "privacy-filter-q8-"+modelSHA[:12]+".gguf") }
+func modelPath() string { return filepath.Join(dir(), modelName()) }
+
+// modelName is the model's file name in dir, ASCII alone: pf-serve is
+// given this, not modelPath (startOne).
+func modelName() string { return "privacy-filter-q8-" + modelSHA[:12] + ".gguf" }
 
 func serveDir() string { return tagDir(serveTag) }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
@@ -338,6 +339,38 @@ func TestServeThatCantLoadSaysWhy(t *testing.T) {
 	_, err := Find([]string{"hi Alice"})
 	if err == nil || !strings.Contains(err.Error(), "can't load noload") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// A model in a folder whose name isn't ASCII loads: on Windows pf-serve's
+// argv is in the ANSI code page and its fopen reads UTF-8, so a Chinese
+// user name in C:\Users failed every load, on the GPU and the CPU alike,
+// with the path in mojibake (AIMetaPhD on X). pf-serve gets the model's
+// name, run in its folder; the stand-in refuses a byte outside ASCII as
+// pf-serve does.
+func TestModelInFolderNotASCIILoads(t *testing.T) {
+	d := filepath.Join(t.TempDir(), "用户 Ünïcode", ".cache", "privacy-filter")
+	log := fakeInstallAt(t, "ok", true, d)
+	got, err := Find([]string{"hi Alice"})
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if len(got[0]) != 1 {
+		t.Fatalf("found %v", got)
+	}
+	if m := fakeLines(t, log, "model "); len(m) == 0 || m[0] != "model "+modelName() {
+		t.Fatalf("pf-serve was given %q, want the model's name", m)
+	}
+}
+
+// pf-serve's error names the model by the name it was given; the user
+// reads the whole path, in UTF-8.
+func TestModelErrorNamesWholePath(t *testing.T) {
+	d := filepath.Join(t.TempDir(), "用户")
+	fakeInstallAt(t, "badmodel", false, d)
+	_, err := Find([]string{"hi Alice"})
+	if err == nil || !strings.Contains(err.Error(), "failed to read GGUF: "+modelPath()) {
+		t.Fatalf("err = %v, want %s in it", err, modelPath())
 	}
 }
 
