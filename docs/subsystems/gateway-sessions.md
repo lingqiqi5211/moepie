@@ -149,6 +149,63 @@ Implementation: [`internal/usage/gateway_sessions.go`](../../internal/usage/gate
 [`internal/sessions/external.go`](../../internal/sessions/external.go), and
 [`internal/gui/sessions.go`](../../internal/gui/sessions.go).
 
+## Which agents' sessions magpie reads
+
+An agent's own session files are read only when the user allows that
+agent (RustCats on X: a new install showed every agent's history before
+anyone agreed). `sessions.Reads(agent)` in
+[`access.go`](../../internal/sessions/access.go) is the one gate, from
+`settings.SessionReads` (`Asked`, `All`, `Agents`; an agent named in
+`Agents` wins, the others follow `All`). Every lister asks it at its
+entry (`ccFiles`, `codexFiles`, `openCodeFiles`, `piFilesIn`, ... down to
+`geminiTraceFiles`), the aggregators filter by it again (`allFiles`,
+`callFilesWith`, `callSourcesWith`, `traceLineFiles`, `wslFiles`, and
+`DesktopDataDirs`, which Usage's Desktop readers take), and the readers
+that take a session already listed (`TranscriptOf`, `ContentOf`,
+`SearchSession`, `SubagentTranscript`, `CarryOver`, `ReadCallSource`)
+return `ErrNotRead`, so a cache from before a switch was turned off is
+read no further. So the Sessions page and list, stats, the overview, the
+call and trace indexes, Usage's agent-file calls and the Codex and Pi
+title readers all go through it.
+
+`SettleReads` decides once, for an install with no `SessionReads`: one
+that kept a sessions cache (`sessions.json`) or a call cache
+(`calls-v*`) read sessions before, and keeps reading every agent
+(`Asked`, `All`); a fresh one reads none, not asked. The decision is
+saved, so a cache written later never turns it into "all", and a value
+already saved is never replaced. `settings.save` keeps the stored value
+and sync and restore keep it (`KeepOwn`); only `SetSessionReads` writes
+it. A settings.json that can't be written leaves this run reading
+nothing. In a test binary nothing settled reads everything and nothing
+is written (`readsAllInTests`).
+
+`/api/sessions/reads` (GET; POST `{all, agents}`) in
+[`sessions_reads.go`](../../internal/gui/sessions_reads.go) gives the
+choice and the agents found (`sessions.Found`, by a stat of each agent's
+folder, nothing in it read; WSL distros are not looked into, Allow all
+covers them), and `sessions/manage` carries the same as `reads`. While
+`asked` is false the Sessions page shows the consent (`consentCard` in
+the sessions plugin): each agent found with a switch, off; Allow selected
+saves `all: false` with each agent picked or not, Allow all `all: true`.
+Settings › Privacy, *Agents' session history* (`renderSessionReads` in
+the sessions plugin's `settings.js`), has *Agents found later* (`all`, sent with each listed agent
+at the value its row shows) and a row per agent.
+`magpie sessions read [on|off all|<agent>…]` shows and changes the same
+choice from the CLI (`sessionReadsTo`); while it is not asked,
+`magpie sessions` says so on stderr and the TUI's empty Sessions page
+says how (`sessNothing`). Tests: `TestSessionsRead`,
+`TestSessionsNotAskedSaysHow`.
+
+What is read either way: the gateway's own usage ledger, its
+projections and the conversations it recorded (they are magpie's own),
+the agents' config and sign-in files, Claude Code's and Codex's
+`history.jsonl` last-used time and a session file's mtime for a quota's first use, and
+Codex's newest rollout's last line before magpie restarts Codex
+(`codexTurnOpen`), none of which lists or shows a session. Tests:
+`TestFreshInstallReadsNoAgentUntilAllowed`,
+`TestSettleReadsKeepsWhatWasThere`, `TestSessionReadsRoutes`,
+`sessions-reads.test.cjs`.
+
 ## Local Gateway Conversation Recording
 
 The Sessions page offers an explicit, default-off recording switch. Confirmation

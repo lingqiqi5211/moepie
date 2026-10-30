@@ -89,6 +89,9 @@ type grokKind struct{ Kind, Parent string }
 var grokKinds listMemo[grokKind]
 
 func grokFiles() []file {
+	if !Reads("grok") {
+		return nil
+	}
 	kinds := grokKinds.round()
 	defer kinds.done()
 	root := filepath.Join(GrokDir(), "sessions")

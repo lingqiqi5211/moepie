@@ -82,6 +82,7 @@ func trashJSON(looks map[string]*agent.Agent) []trashedJSON {
 }
 
 func sessionManageRoutes(mux *http.ServeMux, w Windows) {
+	sessionReadsRoutes(mux)
 	mux.HandleFunc("POST /api/sessions/relocate-claude", func(rw http.ResponseWriter, r *http.Request) {
 		var in sessions.ClaudeRelocation
 		if err := json.NewDecoder(http.MaxBytesReader(rw, r.Body, 16384)).Decode(&in); err != nil {
@@ -130,7 +131,10 @@ func sessionManageRoutes(mux *http.ServeMux, w Windows) {
 			Recording bool   `json:"recording"`
 			// Recorded: some gateway conversation text is kept, to delete
 			Recorded bool `json:"recorded"`
-		}{Agents: []manageAgentJSON{}, Sessions: []managedJSON{}, Terminal: runtime.GOOS == "darwin" && !isWeb(w),
+			// Reads: which agents' own sessions magpie may read; the page
+			// asks first when nothing is decided (asked false)
+			Reads readsJSON `json:"reads"`
+		}{Reads: readsNow(), Agents: []manageAgentJSON{}, Sessions: []managedJSON{}, Terminal: runtime.GOOS == "darwin" && !isWeb(w),
 			Trash: trashJSON(looks), TrashDir: tilde(sessions.TrashDir()), Recording: settings.Load().GatewayConversations,
 			Recorded: sessions.HasGatewayConversations()}
 		out.Home, _ = os.UserHomeDir()

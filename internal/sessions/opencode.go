@@ -142,6 +142,9 @@ func ms(n int64) time.Time {
 // messages and its time that of the latest change to one; from the files
 // its own file's path, the sum of its messages' sizes and the latest time.
 func openCodeFiles() []file {
+	if !Reads("opencode") {
+		return nil
+	}
 	if db := openCodeDB(); fileExists(db) {
 		return openCodeDBFiles("opencode", db)
 	}
@@ -222,6 +225,9 @@ type ocDB struct{ db *sql.DB }
 
 // openCodeDBFiles are the sessions in OpenCode's database, or ZCode's.
 func openCodeDBFiles(agent, path string) []file {
+	if !Reads(agent) {
+		return nil
+	}
 	db := openDB(path)
 	if db == nil {
 		return nil
@@ -403,6 +409,9 @@ func (s ocV2DB) parts(mid string) [][]byte {
 type ocFiles struct{ root string } // storage/
 
 func openCodeJSONFiles(root string) []file {
+	if !Reads("opencode") {
+		return nil
+	}
 	infos, _ := filepath.Glob(filepath.Join(root, "session", "*", "*.json"))
 	store := ocFiles{root}
 	var out []file

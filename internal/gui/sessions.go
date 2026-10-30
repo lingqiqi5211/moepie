@@ -553,6 +553,9 @@ var warmOnce sync.Once
 
 func warmStart() {
 	go func() {
+		// a fresh install reads no agent's sessions until asked; one
+		// that read them before keeps reading them (decided once)
+		sessions.SettleReads()
 		time.Sleep(3 * time.Second)
 		// with few readers, as nobody waits on it yet: after an update
 		// that reads every file again, it held every core (#1665)

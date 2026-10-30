@@ -223,6 +223,9 @@ func equalFoldASCII(a, lower []byte) bool {
 // from its agent's own file; ErrNoTranscript for an agent whose
 // conversations aren't read.
 func SearchSession(ctx context.Context, s Session, needle string) (Hit, bool, error) {
+	if !Reads(s.Agent) {
+		return Hit{}, false, ErrNotRead
+	}
 	if !HasTranscript(s.Agent) || s.Path == "" {
 		return Hit{}, false, ErrNoTranscript
 	}

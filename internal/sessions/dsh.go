@@ -69,6 +69,9 @@ var (
 )
 
 func dshFiles() []file {
+	if !Reads("dsh") {
+		return nil
+	}
 	dirs, _ := filepath.Glob(filepath.Join(DshDir(), "sessions", "*", "*"))
 	var out []file
 	parent := map[string]string{}

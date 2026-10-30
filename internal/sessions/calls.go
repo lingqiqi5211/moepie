@@ -147,7 +147,17 @@ type cxCallUsage = cxUsage
 var callDesktopDirs = desktopDataDirs
 
 // DesktopDataDirs are the folders whose session metadata belongs to this index.
-func DesktopDataDirs() []string { return callDesktopDirs() }
+func DesktopDataDirs() []string { return desktopReadDirs() }
+
+// desktopReadDirs are callDesktopDirs, or none when Claude Desktop's
+// sessions are not to be read (Reads): its local_*.json and Cowork's
+// folders are its session history.
+func desktopReadDirs() []string {
+	if !Reads("claude-desktop") {
+		return nil
+	}
+	return callDesktopDirs()
+}
 
 // Calls reads per-file request shards, separately from the session summaries.
 // Only changed files are scanned, and only a bounded number of parses stay in
@@ -293,14 +303,14 @@ func callFiles() []file { return callFilesWith(codexFiles()) }
 // callFilesWith is callFiles with codex the rollouts codexFiles found.
 func callFilesWith(codex []file) []file {
 	lists := [][]file{ccFiles("claude", ClaudeDir())}
-	for _, d := range callDesktopDirs() {
+	for _, d := range desktopReadDirs() {
 		// Cowork keeps a Claude Code folder of its own for each session
 		homes, _ := SessionGlob(filepath.Join(d, "local-agent-mode-sessions", "*", "*", "local_*", ".claude"))
 		for _, h := range homes {
 			lists = append(lists, ccFiles("claude-desktop", h))
 		}
 	}
-	lists = append(lists, codex, wslFiles("claude", "codex"))
+	lists = append(lists, allowed(codex), wslFiles("claude", "codex"))
 	// sized once: a file is ~200 bytes, and growing a list of ~20k of them
 	// on every 15 s poll was ~36 MB a read
 	n := 0
@@ -344,7 +354,7 @@ func callSourcesWith(codex []file) []file {
 	out = append(out, piCallFiles()...)
 	out = append(out, codebuddyCallFiles()...)
 	out = append(out, agyCallFiles()...) // #2097
-	return distinctPaths(append(out, workbuddyCallFiles()...))
+	return allowed(distinctPaths(append(out, workbuddyCallFiles()...)))
 }
 
 // desktopDataDirs are Claude Desktop's folders on this computer that
@@ -1202,6 +1212,9 @@ func callSourcesOf(fs []file) []CallSource {
 // ReadCallSource returns immutable calls for one source. Independent files can
 // be read concurrently; disk IO never holds callsMu.
 func ReadCallSource(s CallSource) []Call {
+	if !Reads(s.Agent) {
+		return nil
+	}
 	st := readCalls(file{path: s.Path, key: s.Key, agent: s.Agent, size: s.Size, mod: s.Modified})
 	// Requests retains its own compact snapshot. Keeping the expanded parser's
 	// calls as well doubles residency, especially for long active sessions. The

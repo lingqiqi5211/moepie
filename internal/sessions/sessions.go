@@ -567,6 +567,9 @@ func parallel(n, per int, one func(i int)) {
 // its workflows (ultracode) in <id>/subagents/workflows/<run>/agent-*.jsonl
 // — beside each run's journal.jsonl, which isn't a transcript.
 func ccFiles(agent, dir string) []file {
+	if !Reads(agent) {
+		return nil
+	}
 	return heldFiles("cc\x00"+agent+"\x00"+dir, func() []file { return listCCFiles(agent, dir) })
 }
 
@@ -626,7 +629,9 @@ func allFiles() []file {
 		grokFiles(), workbuddyFiles(), codebuddyFiles(), droidFiles(), ompFiles(), cursorFiles(), hermesFiles(), almaFiles(), kimiFiles(), agyFiles()} {
 		out = append(out, fs...)
 	}
-	return distinctPaths(out)
+	// each lister asked Reads already; a file listed under another
+	// agent's name is held to that agent too
+	return allowed(distinctPaths(out))
 }
 
 // distinctPaths is fs with each path kept once, the first time it is
@@ -703,6 +708,9 @@ const zstSuffix = ".zst"
 // reading CodexDir alone left out every other account's sessions and
 // calls (phantom3792 on X).
 func codexFiles() []file {
+	if !Reads("codex") {
+		return nil
+	}
 	if !quiet() {
 		return heldFiles("codex", listCodexFiles)
 	}
@@ -783,6 +791,9 @@ func walkLinked(root string, fn fs.WalkDirFunc) error {
 
 // codexFilesIn are the rollouts in a Codex folder.
 func codexFilesIn(dir string) []file {
+	if !Reads("codex") {
+		return nil
+	}
 	var out []file
 	for _, folder := range []string{"sessions", "archived_sessions"} {
 		root := filepath.Join(dir, folder)

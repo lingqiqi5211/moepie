@@ -131,6 +131,7 @@ const usage = `magpie — one place to pick every agent's model
   magpie sessions [--model <m>] [--folder <f>] [--json]   the latest Claude Code, Codex, OpenCode and Pi sessions, with what each cost
   magpie sessions --days N|today|all [--model <m>] [--folder <f>] [--json]
                                   what every session spent, day by day, with the top models and folders (7 days)
+  magpie sessions read [on|off all|<agent>…]   which agents' session history magpie may read (none until allowed)
   magpie quota [<provider>] [--json]  what is left of every subscription, plan and key balance
   magpie quota wait <provider|account> [--timeout <d>] [--quiet]
                                   block until that subscription (any of its accounts) or account has allowance again

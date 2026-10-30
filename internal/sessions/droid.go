@@ -71,6 +71,9 @@ func readDroidStart(path string) (droidStart, bool) {
 var droidCallers listMemo[string]
 
 func droidFiles() []file {
+	if !Reads("droid") {
+		return nil
+	}
 	root := filepath.Join(FactoryDir(), "sessions")
 	a, _ := filepath.Glob(filepath.Join(root, "*.jsonl"))
 	b, _ := filepath.Glob(filepath.Join(root, "*", "*.jsonl"))

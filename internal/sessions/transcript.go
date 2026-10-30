@@ -60,6 +60,9 @@ func (t *Transcript) add(_ bool, p Part) bool {
 
 // TranscriptOf reads a session's conversation from its (main) file.
 func TranscriptOf(s Session) (Transcript, error) {
+	if !Reads(s.Agent) {
+		return Transcript{Parts: []Part{}}, ErrNotRead
+	}
 	out := Transcript{Parts: []Part{}}
 	if !HasTranscript(s.Agent) || s.Path == "" {
 		return out, ErrNoTranscript

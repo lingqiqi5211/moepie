@@ -113,8 +113,9 @@ as" (#3897).
   so with no Sessions plugin it does nothing. With Sessions switched off,
   a row of Usage's list unfolds its details in place instead
   (`sessionItem`, #2311). Still in app.js: the Usage
-  page's Sessions tab (`/api/sessions`) and Settings' session terminal row
-  (`data-feature="sessions"`).
+  page's Sessions tab (`/api/sessions`). Settings' Session terminal row
+  (`data-feature="sessions"`) and Privacy's Agents' session history are its
+  `settings.js`, loaded after app.js and drawn whether it is on or off.
 - **Library** (`plugins/library`, `Client: i18n.js, library.css,
   client.js`): the page that was `library.js`. Its code runs at `mount`
   only, where it wires its listeners (the dialog's backdrop and Escape,

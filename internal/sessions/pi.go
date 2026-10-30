@@ -72,6 +72,9 @@ func piFiles() []file { return piFilesIn(PiDir(), piSessionDir()) }
 // piFilesIn are the sessions in a Pi folder, and in the folder it was told
 // to keep them in ("" for none).
 func piFilesIn(dir, sessionDir string) []file {
+	if !Reads("pi") {
+		return nil
+	}
 	paths, _ := filepath.Glob(filepath.Join(dir, "sessions", "*", "*.jsonl"))
 	if d := sessionDir; d != "" {
 		more, _ := filepath.Glob(filepath.Join(d, "*.jsonl"))

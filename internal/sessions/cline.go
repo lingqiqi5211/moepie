@@ -43,6 +43,9 @@ func ClineSessionDir() string {
 }
 
 func clineFiles() []file {
+	if !Reads("cline") {
+		return nil
+	}
 	paths, _ := filepath.Glob(filepath.Join(ClineSessionDir(), "*", "*.messages.json"))
 	var out []file
 	for _, p := range paths {

@@ -197,6 +197,12 @@ func TestSettingsSaveKeepsWhatItDoesNotSend(t *testing.T) {
 	if err := settings.SetGatewayConversations(true); err != nil {
 		t.Fatal(err)
 	}
+	// only SetSessionReads writes the agents whose sessions are read
+	if err := settings.SetSessionReads(func(*settings.SessionReads) *settings.SessionReads {
+		return &settings.SessionReads{Asked: true, Agents: map[string]bool{"claude": true, "codex": false}}
+	}); err != nil {
+		t.Fatal(err)
+	}
 	was = settings.Load()
 	rec := httptest.NewRecorder()
 	Handler(nil, nil).ServeHTTP(rec, httptest.NewRequest("POST", "/api/settings", strings.NewReader(`{"theme":"dark"}`)))

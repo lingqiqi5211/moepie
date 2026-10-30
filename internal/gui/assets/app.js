@@ -19036,6 +19036,8 @@ function setSetTab(tab, remember) {
     $("#setPage-" + id).hidden = !on;
   }
   setShown = tab;
+  // each agent's row is read only where it is shown
+  if (view === "settings" && tab === "privacy" && !setQuery) loadSessionReads();
   $("#setTabs").setAttribute("aria-label", t("Settings"));
   $("#setQ").setAttribute("aria-label", t("Find a setting"));
   if (view === "settings") syncURL();
@@ -19375,6 +19377,7 @@ function renderSettings() {
   renderDisabledModels(s);
   renderRedact(s, keep);
   renderDiscovery(s);
+  renderSessionReads(s);
   renderOTel(s, keep);
   renderPort(s);
   renderBareIds(s);
@@ -19518,40 +19521,6 @@ function renderLangPick(s, keep) {
       if (v === chosen) return;
       savePrefs({ ...keep, lang: v });
     }, "Language", "sess-menu", "right");
-  };
-}
-
-function renderSessionTerminal(s, keep) {
-  const row = $("#sessionTerminalRow");
-  row.hidden = !document.body.classList.contains("mac");
-  if (row.hidden) return;
-  const select = $("#sessionTerminalSelect");
-  const apps = [...(s.terminalApps || [])];
-  if (!apps.some((app) => app.id === "com.apple.Terminal")) apps.unshift({ id: "com.apple.Terminal", name: "Terminal" });
-  const chosen = s.sessionTerminal || "system";
-  // a default that is not a terminal opens Terminal, as the server does
-  const defaultApp = apps.find((app) => app.id === s.terminalDefault) || apps.find((app) => app.id === "com.apple.Terminal");
-  const options = [{ id: "system", name: t("System default ({name})", { name: defaultApp.name }) }];
-  for (const app of apps) {
-    if (app.id === defaultApp.id && app.id !== chosen) continue;
-    options.push({ id: app.id, name: app.id === defaultApp.id ? t("{name} (fixed)", { name: app.name }) : app.name });
-  }
-  if (!options.some((app) => app.id === chosen)) {
-    options.push({ id: chosen, name: t("Unavailable app ({id})", { id: chosen }) });
-  }
-  // the app's own menu, not a native select
-  select.dataset.value = chosen;
-  select.replaceChildren(el("span", "", options.find((app) => app.id === chosen).name), svg(CHEV, 11, 1.6));
-  select.onclick = (e) => {
-    e.stopPropagation();
-    if (select.classList.contains("open")) return closeProtoMenu();
-    openProtoMenu(select, options.map((app) => ({ v: app.id, name: app.name, note: "", literalName: true })), chosen, (v) => {
-      if (v === chosen) return;
-      // drawn at once; the save draws it again with what was kept
-      select.dataset.value = v;
-      select.firstChild.textContent = options.find((app) => app.id === v).name;
-      savePrefs({ ...keep, sessionTerminal: v === "system" ? "" : v });
-    }, "Session terminal", "sess-menu");
   };
 }
 

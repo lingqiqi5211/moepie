@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -133,7 +134,8 @@ func wslListPath() string { return filepath.Join(filepath.Dir(CachePath()), "ses
 // as last listed; a listing is started behind when the last is older than
 // wslRelist.
 func wslFiles(agents ...string) []file {
-	if !wslLooking() {
+	agents = slices.DeleteFunc(slices.Clone(agents), func(a string) bool { return !Reads(a) })
+	if len(agents) == 0 || !wslLooking() {
 		return nil
 	}
 	wslSess.Lock()
