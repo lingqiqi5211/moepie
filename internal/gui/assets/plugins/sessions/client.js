@@ -165,8 +165,13 @@ magpie.plugin("sessions", (ctx) => {
     focus = null;
     if (!r) return;
     readerScrolls(1000);
-    r.closest(".sm-item").scrollIntoView({ block: "nearest", behavior: "instant" });
+    const item = r.closest(".sm-item");
+    item.scrollIntoView({ block: "nearest", behavior: "instant" });
     readerLeaves(page);
+    // the rows come into sight with it are laid out only now (sessions.css'
+    // content-visibility), taller or shorter than they were taken as, and
+    // can have pushed it out of sight again
+    requestAnimationFrame(() => { if (item.isConnected) item.scrollIntoView({ block: "nearest", behavior: "instant" }); });
   }
 
   const current = () => data?.agents.find((a) => a.agent === data.agent);

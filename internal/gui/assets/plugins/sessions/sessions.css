@@ -59,6 +59,10 @@
 body.window .sm-group .row.sm-sess { padding-left: 32px; }
 .sm-others { margin-top: 4px; }
 .row.sm-sess { min-height: 44px; }
+/* a folder opened page by page to its 3,000th session laid them all out on
+   each "Show more" (0.3s) and each folder folded (0.85s): a row out of
+   sight is only as tall as it was */
+.sm-item { content-visibility: auto; contain-intrinsic-size: auto 50px; }
 .sm-item .sess-detail { padding-left: 34px; }
 .row.sess .sm-del:hover { color: var(--red); background: var(--red-soft); }
 /* carrying a session on in another agent, and its conversation (#845) */
