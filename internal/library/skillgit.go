@@ -248,6 +248,7 @@ func gitError(src Source, msg string) error {
 	case strings.Contains(low, "host key verification failed"):
 		return fmt.Errorf("SSH doesn't know %s's host key yet: connect to it once with ssh or git in a terminal to accept it, then try again (git said: %s)", host, said)
 	case strings.Contains(low, "could not read username") || strings.Contains(low, "could not read password") ||
+		strings.Contains(low, "unable to get password from user") ||
 		strings.Contains(low, "terminal prompts disabled") || strings.Contains(low, "authentication failed") ||
 		strings.Contains(low, "permission denied") || strings.Contains(low, "access denied") ||
 		strings.Contains(low, "the requested url returned error: 401") || strings.Contains(low, "the requested url returned error: 403"):

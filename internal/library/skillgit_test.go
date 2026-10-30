@@ -272,6 +272,7 @@ func TestGitRefusesOptionsAndTransports(t *testing.T) {
 func TestGitErrorsSaid(t *testing.T) {
 	src := Source{Kind: "git", Repo: "https://git.corp.example/team/skills.git", Ref: "dev"}
 	for msg, want := range map[string]string{
+		"fatal: unable to get password from user\n":                                                                         "git couldn't sign in to git.corp.example",
 		"fatal: could not read Username for 'https://git.corp.example': terminal prompts disabled\n":                        "git couldn't sign in to git.corp.example",
 		"remote: HTTP Basic: Access denied\nfatal: Authentication failed for 'https://git.corp.example/team/skills.git/'\n": "git couldn't sign in",
 		"git@git.corp.example: Permission denied (publickey).\nfatal: Could not read from remote repository.\n":             "git couldn't sign in",
