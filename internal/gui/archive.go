@@ -41,6 +41,10 @@ const archivePreviewBody = 256 << 10
 // downloaded, never read into memory.
 const archiveReadMost = 80 << 20
 
+// archiveReads holds previews to two at once: each reads up to
+// archiveReadMost and decodes it, and a page opening many held them all.
+var archiveReads = make(chan struct{}, 2)
+
 // archivePreview is an archived call as the page shows it: a body longer
 // than archivePreviewBody left out (Omitted), or, for an archive over
 // archiveReadMost, nothing but its size (Large).
@@ -129,6 +133,13 @@ func archiveRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/archive", func(rw http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 		defer cancel()
+		select {
+		case archiveReads <- struct{}{}:
+			defer func() { <-archiveReads }()
+		case <-ctx.Done():
+			fail(rw, ctx.Err())
+			return
+		}
 		body, size, name, err := openArchive(r.WithContext(ctx))
 		if err != nil {
 			fail(rw, err)

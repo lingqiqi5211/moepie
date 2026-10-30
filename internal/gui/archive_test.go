@@ -10,7 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/yetone/magpie/internal/davsync"
 	"github.com/yetone/magpie/internal/gateway"
@@ -117,6 +119,79 @@ func TestArchivePreviewAndDownload(t *testing.T) {
 				t.Errorf("%s%s: %d %s", path, q, rec.Code, rec.Body)
 			}
 		}
+	}
+}
+
+// heldArchive is fakeArchive, its reads held open until let go, counting
+// how many are open at once.
+type heldArchive struct {
+	fakeArchive
+	mu         sync.Mutex
+	open, most int
+	letGo      chan struct{}
+}
+
+func (f *heldArchive) Open(ctx context.Context, name string) (io.ReadCloser, int64, error) {
+	body, size, err := f.fakeArchive.Open(ctx, name)
+	if err != nil {
+		return nil, 0, err
+	}
+	f.mu.Lock()
+	f.open++
+	f.most = max(f.most, f.open)
+	f.mu.Unlock()
+	<-f.letGo
+	return heldBody{body, f}, size, nil
+}
+
+func (f *heldArchive) count() (open, most int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.open, f.most
+}
+
+type heldBody struct {
+	io.ReadCloser
+	f *heldArchive
+}
+
+func (b heldBody) Close() error {
+	b.f.mu.Lock()
+	b.f.open--
+	b.f.mu.Unlock()
+	return b.ReadCloser.Close()
+}
+
+// Previews asked for together are read two at a time, the rest waiting.
+func TestArchivePreviewsTwoAtOnce(t *testing.T) {
+	f := &heldArchive{fakeArchive: fakeArchive{objs: map[string][]byte{archiveObject: archivedCall(t, "{}", "{}")}}, letGo: make(chan struct{})}
+	h := archiveHome(t, fakeArchive{})
+	archiveBucket = func() (archiveStore, bool) { return f, true }
+	codes := make(chan int, 5)
+	for range 5 {
+		go func() {
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest("GET", "/api/archive"+archiveQuery, nil))
+			codes <- rec.Code
+		}()
+	}
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if open, _ := f.count(); open >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("two reads never opened")
+		}
+	}
+	time.Sleep(50 * time.Millisecond)
+	close(f.letGo)
+	for range 5 {
+		if c := <-codes; c != 200 {
+			t.Errorf("preview %d", c)
+		}
+	}
+	if _, most := f.count(); most != 2 {
+		t.Fatalf("%d read at once", most)
 	}
 }
 
