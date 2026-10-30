@@ -1,7 +1,8 @@
 // Package imagemcp is `magpie mcp image`: a stdio MCP server an agent is
 // given, when it is picked for it in the Library, to make images with the
 // model the Settings' Image generation names, and videos with the first
-// video model the gateway has (gateway.AutoVideomaker). It asks the
+// video model the gateway has (gateway.AutoVideomaker), or with the model
+// a call names, among those the gateway lists for it. It asks the
 // gateway, which knows the providers, and saves what comes back in the
 // project.
 package imagemcp
@@ -15,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"mime"
 	"net/http"
 	"net/url"
@@ -314,7 +316,8 @@ func (s *server) handle(req rpc) {
 	case "ping":
 		result = map[string]any{}
 	case "tools/list":
-		result = map[string]any{"tools": []any{schema, videoSchema, resultSchema}}
+		props := s.modelProps()
+		result = map[string]any{"tools": []any{withModel(schema, props[tool]), withModel(videoSchema, props[videoTool]), resultSchema}}
 	case "tools/call":
 		var p struct {
 			Name      string          `json:"name"`
@@ -370,6 +373,7 @@ func (s *server) handle(req rpc) {
 
 type args struct {
 	Prompt     string   `json:"prompt"`
+	Model      string   `json:"model"`
 	Path       string   `json:"path"`
 	Size       string   `json:"size"`
 	N          int      `json:"n"`
@@ -394,6 +398,13 @@ func (s *server) generate(raw json.RawMessage) (string, error) {
 	// vendor keeps through the vendor's own proxy, the way it just reached
 	// it (#1576)
 	req := map[string]any{"prompt": a.Prompt, "n": a.N, "response_format": "b64_json"}
+	if strings.TrimSpace(a.Model) != "" {
+		m, err := s.mediaModel(tool, a.Model)
+		if err != nil {
+			return "", err
+		}
+		req["model"] = m
+	}
 	for k, v := range map[string]string{"size": a.Size, "quality": a.Quality, "background": a.Background} {
 		if v != "" {
 			req[k] = v
@@ -710,6 +721,7 @@ func extOf(mt string) string {
 
 type filmArgs struct {
 	Prompt     string   `json:"prompt"`
+	Model      string   `json:"model"`
 	Path       string   `json:"path"`
 	Seconds    any      `json:"seconds"`
 	Size       string   `json:"size"`
@@ -788,6 +800,13 @@ func (s *server) film(raw json.RawMessage) (string, error) {
 	}
 	project := s.project()
 	req := map[string]any{"prompt": a.Prompt}
+	if strings.TrimSpace(a.Model) != "" {
+		m, err := s.mediaModel(videoTool, a.Model)
+		if err != nil {
+			return "", err
+		}
+		req["model"] = m
+	}
 	if secs > 0 {
 		req["seconds"] = strconv.Itoa(secs)
 	}
@@ -886,4 +905,111 @@ func (s *server) film(raw json.RawMessage) (string, error) {
 		length = v.Seconds + "-second "
 	}
 	return fmt.Sprintf("Generated a %svideo with %s, saved to:\n- %s\n", length, v.Model, shownPath(path)), nil
+}
+
+// The model a generate tool takes is the gateway's to say: it knows the
+// providers, which this process may not read (an agent in WSL, a gateway
+// elsewhere), and the models its caller may use. Its image MCP server's
+// tools list them (gateway.MediaModelMethod checks one).
+
+// modelAsk bounds asking the gateway for the models.
+const modelAsk = 10 * time.Second
+
+// ask asks the gateway's image MCP server method with params: its result,
+// or its JSON-RPC error's code and message.
+func (s *server) ask(method string, params any) (json.RawMessage, int, error) {
+	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+	ctx, cancel := context.WithTimeout(context.Background(), modelAsk)
+	defer cancel()
+	r, _ := http.NewRequestWithContext(ctx, http.MethodPost, s.gateway+gateway.ImageMCPPath, bytes.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Accept", "application/json, text/event-stream")
+	r.Header.Set("Authorization", "Bearer "+gateway.Token)
+	s.mu.Lock()
+	r.Header.Set("User-Agent", s.agent)
+	s.mu.Unlock()
+	res, err := s.client.Do(r)
+	if err != nil {
+		return nil, 0, fmt.Errorf("magpie isn't answering at %s (is it running?): %w", s.gateway, err)
+	}
+	defer res.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(res.Body, 4<<20))
+	if res.StatusCode != http.StatusOK {
+		return nil, 0, fmt.Errorf("magpie at %s answered %d: %s", s.gateway, res.StatusCode, gatewaySaid(data))
+	}
+	var m struct {
+		Result json.RawMessage `json:"result"`
+		Error  *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, 0, fmt.Errorf("magpie at %s answered what isn't JSON-RPC: %w", s.gateway, err)
+	}
+	if m.Error != nil {
+		return nil, m.Error.Code, errors.New(m.Error.Message)
+	}
+	return m.Result, 0, nil
+}
+
+// modelProps are the model argument of each generate tool, by its name, as
+// the gateway's image MCP server gives it; a plain one where it can't be
+// asked.
+func (s *server) modelProps() map[string]any {
+	out := map[string]any{
+		tool:      map[string]any{"type": "string", "description": "The image model to use, as provider/model. Leave it out to use the one set in Magpie (Settings → Images → Image generation)."},
+		videoTool: map[string]any{"type": "string", "description": "The video model to use, as provider/model. Leave it out to use the video model set up in Magpie."},
+	}
+	res, _, err := s.ask("tools/list", map[string]any{})
+	if err != nil {
+		return out
+	}
+	var l struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			InputSchema struct {
+				Properties map[string]json.RawMessage `json:"properties"`
+			} `json:"inputSchema"`
+		} `json:"tools"`
+	}
+	json.Unmarshal(res, &l)
+	for _, t := range l.Tools {
+		var prop map[string]any
+		if _, ok := out[t.Name]; ok && json.Unmarshal(t.InputSchema.Properties["model"], &prop) == nil && prop != nil {
+			out[t.Name] = prop
+		}
+	}
+	return out
+}
+
+// withModel is sc, a tool's schema, with prop as its model argument.
+func withModel(sc map[string]any, prop any) map[string]any {
+	out := maps.Clone(sc)
+	in := maps.Clone(sc["inputSchema"].(map[string]any))
+	props := maps.Clone(in["properties"].(map[string]any))
+	props["model"] = prop
+	in["properties"] = props
+	out["inputSchema"] = in
+	return out
+}
+
+// mediaModel is the model of the gateway's that asked stands for in a call
+// of name, or why there is none.
+func (s *server) mediaModel(name, asked string) (string, error) {
+	res, code, err := s.ask(gateway.MediaModelMethod, map[string]any{"tool": name, "model": asked})
+	if code == -32601 {
+		// a magpie older than this one: it takes the model as named
+		return strings.TrimSpace(asked), nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var m struct {
+		Model string `json:"model"`
+	}
+	if json.Unmarshal(res, &m) != nil || m.Model == "" {
+		return "", fmt.Errorf("magpie at %s didn't say which model %q is", s.gateway, asked)
+	}
+	return m.Model, nil
 }

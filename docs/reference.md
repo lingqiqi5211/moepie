@@ -562,6 +562,10 @@ as an HTTP MCP server; from another computer send a gateway key as
 `Authorization: Bearer <key>`. An image comes back in the tool's answer and
 at a URL on the gateway kept for an hour (the same key reads it), a video at
 `/v1/videos/<id>/content`. With Image generation Off the tool says so.
+`generate_image` and `generate_video` take an optional `model`
+(provider/model, one of those the tool's schema lists, for `magpie tool`
+`--model`). Left out, the one in Settings is used. One that isn't listed, or
+that a gateway key may not use, is refused with the models that may be used.
 
 WorkBuddy (China)'s daily check-in (签到) is pressed from the app's Usage card
 (*Check in now*), `magpie accounts checkin`, or `c` on the TUI's Usage page,

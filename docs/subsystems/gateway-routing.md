@@ -939,6 +939,29 @@ model, checked before the arguments. Nothing is written into the agent's
 project. Settings › Models shows the address (`#imageMcpRow`, below
 `#visionMcpRow`).
 
+`generate_image` and `generate_video` take an optional `model` (XYenon on
+Discord), in [`image_mcp_models.go`](../../internal/gateway/image_mcp_models.go).
+`mediaModels` lists what may be asked, as provider/model: Settings' default
+first (`Drawer`, `videomaker`), then each provider's `Drawers` or `Videomakers`,
+from providers that are on and not decide-only. `mediaModelsFor` keeps only those the calling
+key may use (`refAllowed`: `allows`, or `groupAllowed` for a group ref). The
+schema's `model` is an `enum` of them, or, past 40 (`mediaEnumMost`), a
+description naming three. `pickMediaModel` takes a listed ref (a ChatGPT
+account's other GPT Image name through `ListedDrawer`), a bare id only one
+provider has, or a newer model of a family a provider serves (`drawsFamily`,
+`grokVideoFamily`). Anything else is a tool error that names the models
+the key may use, and nothing is drawn. Left out, Settings' default is used,
+as before. The model chosen is put in the request's `model`, so the images
+and videos APIs' own key check (`keyHolds`, `keyModelError`) refuses one
+the key may not use, the same check `/v1/images` makes. The stdio Magpie
+Image server can't read providers (WSL, a gateway elsewhere), so it copies
+the gateway's `model` property from this server's `tools/list` and asks the
+JSON-RPC method `magpie/media_model` (`MediaModelMethod`; not a tool) which
+model one asked for stands for. An older gateway's -32601 passes the model
+through as named. Covered by `TestImageMCPDrawsWithTheModelAsked`,
+`TestImageMCPModelHeldToTheKey`, `TestImageMCPVideoModelAsked` and
+imagemcp's `TestGenerateTakesTheModel`.
+
 Each answer also carries `_meta` for a client that acts on it rather than
 reads it: `usemagpie.ai/pending` is the id to wait on (`PendingMeta`, beside
 the text that says to call `generation_result`), and `usemagpie.ai/files`
