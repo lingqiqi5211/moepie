@@ -106,7 +106,10 @@ func SetKeepLogin(id string, keep bool) error {
 	if p.Account == nil || p.Account.Agent != p.ID || !slices.Contains(switchedAgents, p.ID) {
 		return fmt.Errorf("magpie doesn't sign %s in to another of its accounts", p.Name)
 	}
-	chosen := p.KeepLogin && p.KeepLoginAs != ""
+	if keep && p.SwitchOnly {
+		return errSwitchOnly(*p)
+	}
+	chosen := p.keepsLogin() && p.KeepLoginAs != ""
 	p.KeepLogin, p.KeepLoginAs = keep, ""
 	if err := Save(*p); err != nil {
 		return err

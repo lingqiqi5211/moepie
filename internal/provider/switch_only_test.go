@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -197,5 +198,147 @@ func TestClaudeSwitchOnlyServesNothingAndStillSwitches(t *testing.T) {
 	}
 	if _, _, ok := Resolve("claude/claude-sonnet-5"); !ok {
 		t.Error("claude/claude-sonnet-5 doesn't resolve unticked")
+	}
+}
+
+// #1907 (foobra, v0.1.1224 on): "Keep Codex signed in to [the first
+// account]" and "Only switch Codex's sign-in" both ticked, the account Codex
+// was on at 0% of its five hours left, the other at 100%: Codex stayed on
+// the spent one through a restart. Kept on one account, nothing ever moved
+// the sign-in, and switch-only sent nothing through the gateway either.
+// Switch-only asks for the sign-in to move, so it does, whether kept on the
+// first or on an account of the user's choosing; the choice is kept, and
+// holds again once switch-only is let go.
+func TestSwitchOnlyMovesASignInKeptOnOne(t *testing.T) {
+	for _, chosen := range []bool{false, true} {
+		t.Run(fmt.Sprint("kept on one chosen ", chosen), func(t *testing.T) {
+			home := signIn(t) // me@example.com, acct-1
+			rememberLogins(true)
+			codexSignIn(t, home, "spare@example.com", "r-spare")
+			rememberLogins(true)
+			codexSignIn(t, home, "me@example.com", "r-1")
+			rememberLogins(true)
+			used := map[string]float64{"acct-me@example.com": 100, "acct-spare@example.com": 0}
+			fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				json.NewEncoder(w).Encode(map[string]any{"plan_type": "plus", "rate_limit": map[string]any{
+					"primary_window": map[string]any{"used_percent": used[r.Header.Get("chatgpt-account-id")], "limit_window_seconds": 18000}}})
+			}))
+			defer fake.Close()
+			old := CodexBase
+			CodexBase = fake.URL + "/backend-api/codex"
+			t.Cleanup(func() { CodexBase = old })
+			switched := func() string {
+				t.Helper()
+				loginUsageCache.Lock()
+				loginUsageCache.m = nil
+				loginUsageCache.Unlock()
+				to, err := SwitchWhenSpent(context.Background(), "codex")
+				if err != nil {
+					t.Fatal(err)
+				}
+				return to
+			}
+			signedIn := func() string {
+				t.Helper()
+				var live codexAuth
+				readJSON(filepath.Join(home, ".codex", "auth.json"), &live)
+				return live.Tokens.RefreshToken
+			}
+			if err := SetLoginOn("codex", "spare@example.com", true); err != nil {
+				t.Fatal(err)
+			}
+			// the one Codex is signed in to, by the name magpie gives it
+			as := ""
+			for _, l := range Logins("codex") {
+				if l.Active && chosen {
+					as = l.User
+				}
+			}
+			if !chosen {
+				if err := SetKeepLogin("codex", true); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := SetKeepLoginAs("codex", as); err != nil {
+				t.Fatal(err)
+			}
+			if to := switched(); to != "" || signedIn() != "r-1" {
+				t.Fatalf("kept, without switch-only: moved to %q", to)
+			}
+			if err := SetSwitchOnly("codex", true); err != nil {
+				t.Fatal(err)
+			}
+			if to := switched(); to != "spare@example.com" || signedIn() != "r-spare" {
+				t.Fatalf("switch-only, kept on %q: switched to %q, Codex signed in with %q", as, to, signedIn())
+			}
+			used["acct-me@example.com"] = 10
+			if to := switched(); !strings.HasPrefix(to, "me@example.com") || signedIn() != "r-1" {
+				t.Fatalf("back to %q, Codex signed in with %q", to, signedIn())
+			}
+			// the user's choice is still theirs
+			if p, _ := Find("codex"); !p.KeepLogin || p.KeepLoginAs != as {
+				t.Fatalf("keep login lost: %v %q", p.KeepLogin, p.KeepLoginAs)
+			}
+			// it can't be ticked anew under switch-only, where it would
+			// do nothing
+			if err := SetKeepLogin("codex", true); err == nil {
+				t.Error("kept on the first under switch-only")
+			}
+			if err := SetKeepLoginAs("codex", "spare@example.com"); err == nil {
+				t.Error("kept on spare under switch-only")
+			}
+			// let go of switch-only, the kept account holds again
+			used["acct-me@example.com"] = 100
+			if err := SetSwitchOnly("codex", false); err != nil {
+				t.Fatal(err)
+			}
+			if to := switched(); to != "" || signedIn() != "r-1" {
+				t.Fatalf("kept again: moved to %q, Codex signed in with %q", to, signedIn())
+			}
+		})
+	}
+}
+
+// The same for Claude Code: its accounts kept to its own sign-in
+// (switch-only) and Claude Code kept signed in to the first, the first
+// spent moves it to the next.
+func TestClaudeSwitchOnlyMovesASignInKeptOnOne(t *testing.T) {
+	home := claudeHome(t)
+	cred := claudeSignIn(t, home, time.Now().Add(time.Hour))
+	writeFile(t, filepath.Join(home, ".claude.json"), map[string]any{"oauthAccount": map[string]any{"emailAddress": "a@example.com", "accountUuid": "u-a"}})
+	rememberLogins(true)
+	loginsMu.Lock()
+	ls := upsertLogin(readLogins(), savedLogin{Agent: "claude", User: "b@example.com", Plan: "max", On: true, Seen: time.Now().UTC(),
+		Auth: mustJSONRaw(t, map[string]any{"claudeAiOauth": map[string]any{"accessToken": "sk-ant-oat01-b", "refreshToken": "sk-ant-ort01-b",
+			"expiresAt": time.Now().Add(time.Hour).UnixMilli(), "subscriptionType": "max", "scopes": []string{"user:inference", "user:profile"}}}),
+		Profile: mustJSONRaw(t, map[string]any{"emailAddress": "b@example.com", "accountUuid": "u-b"})})
+	if err := writeLogins(ls); err != nil {
+		t.Fatal(err)
+	}
+	loginsMu.Unlock()
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("usage endpoint read: %s", r.URL)
+	}))
+	defer fake.Close()
+	claudeBase = fake.URL // isolate puts it back
+	for user, u := range map[string]float64{"a@example.com": 100, "b@example.com": 10} {
+		NoteClaudeLimits(user, []ClaudeLimit{{Kind: "five_hour", Used: u / 100, ResetsAt: time.Now().Add(time.Hour).Unix()}})
+	}
+	if err := SetKeepLogin("claude", true); err != nil {
+		t.Fatal(err)
+	}
+	if to, err := SwitchWhenSpent(context.Background(), "claude"); err != nil || to != "" {
+		t.Fatalf("kept, without switch-only: moved to %q: %v", to, err)
+	}
+	if err := SetSwitchOnly("claude", true); err != nil {
+		t.Fatal(err)
+	}
+	to, err := SwitchWhenSpent(context.Background(), "claude")
+	if err != nil || to != "b@example.com" {
+		t.Fatalf("switch-only, kept on the first: switched to %q: %v", to, err)
+	}
+	var c map[string]any
+	readJSON(cred, &c)
+	if o, _ := c["claudeAiOauth"].(map[string]any); o["refreshToken"] != "sk-ant-ort01-b" {
+		t.Fatalf("Claude Code is signed in with %v", o)
 	}
 }

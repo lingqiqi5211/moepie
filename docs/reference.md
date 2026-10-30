@@ -1789,6 +1789,15 @@ Claude Code, so no turn runs through Claude Code's SDK mode, which
 spends more of the allowance than Claude Code used on its own (myduso on
 Discord). Their usage is still read and shown.
 
+**Switch accounts only.** To use magpie only to switch Claude Code (or
+Codex) between your accounts, leave it not connected on Agents and sign
+your accounts in under Providers › Claude Code. Its row on Agents then
+shows the account it is signed in to; click it, and the *Switch accounts
+only* menu signs Claude Code in to another of them, with *Only switch
+Claude Code's sign-in* and *Manage accounts…* beside. The button says
+*Switched*, and a new Claude Code session uses the new account; one
+already open keeps its account until it is started again.
+
 **How often an allowance is read.** Routing uses what was read last and
 never waits for a reading, except the first one after magpie starts (3
 seconds at most). A reading over a minute old is read again in the

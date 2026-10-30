@@ -25,7 +25,7 @@ func keptAs(agent string) string {
 		if p.ID != agent {
 			continue
 		}
-		if !p.KeepLogin || p.KeepLoginAs == "" {
+		if !p.keepsLogin() || p.KeepLoginAs == "" {
 			return ""
 		}
 		for _, l := range Logins(agent) {
@@ -44,7 +44,7 @@ func keptAs(agent string) string {
 // signed in to is the first.
 func (p Provider) LoginRanks() map[string]int {
 	if p.Account == nil || p.Account.token != nil && !p.Account.standIn || !slices.Contains(switchedAgents, p.Account.Agent) ||
-		!p.KeepLogin || p.KeepLoginAs == "" {
+		!p.keepsLogin() || p.KeepLoginAs == "" {
 		return nil
 	}
 	ranks := map[string]int{}
@@ -69,6 +69,9 @@ func SetKeepLoginAs(id, user string) error {
 	}
 	if p.Account == nil || p.Account.Agent != p.ID || !slices.Contains(switchedAgents, p.ID) {
 		return fmt.Errorf("magpie doesn't sign %s in to another of its accounts", p.Name)
+	}
+	if p.SwitchOnly {
+		return errSwitchOnly(*p)
 	}
 	ls := Logins(p.ID)
 	i := slices.IndexFunc(ls, func(l Login) bool { return strings.EqualFold(l.User, user) })
@@ -105,6 +108,21 @@ func SetKeepLoginAs(id, user string) error {
 		return nil
 	}
 	return SwitchLogin(p.ID, to.User)
+}
+
+// keepsLogin reports whether magpie keeps the agent signed in to one
+// account (KeepLogin, KeepLoginAs). Not while it only switches the agent's
+// sign-in (SwitchOnly): that asks for the sign-in to move to the next
+// account with room, and kept on one, nothing would ever move it, nor any
+// request fail over through the gateway (#1907: both ticked, Codex stayed
+// on an account at 0% left). The choice is kept, and holds again once
+// switch-only is unticked.
+func (p Provider) keepsLogin() bool { return p.KeepLogin && !p.SwitchOnly }
+
+// errSwitchOnly refuses to keep p's agent on one account while magpie only
+// switches its sign-in (keepsLogin).
+func errSwitchOnly(p Provider) error {
+	return fmt.Errorf("magpie only switches %s's sign-in to the next account with room; untick that to keep it signed in to one account", p.Name)
 }
 
 // rankLogins writes order as the order of agent's saved accounts.

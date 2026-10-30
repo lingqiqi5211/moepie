@@ -1332,7 +1332,7 @@ function connectLine(a, kind) {
     else say(t("Not added · {agent} asks to add magpie when its link opens", { agent: a.name }));
     return line;
   }
-  if (kind === "empty") { say(t("Add a key or a subscription first; then there are models to connect")); return line; }
+  if (kind === "empty" && !switchable(a)) { say(t("Add a key or a subscription first; then there are models to connect")); return line; }
   if (!a.wired && a.native && a.native.provider !== "disconnected") {
     say(t(a.native.detail), "bad");
     if (a.native.provider === "invalid") line.append(driftFix(a, "Reconnect"));
@@ -1340,24 +1340,22 @@ function connectLine(a, kind) {
   }
   if (!a.wired) {
     const src = a.source || "";
+    const sw = switchEntry(a);
     if (a.id === "agy") say(t("Not connected · once connected, start it with magpie's command"));
     // not connected, yet through magpie for account failover (#1385): it
     // read as Codex on its own while magpie served every request, so the
-    // line says why, and the accounts that turn it off are a click away
+    // line says why, and its account switch (below) turns it off
     else if (a.failover) {
       say(t("Not connected · goes through magpie only to fail over to your other ChatGPT accounts"));
       words.title = t("magpie set openai_base_url in {agent}'s config.toml, so a request the ChatGPT account {agent} is signed in to has no allowance for goes on to your other ChatGPT accounts on in magpie. {agent} keeps to its own models. To stop it, tick Only switch {agent}'s sign-in under Providers › Codex, or switch those accounts off; connecting {agent} adds magpie's models.", { agent: a.name });
-      const go = el("button", "ag-acc", t("ChatGPT accounts"));
-      go.type = "button";
-      go.title = words.title;
-      go.onclick = (e) => { e.stopPropagation(); openProvider("codex"); };
-      line.append(go);
     }
+    else if (sw?.p.switchOnly) say(t("Not connected · switching accounts only"));
     else if (src === "sub") say(t("Not connected · now on its Claude subscription"));
     else if (src === "chatgpt") say(t("Not connected · now signed in with ChatGPT · OpenAI's models stay available once connected"));
     else if (src === "key") say(t("Not connected · now on an API key of its own"));
     else if (src.startsWith("providers:")) say(t("Not connected · now has {n} providers of its own", { n: src.slice(10) }));
     else say(t("Not connected · {agent} uses its own settings", { agent: a.name }));
+    if (sw) line.append(sw.button);
     if (a.appRestart) line.append(appRestart(a));
     return line;
   }
@@ -1539,6 +1537,63 @@ function connectRow(a, row, who, { fields, extras, fieldBtn, sw, kind }) {
     row.classList.add("expanded");
     row.append(connectPanel(a, { fields: fields.querySelector(".field") ? fields : null, extras, fieldBtn }));
   }
+}
+
+// Switch accounts only (the owner on X): a Claude Code or Codex not
+// connected says its account, and its menu signs it in to another, as the
+// account rows do; the window's, the panel reads no provider list
+let accountSwitched = null;
+
+function switchable(a) {
+  if (a.wired || mode === "panel" || (a.id !== "claude" && a.id !== "codex")) return null;
+  const p = (providers || providersEarly?.got)?.providers?.find((x) => x.id === a.id && x.account?.agent === a.id);
+  return p && loginsInOrder(p.account, p)[0]?.user ? p : null;
+}
+
+function switchEntry(a) {
+  const p = switchable(a);
+  if (!p) return null;
+  const ls = loginsInOrder(p.account, p), cur = ls.find((l) => l.active)?.user || "", ag = { agent: a.name };
+  const b = el("button", "ag-acc ag-who"), cx = a.id === "codex";
+  b.type = "button";
+  b.setAttribute("aria-haspopup", "menu");
+  b.setAttribute("aria-expanded", "false");
+  if (cur) b.title = t("Switch accounts only: {agent} is signed in as {user}. Pick another of its accounts to sign {agent} in to it, without connecting it to magpie.", { ...ag, user: cur });
+  b.append(svg(EXTRA_GLYPH["sign-in"], 12, 1.5), el("span", "v", cur || t("Not signed in")));
+  const ago = performance.now() - (accountSwitched?.at || -1e9);
+  if (accountSwitched?.agent === a.id && accountSwitched.user === cur && ago < 5000) {
+    const ok = el("span", "ok");
+    ok.append(svg(CHECK, 10, 2.2), el("span", "", t("Switched")));
+    b.append(ok);
+    b.classList.add("done");
+    setTimeout(() => b.classList.remove("done"), 5000 - ago);
+  }
+  b.append(svg(CHEV, 10, 1.6));
+  const opts = ls.map((l) => ({ v: "u:" + l.user, name: l.user, literalName: true, note: l.lapsed ? "Sign-in required" : accountPlan({ agent: a.id, plan: l.plan }) }));
+  const on = cx ? t("magpie only switches {agent}'s sign-in; its requests go straight to OpenAI", ag) : t("magpie serves no requests on these accounts");
+  // the Only switch setting, where the accounts page offers it
+  if (!cx || ls.filter((l) => !l.lapsed && (l.active || l.on)).length > 1) opts.push({ v: "only", name: t("Only switch {agent}'s sign-in", ag), literalName: true, ticked: !!p.switchOnly, note: on });
+  opts.push({ v: "manage", name: "Manage accounts…", note: "" });
+  b.onclick = (e) => {
+    e.stopPropagation();
+    if (b.classList.contains("open")) return closeProtoMenu();
+    openProtoMenu(b, opts, "u:" + cur, (v) => {
+      const l = ls.find((x) => "u:" + x.user === v);
+      if (v === "only") accountAction("provider/switchonly", { id: p.id, switchOnly: !p.switchOnly }, !p.switchOnly ? on
+        : cx ? t("{agent}'s requests go through magpie to fail over to your other accounts again", ag) : t("magpie serves requests on these accounts again"));
+      else if (v === "manage" || l?.lapsed) openProvider(a.id);
+      else if (l && l.user !== cur) switchAccountTo(a, p, l.user);
+    }, "Switch accounts only", "sess-menu", "right");
+  };
+  return { p, button: b };
+}
+
+async function switchAccountTo(a, p, user) {
+  const said = t("{agent} is now signed in as {user}. New {agent} sessions use this account; one already open keeps its account until it is started again.", { agent: a.name, user });
+  // kept signed in to one of the user's choosing (#524): that choice moves
+  if (!await (keptLogin(p) ? accountAction("provider/keeplogin", { id: p.id, keepLogin: true, keepLoginAs: user }, said) : accountAction("login/switch", { agent: a.id, user }, said))) return;
+  accountSwitched = { agent: a.id, user, at: performance.now() };
+  renderAgents();
 }
 
 // agentsLead: above the window's list, what 「接入」 does, said once in a
@@ -5890,7 +5945,10 @@ let providersEarly = null;
 function prefetchProviders() {
   if (providers || providersEarly) return;
   const e = providersEarly = { read: api("providers") };
-  e.read.then((s) => { e.got = s; }, () => { if (providersEarly === e) providersEarly = null; });
+  e.read.then((s) => {
+    e.got = s;
+    if (state?.agents?.some((a) => !a.wired && (a.id === "claude" || a.id === "codex"))) renderAgents();
+  }, () => { if (providersEarly === e) providersEarly = null; });
 }
 
 // The page's first reading, while it is on its way, is the one every ask
@@ -9042,7 +9100,7 @@ function drawEditor(p, presetID) {
     if (subOf(a.agent)) {
       // no Claude Code on Windows: the gateway runs the one in WSL
       const via = a.wsl ? t("Runs through WSL · {distro}: Claude Code there signs in and answers; Windows has none of its own.", { distro: a.wsl }) + " " : "";
-      ed.append(...field(t("Accounts"), renderAccounts(a, p), via + (p.routing ? t("Tick every account to use; Routing says how requests spread over them.") : subOf(a.agent).single ? t("{agent} keeps one account; the gateway runs it for every request. Signing in to another replaces it.", { agent: a.agentName }) : subOf(a.agent).own && (a.logins || []).some((l) => l.own) ? t("The gateway uses the first. Tick more and it moves on to the next when the one before it is out of quota. {agent} itself stays signed in as it is.", { agent: a.agentName && a.agentName !== a.agent ? a.agentName : p.name }) : subOf(a.agent).own || subOf(a.agent).plugin ? t("The gateway uses the first. Tick more and it moves on to the next when the one before it is out of quota.") : t("{agent} signs in to the first. Tick more and the gateway moves on to the next when the one before it is out of quota. Sessions already running keep theirs until restarted.", { agent: a.agentName }))));
+      ed.append(...field(t("Accounts"), renderAccounts(a, p), via + (p.routing ? t("Tick every account to use; Routing says how requests spread over them.") : subOf(a.agent).single ? t("{agent} keeps one account; the gateway runs it for every request. Signing in to another replaces it.", { agent: a.agentName }) : subOf(a.agent).own && (a.logins || []).some((l) => l.own) ? t("The gateway uses the first. Tick more and it moves on to the next when the one before it is out of quota. {agent} itself stays signed in as it is.", { agent: a.agentName && a.agentName !== a.agent ? a.agentName : p.name }) : subOf(a.agent).own || subOf(a.agent).plugin ? t("The gateway uses the first. Tick more and it moves on to the next when the one before it is out of quota.") : t("{agent} signs in to the first. Tick more and magpie moves on to the next when the one before it is out of quota. Sessions already running keep theirs until restarted.", { agent: a.agentName }))));
       if ((a.logins || []).filter((l) => l.active || l.on).length > 1) ed.append(...renderRouting(p));
       if (p.move) ed.append(...renderMove(p));
     } else {
@@ -11588,7 +11646,7 @@ function renderRouting(p) {
   const own = (routing) => !a || (a.agent !== "codex" && a.agent !== "claude") ? ""
     : " " + (keptLogin(p)
       ? t("Routing picks the account for each request through magpie, in the accounts' order; {agent} on its own stays signed in to {user}, whatever it has left.", { agent: a.agentName, user: keptLogin(p) })
-      : p.keepLogin
+      : p.keepLogin && !p.switchOnly
       ? t("Routing picks the account for each request through magpie; {agent} on its own stays signed in to the first account, whatever it has left.", { agent: a.agentName })
       : routing === "order"
         ? t("Routing picks the account for each request through magpie; {agent} on its own uses the one it is signed in to, which magpie moves to the next ticked account with room once it is used up, and back to the first once that has room again.", { agent: a.agentName })
@@ -12674,11 +12732,10 @@ function forgetOwnTitle(a) {
 }
 
 // keptLogin: the account Codex or Claude Code is kept signed in to in
-// place of the first (#524), "" when none — the gateway then tries the
-// accounts in their order, the one signed in to at its own place
+// place of the first (#524), "" when none or switch-only (#1907)
 function keptLogin(p) {
   const a = p?.account;
-  if (!a || (a.agent !== "codex" && a.agent !== "claude") || !p.keepLogin || !p.keepLoginAs) return "";
+  if (!a || (a.agent !== "codex" && a.agent !== "claude") || !p.keepLogin || p.switchOnly || !p.keepLoginAs) return "";
   const as = p.keepLoginAs.toLowerCase();
   return (a.logins || []).find((l) => (l.user || "").toLowerCase() === as)?.user || "";
 }
@@ -12847,7 +12904,7 @@ function renderAccounts(a, p) {
   // first runs low (#209, #408); this keeps it on the first instead, or on
   // an account of the user's choosing, the gateway still spreading requests
   // over the ticked ones in their order (#524)
-  if ((a.agent === "codex" || a.agent === "claude") && several && p) {
+  if ((a.agent === "codex" || a.agent === "claude") && several && p && !p.switchOnly) {
     const box = el("div", "keep-login");
     const [keep, cb] = tick(t("Keep {agent} signed in to", { agent: a.agentName }), !!p.keepLogin);
     keep.title = t("magpie won't sign {agent} in to another account when the first runs low; requests through magpie still go to the other ticked accounts as Routing says", { agent: a.agentName });
@@ -14523,7 +14580,8 @@ function openProtoMenu(anchor, opts, value, choose, head = "Protocol this key sp
   closeProtoMenu();
   const multi = Array.isArray(value);
   let picked = multi ? [...value] : null;
-  const isOn = (v) => !multi ? v === value : v === "" ? !picked.length : picked.includes(v);
+  // an item with its own ticked (true or false) is a setting beside the pick
+  const isOn = (v, o) => typeof o?.ticked === "boolean" ? o.ticked : !multi ? v === value : v === "" ? !picked.length : picked.includes(v);
   const box = el("div", "pop proto-menu" + (cls ? " " + cls : ""));
   box.setAttribute("role", "menu");
   box.append(el("div", "pm-head", t(head)));
@@ -14537,15 +14595,15 @@ function openProtoMenu(anchor, opts, value, choose, head = "Protocol this key sp
     box.append(top);
   }
   const tick = (b, o) => {
-    b.classList.toggle("on", isOn(o.v));
-    b.setAttribute("aria-checked", isOn(o.v));
-    b.firstChild.replaceChildren(...(isOn(o.v) ? [svg(CHECK, 12, 1.9)] : []));
+    b.classList.toggle("on", isOn(o.v, o));
+    b.setAttribute("aria-checked", isOn(o.v, o));
+    b.firstChild.replaceChildren(...(isOn(o.v, o) ? [svg(CHECK, 12, 1.9)] : []));
   };
   const items = opts.map((o) => {
     const b = el("button", "pm-item");
     b.type = "button";
     if (o.title) b.title = o.title;
-    b.setAttribute("role", multi && o.v && o.v !== "\x00" ? "menuitemcheckbox" : "menuitemradio");
+    b.setAttribute("role", multi && o.v && o.v !== "\x00" || typeof o.ticked === "boolean" ? "menuitemcheckbox" : "menuitemradio");
     const words = el("span", "pm-words");
     words.append(el("span", "pm-name", o.literalName ? o.name : t(o.name)), el("span", "pm-note", t(o.note)));
     b.append(el("span", "pm-tick"), words);
