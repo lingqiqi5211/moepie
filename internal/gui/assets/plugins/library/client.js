@@ -1959,6 +1959,11 @@ magpie.plugin("library", (ctx) => {
     b.dataset.server = name;
     b.onclick = (e) => {
       e.stopPropagation(); // the row opens the editor
+      // a server that asks for a sign-in is signed in to from its status
+      // (the owner: a click on "needs sign-in" signs in)
+      const s = lib.servers.find((x) => x.name === name);
+      if (mcpSigning?.name === name && mcpSigning.id) return editServer(s); // under way: its dialog has Cancel
+      if (canSignIn(s)) return signInFromRow(s);
       if (!toolList(name).length) return recheck(name);
       if (toolsOpen.has(name)) toolsOpen.delete(name); else toolsOpen.add(name);
       paintHealth(name);
@@ -2141,6 +2146,13 @@ magpie.plugin("library", (ctx) => {
         continue;
       }
       b.hidden = false;
+      const sg = mcpSigning?.name === b.dataset.server ? mcpSigning : null;
+      if (sg && (sg.state === "starting" || sg.state === "waiting")) {
+        b.className = "lib-health auth";
+        b.replaceChildren(el("span", "", sg.state === "starting" ? t("Opening the sign-in…") : t("Finish signing in in your browser…")));
+        b.title = t("Click to see the sign-in");
+        continue;
+      }
       if (!e.h) {
         b.className = "lib-health checking";
         b.replaceChildren(el("span", "", t("checking…")));
@@ -2167,7 +2179,7 @@ magpie.plugin("library", (ctx) => {
         b.classList.add("has-list");
         b.setAttribute("aria-expanded", String(open));
         b.title = tip + "\n" + (open ? t("Click to hide them") : t("Click to see them"));
-      } else b.title = tip + "\n" + t("Click to check again");
+      } else b.title = tip + "\n" + (canSignIn(lib.servers.find((s) => s.name === b.dataset.server)) ? t("Click to sign in") : t("Click to check again"));
     }
     const name = typeof x === "string" ? x : x.dataset.server;
     for (const box of page.querySelectorAll(`.lib-tools[data-server="${CSS.escape(name)}"]`)) paintTools(box);
@@ -2176,6 +2188,58 @@ magpie.plugin("library", (ctx) => {
   // magpie's sign-in to a remote server (#615): signed in once here, and
   // every agent given the server reaches it through magpie, with it
   let mcpSigning = null; // { name, id, state, error } while one is under way
+  let signDraw = null; // the open dialog's sign-in box, drawn as a sign-in moves
+  function signMoved(name) {
+    if (signDraw && !signDraw.box.isConnected) signDraw = null;
+    signDraw?.draw();
+    if (name) paintHealth(name);
+  }
+  // one the row's status signs in to: a remote server that asked for a
+  // sign-in, unless an agent's own sign-in already uses it
+  function canSignIn(s) {
+    const h = s && health.get(s.name)?.h;
+    return !!h && s.transport === "http" && h.state === "auth" && !!h.oauth && !h.agentSignIn?.length;
+  }
+  // a sign-in from a row's status, as the dialog's Sign in starts one; the
+  // dialog opens when the user has something to do there: the browser
+  // didn't open (the link to open by hand) or the sign-in failed
+  async function signInFromRow(s) {
+    const name = s.name;
+    mcpSigning = { name, state: "starting" };
+    signMoved(name);
+    try {
+      const st = await api("library/mcp-signin", { name });
+      if (mcpSigning?.name !== name || mcpSigning.id) return; // canceled
+      if (web && st.url) api("open", { url: st.url }).catch(() => {});
+      mcpSigning = { ...st, name };
+      signMoved(name);
+      if (st.openError) editServer(s);
+      followSignIn(st.id, name);
+    } catch (e) {
+      if (mcpSigning?.name !== name) return;
+      mcpSigning = { name, state: "failed", error: t(e.message) };
+      signMoved(name);
+      editServer(s);
+    }
+  }
+  // followed with the dialog closed too, for the row to say it's signed in
+  async function followSignIn(id, name) {
+    while (mcpSigning?.id === id) {
+      await new Promise((r) => setTimeout(r, 800));
+      let st;
+      try { st = await api("library/mcp-signin/" + id); } catch { continue; }
+      if (mcpSigning?.id !== id) return;
+      if (st.state === "waiting") continue;
+      if (st.state === "done") {
+        mcpSigning = null;
+        await api("library").then(take, () => {});
+        status(t("Signed in to {name} — the agents given it use magpie's sign-in", { name }), "ok");
+        render();
+      } else mcpSigning = st.state === "canceled" ? null : { ...st, name };
+      signMoved(name);
+      return;
+    }
+  }
   // name is the server as saved ("" for one being added); ready saves what
   // the editor shows when it isn't that (a URL changed to the one that
   // signs in, as Exa's ?login) and gives the name it's saved as, for the
@@ -2195,6 +2259,7 @@ magpie.plugin("library", (ctx) => {
             if (sg.id) await api("library/mcp-signin/" + sg.id + "/cancel", {}).catch(() => {});
             mcpSigning = null;
             draw();
+            signMoved(name);
           }));
       } else if (cur.signedIn && !cur.dead) {
         line.append(tag(t("Signed in"), "lib-signed"), el("span", "note", t("The agents given it use magpie's sign-in")), el("span", "grow"), button(t("Sign out"), "", signOut));
@@ -2233,31 +2298,13 @@ magpie.plugin("library", (ctx) => {
         if (web && st.url) api("open", { url: st.url }).catch(() => {});
         mcpSigning = { ...st, name };
         draw();
-        follow(st.id);
+        followSignIn(st.id, name);
       } catch (e) {
         if (!mcpSigning) return; // canceled
         // magpie's words in the reader's language, where it has them
         mcpSigning = { name, state: "failed", error: t(e.message) };
         draw();
         ready?.failed?.(e.message);
-      }
-    }
-    // followed with the dialog closed too, for the row to say it's signed in
-    async function follow(id) {
-      while (mcpSigning?.id === id) {
-        await new Promise((r) => setTimeout(r, 800));
-        let st;
-        try { st = await api("library/mcp-signin/" + id); } catch { continue; }
-        if (mcpSigning?.id !== id) return;
-        if (st.state === "waiting") continue;
-        if (st.state === "done") {
-          mcpSigning = null;
-          await api("library").then(take, () => {});
-          status(t("Signed in to {name} — the agents given it use magpie's sign-in", { name }), "ok");
-          render();
-        } else mcpSigning = st.state === "canceled" ? null : { ...st, name };
-        draw();
-        return;
       }
     }
     async function signOut() {
@@ -2269,6 +2316,7 @@ magpie.plugin("library", (ctx) => {
       } catch (e) { status(e.message, "err", 6000); }
     }
     box.redraw = draw;
+    signDraw = { box, draw };
     draw();
     return box;
   }

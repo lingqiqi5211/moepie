@@ -93,3 +93,7 @@ node --test internal/gui/tests/library-items.test.cjs internal/gui/tests/library
 
 The package's `TestMain` runs in a home of its own (`testenv`), never the
 user's real agent files.
+
+## Sign in from MCP status
+
+Clicking an MCP status that offers OAuth starts the existing sign-in flow directly. While waiting, the status prevents duplicate attempts and displays progress; completing sign-in refreshes tools and the signed-in badge. If the browser cannot open, the existing editor presents the manual link and cancel action. A server that refuses a request without offering OAuth remains a check-again action. `mcp-signin-click.test.cjs` covers completion, manual-link cancellation, and non-OAuth checks in all supported languages and both browser engines.
