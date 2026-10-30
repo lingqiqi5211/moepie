@@ -2089,8 +2089,10 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 			}
 		}
 		was := s.PanelShortcut
-		s.PanelShortcut = key
-		if err := settings.Save(s); err != nil {
+		if err := settings.Edit(func(current *settings.Settings) error {
+			current.PanelShortcut = key
+			return nil
+		}); err != nil {
 			if onPanelShortcut != nil {
 				_ = onPanelShortcut(was) // the saved one bound again
 			}

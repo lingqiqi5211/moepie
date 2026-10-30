@@ -36,6 +36,32 @@ func TestPanelShortcutNames(t *testing.T) {
 	}
 }
 
+func TestPanelShortcutKeepsSettingsSavedWhileBinding(t *testing.T) {
+	h := t.TempDir()
+	t.Setenv("HOME", h)
+	t.Setenv("USERPROFILE", h)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(h, ".config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(h, ".cache"))
+	t.Setenv("XDG_SESSION_TYPE", "x11")
+	was := onPanelShortcut
+	t.Cleanup(func() { onPanelShortcut = was })
+	onPanelShortcut = func(string) error {
+		// Another settings action completes while the native host binds.
+		return settings.Edit(func(s *settings.Settings) error {
+			s.TextSize = 110
+			return nil
+		})
+	}
+	rec := httptest.NewRecorder()
+	Handler(&zoomWindows{}, nil).ServeHTTP(rec, httptest.NewRequest("POST", "/api/settings/panel-shortcut", strings.NewReader(`{"shortcut":"Ctrl+K"}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if got := settings.Load(); got.PanelShortcut != "Ctrl+K" || got.TextSize != 110 {
+		t.Fatalf("shortcut %q, text size %d; binding overwrote the other setting", got.PanelShortcut, got.TextSize)
+	}
+}
+
 func TestWaylandSession(t *testing.T) {
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 	for _, c := range []struct {
