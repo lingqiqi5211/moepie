@@ -2408,6 +2408,76 @@ let sessDrawn = null, sessTotal = null;
 // what the drawn list was filtered by, so a redraw from the same filters
 // keeps the pages opened and a changed one starts again at the first
 let sessListKey = null;
+// A list opened past its first page draws only the rows in and near sight,
+// between two gaps as tall as the rows above and below them; scrolled, it
+// draws the next ones. Drawn whole, the 13th "Show more" over 2,600
+// sessions took 0.7s here and 4s at a quarter of the speed, 40k nodes in
+// the page. A row's height is kept once drawn, one not yet drawn taken as
+// the average of those.
+const sessWin = { items: [], els: new Map(), above: null, below: null, soon: 0 };
+const sessHeights = new Map();
+let sessHeightsAt = "";
+function drawSessWin() {
+  const w = sessWin, box = $("#sessList"), view = $("#view-usage");
+  if (!w.above?.isConnected) return;
+  const n = w.items.length;
+  // out of sight nothing has a height: drawn as last measured
+  const live = !!box.offsetParent;
+  const at = box.clientWidth + "|" + document.documentElement.lang;
+  if (live && at !== sessHeightsAt) { sessHeightsAt = at; sessHeights.clear(); }
+  const off = new Float64Array(n + 1);
+  const sum = () => {
+    let all = 0;
+    for (const h of sessHeights.values()) all += h;
+    const est = sessHeights.size ? all / sessHeights.size : 47;
+    for (let i = 0; i < n; i++) off[i + 1] = off[i] + (sessHeights.get(sessKey(w.items[i])) ?? est);
+  };
+  sum();
+  // the first row in sight, and where: it stays there
+  const top = view.getBoundingClientRect().top;
+  let anchor = null, anchorAt = 0;
+  for (let e = w.above.nextElementSibling; e && e !== w.below; e = e.nextElementSibling) {
+    const r = e.getBoundingClientRect();
+    if (r.bottom > top) { anchor = e; anchorAt = r.top; break; }
+  }
+  const y = top - w.above.getBoundingClientRect().top, vh = view.clientHeight, over = Math.max(vh, 300);
+  let i0 = 0, i1 = n;
+  while (i0 < n - 1 && off[i0 + 1] <= y - over) i0++;
+  for (let i = i0; i < n; i++) if (off[i] >= y + vh + over) { i1 = i; break; }
+  // a row unfolded or folded in place (sessionItem) is taken as it is now,
+  // and one kept from before that isn't as sessListOpen says made again
+  for (const e of box.children) if (e.sess) w.els.set(sessKey(e.sess), e);
+  const open = featuresOff.has("sessions") ? sessListOpen : "";
+  const drawn = w.items.slice(i0, i1).map((s) => {
+    const k = sessKey(s);
+    let e = w.els.get(k);
+    if (!e || e.classList.contains("open") !== (open === k)) w.els.set(k, e = sessionItem(s));
+    return e;
+  });
+  // the gaps first: rows swapped under gaps of before shortened the page
+  // for a moment, and a view near its foot was pulled up with it
+  w.above.style.height = off[i0] + "px";
+  w.below.style.height = off[n] - off[i1] + "px";
+  // only the rows out of place move: one focused stays focused
+  const want = new Set(drawn);
+  for (let e = w.above.nextElementSibling; e && e !== w.below;) { const next = e.nextElementSibling; if (!want.has(e)) e.remove(); e = next; }
+  let to = w.above.nextElementSibling;
+  for (const e of drawn) { if (e === to) to = to.nextElementSibling; else box.insertBefore(e, to); }
+  if (live) {
+    for (const e of drawn) sessHeights.set(sessKey(e.sess), e.getBoundingClientRect().height);
+    sum();
+  }
+  w.above.style.height = off[i0] + "px";
+  w.below.style.height = off[n] - off[i1] + "px";
+  if (anchor?.isConnected) {
+    const moved = anchor.getBoundingClientRect().top - anchorAt;
+    if (Math.abs(moved) >= 0.5) view.scrollTop += moved;
+  }
+}
+const sessWinSoon = () => {
+  if (sessWin.soon || !sessWin.above?.isConnected) return;
+  sessWin.soon = requestAnimationFrame(() => { sessWin.soon = 0; drawSessWin(); });
+};
 // The totals and the chart are every session's, by day, over a range; the
 // list is the latest sessions within it. [id, name, days (0: all)]
 const SESS_RANGES = [["today", "Today", 1], ["7d", "7 days", 7], ["30d", "30 days", 30], ["90d", "90 days", 90], ["all", "All", 0]];
@@ -2971,13 +3041,19 @@ function renderSessions() {
     const page = list.slice(0, sessShown);
     sessDrawn = page.length;
     sessTotal = list.length;
-    for (const s of page) box.append(sessionItem(s));
+    sessWin.above = null;
+    if (page.length > SESS_PAGE) {
+      Object.assign(sessWin, { items: page, els: new Map(), above: el("div", "sess-gap"), below: el("div", "sess-gap") });
+      for (const g of [sessWin.above, sessWin.below]) g.setAttribute("aria-hidden", "true");
+      box.append(sessWin.above, sessWin.below);
+    } else for (const s of page) box.append(sessionItem(s));
     if (list.length > page.length) {
       const more = el("button", "text sess-page-more");
       more.textContent = t("Show {n} more", { n: Math.min(SESS_PAGE, list.length - page.length) });
       more.onclick = () => { sessShown += SESS_PAGE; renderSessions(); };
       box.append(more);
     }
+    drawSessWin();
     if (!list.length && q) box.append(el("div", "empty-state", t("No session matches.")));
   }
   const dirs = (sessions?.dirs || []).join(" · ");
@@ -3707,6 +3783,9 @@ function sessionDetail(s) {
 $("#sessAll").onclick = (e) => magpie.call("sessions", "reveal", sessAgent === "all" ? {} : { agent: sessAgent }, e);
 $("#sessQ").oninput = (e) => { sessQuery = e.target.value; if (sessions) renderSessions(); };
 $("#sessQ").onkeydown = (e) => { if (e.key === "Escape" && e.target.value) { e.stopPropagation(); e.target.value = ""; sessQuery = ""; if (sessions) renderSessions(); } };
+// scrolled, resized or come into sight: the rows now near it drawn (sessWin)
+$("#view-usage").addEventListener("scroll", sessWinSoon, { passive: true });
+new ResizeObserver(sessWinSoon).observe($("#sessList"));
 
 // ---------- settings ----------
 //

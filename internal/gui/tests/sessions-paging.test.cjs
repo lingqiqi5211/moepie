@@ -118,15 +118,25 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       // under 200 rows, so it is pressed through the DOM: what this test is
       // about is the pages, not bringing a control into sight (click-scroll
       // and reader.cjs cover that).
+      // Past the first page only the rows near sight are drawn (sessWin):
+      // wheeled to its foot (a scroll by code is put back for a while after
+      // a click, app.js's hold), the list ends on the page's last session,
+      // the button under it.
+      const frame = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
       await more.evaluate((b) => b.click());
-      assert.equal(await rows.count(), 400, "the second page, on top of the first");
       assert.match(await page.locator("#sessNote").innerText(), w.showing(400, N));
-      // and the rows already drawn are the same elements, not rebuilt
-      const first = await rows.first().getAttribute("data-key");
+      assert(await rows.count() < 200, `${await rows.count()} rows drawn of 400`);
+      await page.mouse.move(500, 400);
+      for (let i = 0; i < 20 && !(await page.locator("#view-usage").evaluate((v) => v.scrollTop + v.clientHeight >= v.scrollHeight - 1)); i++) {
+        await page.mouse.wheel(0, 3000);
+        await frame();
+      }
+      assert.equal(await page.locator("#sessList .sess-item").last().locator(".name").innerText(), "Session 399", "the second page's last row, drawn");
+      assert(await more.evaluate((b) => b.previousElementSibling.offsetHeight < 2), "nothing between the last row and the button");
       await more.evaluate((b) => b.click());
-      assert.equal(await rows.count(), 600, "the third page");
-      assert.equal(await rows.first().getAttribute("data-key"), first, "the rows above stayed where they were");
+      await frame();
       assert.match(await page.locator("#sessNote").innerText(), w.showing(600, N));
+      assert(await rows.count() < 200, `${await rows.count()} rows drawn of 600`);
 
       // a keystroke in Search is a new list: it starts at the first page again
       // and, over 2600 sessions, does not take the time the whole list would.
