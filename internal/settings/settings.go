@@ -53,6 +53,12 @@ type Settings struct {
 	ReduceMotion bool   `json:"reduceMotion,omitempty"`
 	Lang         string `json:"lang,omitempty"` // system | en | zh
 	Tray         string `json:"tray,omitempty"` // what clicking the tray icon opens: panel | window
+	// PanelShortcut is the key combination that opens the tray's quick
+	// panel from any app (ben hanks on Discord), as Wails names it
+	// ("Cmd+Shift+M"); "" is none, the default, so nothing clashes until
+	// the user records one. This computer's own (KeepOwn): a Mac's Cmd is
+	// another keyboard's Win key, and what is free differs per computer.
+	PanelShortcut string `json:"panelShortcut,omitempty"`
 	// SessionTerminal is the Mac app that opens a resumed session, by bundle
 	// id. "" and "system" follow the .command file association. This
 	// computer's own (KeepOwn): another Mac may not have that app.
@@ -1143,8 +1149,8 @@ func (s Settings) Compact() int {
 // is shared on the local network and the addresses let in to it, the
 // Dock, gateway mode, whether WSL is looked in, whether agents' sign-ins
 // are read, when allowances are read, the terminal app a session resumes
-// in, whether the local masking model is on (it is downloaded on this
-// computer alone), how many Claude Code processes may run (its memory),
+// in, the quick panel's shortcut, whether the local masking model is on
+// (it is downloaded on this computer alone), how many Claude Code processes may run (its memory),
 // and what the menu bar or tray shows beside magpie's icon (yoooo on
 // Discord: usage turned off on a Mac came back from a Windows box that
 // shows it; Lullaby: sharing turned on at home came on at work).
@@ -1163,6 +1169,7 @@ func (s *Settings) KeepOwn(cur Settings) {
 	s.LAN, s.AllowIPs = cur.LAN, cur.AllowIPs
 	s.FetchPrivate = cur.FetchPrivate
 	s.SessionTerminal = cur.SessionTerminal
+	s.PanelShortcut = cur.PanelShortcut
 	s.RedactModel, s.RedactModelName, s.RedactModelScore = cur.RedactModel, cur.RedactModelName, cur.RedactModelScore
 	s.RedactModelOff, s.RedactModelAuto = cur.RedactModelOff, cur.RedactModelAuto
 	s.ClaudeRunsMost = cur.ClaudeRunsMost

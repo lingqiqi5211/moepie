@@ -3395,6 +3395,15 @@ body:not(.side-nav) #view-settings .set-head.stuck::before { box-shadow: 0 1px 0
 .row.pref .set-field { flex: none; width: 120px; height: 24px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); }
 .row.pref .set-field[type=number] { width: 72px; text-align: right; }
 .row.pref .set-field[aria-invalid=true] { border-color: var(--red); }
+/* the quick panel's shortcut: a field that listens for keys, and its clear */
+#panelKey { flex: none; margin-left: auto; display: flex; align-items: center; gap: 4px; }
+#panelKey .key-rec { min-width: 120px; height: 24px; padding: 0 8px; font: inherit; font-size: 12px; color: var(--fg); border: 1px solid var(--line); border-radius: 7px; background: var(--card); white-space: nowrap; cursor: default; }
+#panelKey .key-rec.on { color: var(--fg-2); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+#panelKey .key-rec:disabled { opacity: .5; }
+#panelKey .key-clear { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; color: var(--fg-2); background: none; }
+#panelKey .key-clear:hover { color: var(--fg); background: var(--pill); }
+#panelKey .key-clear[hidden] { display: none; }
+#panelKeyRow .sub { user-select: text; -webkit-user-select: text; }
 /* a plugin's page that broke (kernel.js): what broke, and Try again */
 .slot-error .row { gap: 14px; padding: 12px 14px; }
 .slot-error .sub { margin-top: 2px; color: var(--fg-2); overflow-wrap: anywhere; }

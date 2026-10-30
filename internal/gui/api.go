@@ -370,6 +370,9 @@ type settingsJSON struct {
 	// Builtins are the built-in plugins: each one's switch, whether it
 	// runs and what of it is in use (builtins.go)
 	Builtins []builtinJSON `json:"builtins"`
+	// PanelKeys is whether the quick panel's shortcut can be set here
+	// (panelkey.go)
+	PanelKeys panelKeysJSON `json:"panelKeys"`
 	// JSRoutings are the routings JS gateway plugins serve now
 	// ("<plugin>/<name>"), for the routing pickers
 	JSRoutings []middleware.Routing `json:"jsRoutings"`
@@ -625,6 +628,7 @@ func settingsState() settingsJSON {
 	s.EffectiveModelLimit = s.Settings.EffectiveModelLimit()
 	s.AddrEnv = os.Getenv("MAGPIE_ADDR")
 	s.Builtins = builtinsState()
+	s.PanelKeys = panelKeysState()
 	s.JSRoutings = middleware.Routings()
 	s.OnNetwork = gateway.OnNetwork()
 	if list, env := gateway.AllowIPs(); env {
@@ -1420,6 +1424,8 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 			in.CodexWarmAtOf = cur.CodexWarmAtOf
 			// and the text size, which the keyboard changes too (text-size below)
 			in.TextSize = cur.TextSize
+			// The quick panel shortcut is bound and saved on its own.
+			in.PanelShortcut = cur.PanelShortcut
 			// the version the Update pill was hidden for, set from the pill
 			in.UpdateSkip = cur.UpdateSkip
 			// the GitHub mirror updates come through, set by magpie update mirror
@@ -2050,6 +2056,41 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 		}
 		if w != nil {
 			w.SetTextSize(in.Size)
+		}
+		writeJSON(rw, settingsState())
+	})
+	// the quick panel's shortcut (panelkey.go): bound in the app first, so
+	// one the system refuses is said and not saved, the one before kept
+	mux.HandleFunc("POST /api/settings/panel-shortcut", func(rw http.ResponseWriter, r *http.Request) {
+		var in struct{ Shortcut string }
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			fail(rw, err)
+			return
+		}
+		key, err := panelShortcut(in.Shortcut, runtime.GOOS)
+		if err != nil {
+			fail(rw, err)
+			return
+		}
+		s := settings.Load()
+		if key != "" && !panelKeysState().Can {
+			fail(rw, errors.New("This desktop doesn't let apps take a shortcut"))
+			return
+		}
+		if onPanelShortcut != nil {
+			if err := onPanelShortcut(key); err != nil {
+				fail(rw, err)
+				return
+			}
+		}
+		was := s.PanelShortcut
+		s.PanelShortcut = key
+		if err := settings.Save(s); err != nil {
+			if onPanelShortcut != nil {
+				_ = onPanelShortcut(was) // the saved one bound again
+			}
+			fail(rw, err)
+			return
 		}
 		writeJSON(rw, settingsState())
 	})
