@@ -1066,6 +1066,46 @@ the row of the entry that id reaches, with its label, under the bare id.
   `internal/gui/tests/bare-ids.test.cjs`.
 - A URL magpie downloads but didn't choose itself is downloaded from public addresses only, wherever the request came from ([`image_fetch_guard.go`](../../internal/gateway/image_fetch_guard.go)). That is an image a caller names (an `/v1/images/edits` or `/v1/images/generations` reference image, for an images API that takes files, Gemini's own API or Code Assist: `fetchPicture` in [`draw.go`](../../internal/gateway/draw.go), `publicClient`), a page `web_fetch` reads (`webFetchClient`), and an image or video a vendor answers by URL, which what the model was asked to draw or do can steer (the inline download for a `b64_json` caller in `draw.go` and `/v1/videos/{id}/content` in [`video.go`](../../internal/gateway/video.go), `vendorClient`; generate_image's own download in [`internal/imagemcp`](../../internal/imagemcp/imagemcp.go), `PublicClient`). Every address the host resolves to must be public (`publicAddr`, which is [`internal/netguard`](../../internal/netguard/netguard.go)'s `Public`, the rule a provider's icon uses too: not loopback, RFC 1918, fc00::/7, link-local with 169.254.169.254, CGNAT 100.64/10, unspecified, multicast, documentation, reserved, benchmarking, Teredo, nor an IPv4-mapped, NAT64 or 6to4 form of one; an AAAA record Loon synthesizes for an A answer in the same reply, `fd27:712::/96` with that IPv4 address inside, is left out and the A answer judged in its place, `dropLoon`), and the request goes to the address checked, so a name that resolves elsewhere the second time changes nothing; a direct connection is checked again on the address dialled (`guardDialer`). Through a proxy the proxy is sent that address, never the name (an `https://` CONNECT or SOCKS keeps the name for TLS and Host; a plain `http://` URL through an HTTP proxy is asked for by the address in Host too). A fake-IP resolver's answer is the one shape let past that (#2593; ggbdpq, with h4rk8s's and TomXPRIME's reports): Clash's TUN with fake-ip, Clash Verge, Surge's enhanced mode and Loon answer every name in 198.18.0.0/15 (`netguard.FakeIP`), so with one on every download was refused as a private address. A name (never an address literal) whose every answer is in that range is fetched: with no proxy (pure TUN) its fake address is pinned and dialled, the dial guard letting that one address in, and the TUN carries it; through a proxy on this computer (a loopback address or `localhost`, `onThisComputer`) the proxy is given the name, never the fake address, which a real proxy can't route (h4rk8s: a CONNECT by the name went through where one by its 198.18 address failed), and a plain `http://` request's Host is the checked name, never the caller's own; through a proxy elsewhere it is refused. An answer with any other address beside the fake ones (private or public) is judged as any, so a fake one beside 192.168.x is refused. The trust this asks for is the fake-IP resolver's: which host the name stands for, and so where the TUN or the proxy connects, is decided where magpie can't see, and a name that really points at the user's network is reached if that resolver's rules send it there. A provider's icon was already fetched this way (`publicIP` in [`internal/provider/icon.go`](../../internal/provider/icon.go), #252), and shares the rule. `TestFakeIPNameGoesToALocalProxyByName`, `TestFakeIPNameDialledThroughTheTUN`, `TestFakeIPRefusesTheRest` in [`fakeip_test.go`](../../internal/gateway/fakeip_test.go). Each redirect, up to 5, is checked the same, and a caller's image must sniff as an image. A request from this computer gets nothing more: a reverse proxy or relay in front of magpie on the same host makes every request it carries arrive from loopback, so where a request came from is never a reason to reach a private address. Two things are: settings.json's `fetchPrivate` (`settings.FetchPrivate`, none by default, no Settings page, this computer's own and never brought by a sync or restore), a list of names, `name:port`s, IPs and CIDR ranges the user lets magpie download from (`allowFor`; a settings.json that can't be read lets nothing extra in), and for a vendor's URL the `host:port` of that provider's own endpoints, which the user named themselves (a provider on the LAN that serves its images from itself). A vendor's image that can't be downloaded is answered by its URL, never dropped; its video is a 502 naming why. A URL left for the vendor to fetch (a chat model's message) is the vendor's to fetch.
 
+## A Responses request that names the response it follows
+
+A Responses client may send only its new input with `previous_response_id`
+(kevinzhow on X: every turn sent the whole conversation again, images
+included). `previousResponse` in
+[`prev_response.go`](../../internal/gateway/prev_response.go) runs in
+`serveAgent` before anything else reads the body.
+
+- Every Responses reply magpie passes with status 200, not failed or
+  cancelled, is kept by its id with the conversation it answered (input,
+  then output) in `prevResponses`: in memory only, least recently used
+  first out past 256 MB, each kept 6 hours (`prevTTL`, `prevCap`). A
+  request with `store: false` keeps nothing. Codex over HTTP sends
+  `store: false` with the whole input and never names a previous response
+  (only its websocket request has the field), so nothing changes for it.
+- A turn is kept for the caller that made it (`prevScope`): its gateway
+  key, the remote magpie it came through, and the address of a keyless
+  remote caller. Another caller naming the id is told it isn't there.
+- A request naming a kept id is given the conversation whole
+  (`previous_response_id` taken out, the kept items before its own input),
+  so every route, translation and masking below sees what it would have
+  seen had the client sent it all. The stored items are what the client
+  sent, and masking runs on each request as it goes, so a stored secret
+  is masked the same way on every later turn.
+- An id magpie doesn't keep (never seen, another caller's, expired, or
+  lost to a restart) gets OpenAI's 400 `previous_response_not_found`
+  (`writePrevNotFound`) on a route that translates, before anything is
+  sent. A Responses relay is sent the request as it came, and its own
+  answer reaches the client.
+- Where the provider keeps responses itself (`prevKeeps`: an API key, no
+  plugin, on api.openai.com, Azure, or Ark's `/api/v3` pay-as-you-go
+  Responses) and it answered the previous turn on the same key
+  (`prevRoute`), with `store` not off, the request goes as the client's
+  new input with the provider's own id (`prevDelta`), so images aren't
+  uploaded again. A provider that says it doesn't know that id
+  (`prevRefused`) is sent the whole conversation at once.
+- Not covered: the kept turns don't outlive the gateway, and a kept-id
+  request is still read and masked whole on this computer before the
+  delta is cut.
+
 ## Verification
 
 ```sh
@@ -1073,6 +1113,7 @@ go test -tags nogui ./internal/gateway -run 'TestGroupAsksOneRestingMemberNotEac
 go test -tags nogui ./internal/gateway -run 'TestMemberTooSmallIsNotAsked|TestMemberTooSmallIsTheLastResort|TestClaudeAccountsSpentFallBackToCodex|TestConversationOutgrowingItsMemberMoves|TestRoomyLeavesWhatItCantJudge|TestPayloadTooLarge|TestOverflow|TestContextOverflow|TestRelayInputCap|TestEveryVendorsOverflow'
 go test -tags nogui ./internal/gateway -run 'TestPlain403|TestOrderedKeepsAnAccountAt98|TestPromptRefusalRestsNobody'
 go test -tags nogui ./internal/gateway -run 'TestVertex'
+go test -tags nogui ./internal/gateway -run 'TestPreviousResponse|TestUnknownPreviousResponse|TestPrevStore'
 go test -tags nogui ./internal/gateway -run 'TestBedrock'
 go test -tags nogui ./internal/gateway -run 'TestPublicAddr|TestEditImageURL|TestPrivateDialer|TestFetchPrivateEntries|TestVendorImageURLAtPrivateAddress|TestVideoContentAtPrivateAddress'
 go test -tags nogui ./internal/gateway ./internal/provider ./internal/cli ./internal/gui -run 'TestDisabled|TestModelDisableCmd'

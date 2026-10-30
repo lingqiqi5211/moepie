@@ -21,6 +21,10 @@ import (
 // magpie's to read.
 func (s *Server) serveAgent(w http.ResponseWriter, r *http.Request, from provider.Protocol, body []byte) {
 	withGatewaySession(w, r)
+	// a Responses request naming the response it follows is given the
+	// conversation whole before anything reads it (prev_response.go)
+	w, r, body, kept := previousResponse(w, r, from, body)
+	defer kept()
 	w, recorded := recordConversation(w, r, from, body)
 	defer recorded()
 	// a conversation going round one tool call is answered here, before
