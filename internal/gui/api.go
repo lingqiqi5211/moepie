@@ -287,8 +287,12 @@ type stateJSON struct {
 	// it's a copied file rather than the installer's link: a copy can't
 	// follow updates (#531's lesson). "" when it's the link or absent, or
 	// the advice was dismissed for this version.
-	CLIBehind string            `json:"cliBehind,omitempty"`
-	Settings  settings.Settings `json:"settings"`
+	CLIBehind string `json:"cliBehind,omitempty"`
+	// ConfigBlocked is the folder this user can't write that keeps magpie
+	// from saving its files (a ~/.config sudo left root's), which the
+	// window offers to make theirs again; "" when magpie can save
+	ConfigBlocked string            `json:"configBlocked,omitempty"`
+	Settings      settings.Settings `json:"settings"`
 	// FX is the dollar-to-yuan rate the cny currency choice shows costs at,
 	// here too (not only in settingsJSON) so a cost drawn before the reader
 	// ever opens Settings already converts, if cny was chosen last time.
@@ -1223,6 +1227,7 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 	updateRoutes(mux, w)
 	whatsNewRoutes(mux)
 	cliBehindRoutes(mux)
+	configRepairRoutes(mux, !isWeb(w))
 	gatewayFixRoutes(mux)
 	gatewayModeRoutes(mux)
 	if !isWeb(w) {
@@ -2557,6 +2562,7 @@ func state() stateJSON {
 	}
 	s.Unlisted = unlistedModels()
 	s.CLIBehind = cliBehind()
+	s.ConfigBlocked = configBlocked()
 	for _, e := range provider.Served() {
 		if e.Group == "" {
 			s.Served++
@@ -2834,6 +2840,13 @@ func fail(rw http.ResponseWriter, err error) {
 	if errors.As(err, &unavailable) {
 		out["code"] = "runtime_unavailable"
 		out["offline"] = string(unavailable.Offline)
+	}
+	// a save refused because a folder on the way to magpie's own isn't the
+	// user's: the window offers to make it theirs again
+	if permissionDenied(err) {
+		if b := configBlocked(); b != "" {
+			out["code"], out["blocked"] = "config_blocked", b
+		}
 	}
 	var noModels *agent.NoModelsError
 	if errors.As(err, &noModels) {

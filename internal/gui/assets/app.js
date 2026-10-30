@@ -145,6 +145,11 @@ async function api(path, body, heads, signal) {
       err.code = data.code;
       err.message = t("None of magpie's models is left in {agent}'s model list: pick one under Model list → Pick, then connect {agent}", { agent: data.agent });
     }
+    if (data?.code === "config_blocked") { // a folder magpie can't write: Repair offered
+      err.code = data.code;
+      err.message = t("magpie can't save into {path}: it belongs to another user", { path: data.blocked });
+      setTimeout(() => configBlockedAsk(data.blocked), 0);
+    }
     if (data?.why) err.why = data.why; // a failed move's reason, said in the reader's language
     if (data?.code === "bun_unstartable") err.message = t(data.said); // bunSaid in api.go: an i18n.js key
     // an account the agent is signed in to, refused removal while it has
@@ -4242,6 +4247,7 @@ async function load(again) {
   }
   renderUpdateBadge();
   cliBehindOnce();
+  if (state?.configBlocked && !configBlockedAsked && $("#modal").hidden) configBlockedAsk(state.configBlocked);
   whatsNewOnce();
   recoveredOnce();
 }
@@ -4473,6 +4479,10 @@ function cliBehindOnce() {
   $("#modal").classList.add("lib");
   ok.focus({ preventScroll: true });
 }
+// configBlockedAsk: a folder magpie can't write (a ~/.config sudo made root's,
+// YouWhat); its Repair dialog is in cfgblocked.js, loaded when needed
+let configBlockedAsked = false;
+const configBlockedAsk = (p) => mode !== "panel" && p && import("./cfgblocked.js").then(() => window.cfgBlockedAsk(p));
 async function whatsNewOnce() {
   if (whatsNewAsked || mode === "panel" || document.hidden || !$("#modal").hidden) return;
   whatsNewAsked = true;
