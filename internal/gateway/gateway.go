@@ -2794,7 +2794,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 		// member fixed at an effort keeps its own
 		ruled := ""
 		if c.effort == "" {
-			if ruled = ruleEffort(c, hit, nested); ruled != "" {
+			if ruled = ruleEffort(c, hit, nested, ms); ruled != "" {
 				fixed = ""
 			}
 		}
