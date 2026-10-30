@@ -35,6 +35,8 @@ function serve(lang, textSize, posts) {
   return async (route) => {
     const req = route.request(), url = new URL(req.url());
     const json = (data) => route.fulfill({ json: data });
+    // Tinting the native title bar writes no agent configuration.
+    if (url.pathname === "/api/window/titlebar") return json({ ok: true });
     if (req.method() === "POST") posts.push(url.pathname);
     if (url.pathname === "/boot.js") return route.fulfill({ contentType: "text/javascript", body: `window.bootPrefs = ${JSON.stringify({ lang, theme: "light", textSize, web: false })};` });
     if (url.pathname === "/wails/runtime.js") return route.fulfill({ contentType: "text/javascript", body: "export const Window = {};" });
@@ -74,7 +76,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
         await page.route("**/*", serve(lang, textSize, posts));
         await page.goto("http://magpie.test/?view=agents");
-        assert.equal(await page.title(), "magpie");
+        assert.equal(await page.title(), "moepie");
         assert.equal(new URL(page.url()).searchParams.get("view"), "agents");
         for (const id of ["omp", "codex"]) {
           await page.locator(`.row.agent[data-id="${id}"] .ag-conn`).click();

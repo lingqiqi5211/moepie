@@ -12,7 +12,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
       t.after(() => browser.close());
       const page = await (await browser.newContext({ viewport: { width: 1000, height: 760 }, reducedMotion: "reduce" })).newPage();
-      await page.addInitScript(() => { try { localStorage.setItem("magpie.gwConnectFolded", "0"); } catch {} }); // Connect opened, as a user who reads it
+      await page.addInitScript(() => { try {
+        localStorage.setItem("magpie.gwConnectFolded", "0"); // Connect opened by the reader.
+        localStorage.setItem("magpie.snipOS", "unix"); // This fixture asserts POSIX snippets.
+      } catch {} });
       page.setDefaultTimeout(6000);
       const events = [], errors = [];
       page.on("pageerror", (e) => errors.push(e.message));
