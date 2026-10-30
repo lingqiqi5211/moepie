@@ -205,7 +205,11 @@ type unroutedHold struct {
 	over   bool         // under f.mu: its handler returned
 	// masking counts the maskings under way for it: one held there waits
 	// for Settings → Privacy's local model, and its error says so
-	masking atomic.Int32
+	masking     atomic.Int32
+	bodyRead    atomic.Int64
+	bodyLast    atomic.Int64
+	bodyStopped atomic.Bool
+	bodyActive  atomic.Bool
 
 	// the waits magpie knows it is in (noteWait), under wmu: how many are
 	// under way, since when one has been, the time spent in one before
@@ -395,9 +399,45 @@ type waitedBody struct {
 }
 
 func (b waitedBody) Read(p []byte) (int, error) {
+	if b.u.bodyStopped.Load() {
+		return 0, errBodyStopped
+	}
+	b.u.bodyActive.Store(true)
+	defer b.u.bodyActive.Store(false)
 	done := b.u.wait()
 	defer done()
-	return b.ReadCloser.Read(p)
+	n, err := b.ReadCloser.Read(p)
+	if n > 0 {
+		b.u.bodyRead.Add(int64(n))
+		b.u.bodyLast.Store(time.Now().UnixNano())
+	}
+	return n, err
+}
+
+var errBodyStopped = errors.New("magpie stopped reading this request's body: it was still arriving when magpie answered for it")
+
+func (u *unroutedHold) inBody() bool { return u.bodyActive.Load() }
+func (u *unroutedHold) bodySaid() string {
+	n, of := u.bodyRead.Load(), ""
+	if d := u.r.ContentLength; d > 0 {
+		of = " of " + byteWord(d)
+	}
+	if n == 0 {
+		return "none" + of
+	}
+	return fmt.Sprintf("%s%s, the last %s ago", byteWord(n), of, time.Since(time.Unix(0, u.bodyLast.Load())).Round(100*time.Millisecond))
+}
+func byteWord(n int64) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d bytes", n)
+}
+func unroutedBodyMsg(held time.Duration, body string) string {
+	return fmt.Sprintf("magpie stopped this request after %s because its body was still arriving from the client (read: %s), before it could be routed to any provider. Send it again.", held, body)
 }
 
 // watchUnrouted watches r, counted as f, until the func it answers is
@@ -491,16 +531,24 @@ func (u *unroutedHold) giveUp(unknown bool) {
 		return
 	}
 	held := time.Since(f.start).Round(time.Second)
-	msg, where := unroutedMsg(held, u.masking.Load() > 0), ""
+	msg, where, status := unroutedMsg(held, u.masking.Load() > 0), "", http.StatusGatewayTimeout
+	if u.inBody() {
+		where = " its body still arriving (" + u.bodySaid() + ")"
+		msg, status = unroutedBodyMsg(held, u.bodySaid()), http.StatusRequestTimeout
+	}
 	switch {
 	case unknown:
 		where = fmt.Sprintf(" %s of it in no wait magpie knows of", unroutedUnknown)
 	case u.masking.Load() > 0:
 		where = " masking it"
 	}
-	if !u.w.answer(unroutedProto(u.r.URL.Path), http.StatusGatewayTimeout, msg) {
+	if !u.w.answer(unroutedProto(u.r.URL.Path), status, msg) {
 		f.mu.Unlock()
 		return // the handler is answering
+	}
+	if status == http.StatusRequestTimeout {
+		u.bodyStopped.Store(true)
+		_ = http.NewResponseController(u.w.w).SetReadDeadline(time.Now())
 	}
 	u.ended = true
 	if u.shown == nil {
@@ -509,11 +557,11 @@ func (u *unroutedHold) giveUp(unknown bool) {
 	shown := u.shown
 	f.mu.Unlock()
 	u.s.trace.update(shown, func(r *Route) {
-		r.Done, r.Status, r.Error, r.Millis = true, http.StatusGatewayTimeout, msg, time.Since(r.Time).Milliseconds()
+		r.Done, r.Status, r.Error, r.Millis = true, status, msg, time.Since(r.Time).Milliseconds()
 	})
 	u.cancel(errUnrouted)
 	asked, _ := u.asked.Load().(string)
-	log.Printf("gateway: %s %s for %s from %s held %s before routing,%s; stopped with 504%s", u.r.Method, u.r.URL.Path, cmpOr(asked, "?"), cmpOr(f.agent, "?"), held, cmpOr(where, " not masking it"), unroutedStacks())
+	log.Printf("gateway: %s %s for %s from %s held %s before routing,%s; stopped with %d%s", u.r.Method, u.r.URL.Path, cmpOr(asked, "?"), cmpOr(f.agent, "?"), held, cmpOr(where, " not masking it"), status, unroutedStacks())
 }
 
 // unroutedMsg is the error of a request held for held before routing:
