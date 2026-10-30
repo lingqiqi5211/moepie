@@ -62,9 +62,14 @@ Be concise, structured, and focused on helping the next LLM seamlessly continue 
 const codexSummaryPrefix = codexsummary.Prefix
 
 func (s *Server) codexBackend(w http.ResponseWriter, r *http.Request) {
-	// Responses over a WebSocket: 426 sends Codex to plain HTTP at once
-	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
-		http.Error(w, "magpie speaks HTTP", http.StatusUpgradeRequired)
+	// Responses over a WebSocket, Codex's own way to its provider: each
+	// turn is served as its POST is (responses_ws.go), and Codex sends
+	// only a turn's new input after the reply it follows (#4058)
+	if wantsSocket(r) {
+		if strings.TrimPrefix(r.URL.Path, CodexPath) == "/responses" && s.serveResponsesSocket(w, r) {
+			return
+		}
+		http.Error(w, "magpie serves a WebSocket on "+CodexPath+"/responses alone", http.StatusUpgradeRequired)
 		return
 	}
 	// the pool's accounts and their model lists say they are this Codex, or

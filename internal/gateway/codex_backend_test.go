@@ -866,19 +866,6 @@ func TestCodexModelsEtagTagged(t *testing.T) {
 	}
 }
 
-// Responses over a WebSocket are turned away so Codex uses HTTP at once.
-func TestCodexWebSocketUpgradeRequired(t *testing.T) {
-	chatgpt(t, func(w http.ResponseWriter, r *http.Request) { t.Error("sent to ChatGPT") })
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", CodexPath+"/responses", nil)
-	req.Header.Set("Upgrade", "websocket")
-	req.Header.Set("Connection", "Upgrade")
-	New().Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusUpgradeRequired {
-		t.Errorf("%d", rec.Code)
-	}
-}
-
 // A routing group in Codex's model list is named as one, not as its first
 // member's provider, which would read as that provider's own model.
 func TestCodexModelsNameGroups(t *testing.T) {

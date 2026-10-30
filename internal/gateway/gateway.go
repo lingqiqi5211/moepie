@@ -459,6 +459,8 @@ type Server struct {
 	// the connections taken whose first request isn't read yet, which a
 	// handover's end waits for (handover.go)
 	unread unreadConns
+	// sockets are the Responses WebSockets being served (responses_ws.go)
+	sockets clientSockets
 	// what it serves other computers TLS with, nil without (tls.go)
 	tls *tls.Config
 	// the images described for models that can't see them (vision.go)
@@ -720,7 +722,12 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 			s.stopAccepting()
 			s.unread.wait(c)
 		}
+		// a socket's connection was taken from the server (hijacked), so
+		// Shutdown doesn't wait for it: each ends after its turn in flight
+		sockets := make(chan struct{})
+		go func() { defer close(sockets); s.sockets.drain(c) }()
 		srv.Shutdown(c)
+		<-sockets
 		s.subscription.abortAll()
 		provider.FlushServed() // what answered last, kept for the next start and the CLI
 		flushSticks()          // who answered which conversation, for the next start or the magpie handed over to
@@ -800,8 +807,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /chat/completions", s.handle(provider.Chat))
 	mux.HandleFunc("POST /v1/responses", s.handle(provider.Responses))
 	mux.HandleFunc("POST /responses", s.handle(provider.Responses))
-	mux.HandleFunc("GET /v1/responses", responsesOverHTTP)
-	mux.HandleFunc("GET /responses", responsesOverHTTP)
+	mux.HandleFunc("GET /v1/responses", s.responsesOverHTTP)
+	mux.HandleFunc("GET /responses", s.responsesOverHTTP)
 	mux.HandleFunc("POST /v1/messages", keepsSignIn(s.handle(provider.Anthropic)))
 	mux.HandleFunc("POST /messages", keepsSignIn(s.handle(provider.Anthropic)))
 	mux.HandleFunc("POST /v1/systemone", s.serveSystemOne)
@@ -847,16 +854,17 @@ func (s *Server) Handler() http.Handler {
 	})
 	// the goroutine dump first, ahead of every lock the rest can be stuck
 	// on (dumpFirst)
-	return s.dumpFirst(s.counted(holdCatalog(corsGuard(callerGuard(withCaller(keyLimited(mux)))))))
+	// a socket's turns go through all of it again (socketEntry)
+	return socketEntry(s.dumpFirst(s.counted(holdCatalog(corsGuard(callerGuard(withCaller(keyLimited(mux))))))))
 }
 
-// responsesOverHTTP answers a GET on /v1/responses, which is how a client
-// opens Responses over a WebSocket (#1005): magpie relays Responses over
-// HTTP alone, its stream as SSE, so the upgrade is told 426 — the answer a
-// client falls back to HTTP on at once (Codex does, as on CodexPath) — in
-// place of the 404 every unknown path gets, which read as a broken
-// gateway. A plain GET is told to POST.
-func responsesOverHTTP(w http.ResponseWriter, r *http.Request) {
+// responsesOverHTTP answers a GET on /v1/responses. A WebSocket upgrade
+// is Responses over a WebSocket (#1005, #4058), each turn served as its
+// POST is (responses_ws.go). A plain GET is told to POST.
+func (s *Server) responsesOverHTTP(w http.ResponseWriter, r *http.Request) {
+	if wantsSocket(r) && s.serveResponsesSocket(w, r) {
+		return
+	}
 	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 		writeError(w, provider.Responses, http.StatusUpgradeRequired, "magpie relays Responses over HTTP only: send POST /v1/responses (streamed as SSE); Responses over a WebSocket is not served")
 		return
