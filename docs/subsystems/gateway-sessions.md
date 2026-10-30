@@ -803,3 +803,7 @@ row's model, usage, cost and kind.
 Compaction is already included in Codex's total consumption, so this marker
 does not add tokens or cost. This is Codex-only; Claude behavior and the POST
 `/v1/magpie/usage/requests` ingest allowlist are unchanged.
+
+## Tool and skill attribution
+
+Session statistics count a skill only when its transcript names one: Droid's `Skill` tool input or the skill notification attached to a slash prompt; OpenCode 2 tool content, a user message's `skills`, or a standalone `skill` row; Cline's `skills` tool; and dsh's `tool/call` or `skill-invocation` source. A slash command kept only as text contributes no inferred skill. Fork seed messages keep the existing exclusion rules. Cache version 28 invalidates older statistics to include these calls; per-agent history permissions still gate every reader. `droid_skills_test.go` and `agent_skills_test.go` use captured sandbox sessions; `skills_every_agent_test.go` records coverage and known gaps for each agent discovered by `Found`.
