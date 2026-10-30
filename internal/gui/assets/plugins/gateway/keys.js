@@ -205,9 +205,8 @@ function renderGatewayKeys() {
   $("#gatewayKeysBlock").hidden = !providers?.gateway.lan;
   box.replaceChildren();
   $("#addGatewayKey").onclick = () => { gatewayKeyDraft = ""; renderGatewayKeys(); };
-  // keys: a badge left unset folds away until the row is pointed at, as
-  // on a provider's keys, so nothing invisible holds a place in the row
-  const list = el("div", "accts keys gw-keys");
+  // Gateway badges keep their room before hover so the row stays put.
+  const list = el("div", "accts gw-keys");
   if (gatewayKeys === null) {
     if (gatewayKeysErr) list.append(el("div", "none", t(gatewayKeysErr))), box.append(list);
     return;

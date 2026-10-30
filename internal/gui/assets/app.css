@@ -2317,8 +2317,10 @@ body.window .ag-sk-icon { width: 22px; height: 22px; border-radius: 6px; }
 /* a gateway key: the copy right beside the masked key, the rest under
    its … (the owner: a copy out in the row's middle looked lost) */
 .gw-keys .acc > .plan + .copy { margin-left: -5px; }
-/* narrow, the masked key gives up its room before the key's name does */
-.gw-keys .acc > .plan { flex-shrink: 6; }
+/* narrow, the masked key gives up its room before the key's name does.
+   Not the Providers keys list's rules (.accts.keys): Limit and Models keep
+   their room there while hidden, so a hover doesn't push the row about */
+.gw-keys .acc > .plan { flex: 0 6 auto; min-width: 3em; overflow: hidden; text-overflow: ellipsis; }
 .gw-keys .gw-key-more { flex: none; color: var(--muted); }
 .gw-keys .gw-key-more:is(:hover, .open) { color: var(--fg); }
 #view-gateway .row-head, #view-usage .row-head { margin: 14px 0 6px; padding: 0 2px; }
