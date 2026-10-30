@@ -556,9 +556,12 @@ func TestGrokInstalled(t *testing.T) {
 	}))
 	defer rel.Close()
 	says := "grok 1.0.46 (2765805b9442)"
-	oldRel, oldVer, oldRun := grokReleases, runVersion, runUpdate
+	oldRel, oldVer, oldRun, oldCheck := grokReleases, runVersion, runUpdate, runCheck
 	grokReleases = []string{rel.URL + "/"}
 	runVersion = func(string) string { return says }
+	// The installer fixture is only a file marker, not an executable.
+	// WSL can hand its MZ bytes to Windows instead of rejecting the exec.
+	runCheck = func(context.Context, string, []string) (string, int, error) { return says, 0, nil }
 	versions, latests = memo{}, memo{}
 	var ran [][]string
 	runUpdate = func(_ context.Context, u *updater) ([]byte, error) {
@@ -568,7 +571,7 @@ func TestGrokInstalled(t *testing.T) {
 		return []byte("✓ grok v1.0.50 installed successfully!"), nil
 	}
 	t.Cleanup(func() {
-		grokReleases, runVersion, runUpdate = oldRel, oldVer, oldRun
+		grokReleases, runVersion, runUpdate, runCheck = oldRel, oldVer, oldRun, oldCheck
 		versions, latests = memo{}, memo{}
 	})
 
