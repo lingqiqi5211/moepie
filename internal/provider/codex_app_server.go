@@ -387,3 +387,90 @@ func RestartCodexApp(ctx context.Context, bundle string) error {
 		}
 	}
 }
+
+// codexAppBackWait is how long RestartSwitchedCodexApp waits for the Codex
+// app to start a new app-server after the old one ended; a var for tests.
+var codexAppBackWait = 20 * time.Second
+
+// What RestartSwitchedCodexApp found when it couldn't restart the app's
+// app-server; the agent package says each in the reader's language.
+var (
+	ErrCodexAppGone    = errors.New("the Codex app isn't running")
+	ErrCodexAppNoEnd   = errors.New("the Codex app's app-server couldn't be ended")
+	ErrCodexAppNotBack = errors.New("the Codex app didn't start another app-server")
+)
+
+// RestartSwitchedCodexApp is the Restart on Codex's accounts' "the Codex
+// app is still signed in as" notice (nb5p_hQ on X): it restarts the app's
+// own app-servers now, as codexAppStep does once no Codex turn runs, so
+// the app reads the account Codex was switched to; the user said yes to
+// cutting a running turn short. Each is ended as a clean exit, which the
+// app answers by starting another (its window, threads and drafts stay;
+// quitting the app and opening it again opened a new window, yoshi037070);
+// it is never killed, as the app shows a kill as a crash. It waits until
+// the ended ones are gone and a new one runs, and errs when either doesn't
+// happen in time: a listing that fails is unknown, never success.
+func RestartSwitchedCodexApp(ctx context.Context) error {
+	home := codexHome()
+	list := func() ([]int, error) {
+		lctx, cancel := context.WithTimeout(ctx, codexAppListWait)
+		defer cancel()
+		return codexAppServersOn(lctx, home)
+	}
+	pids, err := list()
+	if err != nil {
+		return err
+	}
+	if len(pids) == 0 {
+		DismissCodexApp()
+		return ErrCodexAppGone
+	}
+	for _, p := range pids {
+		if err := endCodexAppServer(p); err != nil {
+			log.Printf("codex: restarting the Codex app's app-server %d for the account switched to: %v", p, err)
+			return ErrCodexAppNoEnd
+		}
+	}
+	// waitFor lists the app-servers until ok holds of them, for at most limit
+	waitFor := func(limit time.Duration, ok func([]int) bool) (bool, error) {
+		end := time.Now().Add(limit)
+		for {
+			now, err := list()
+			if err == nil && ok(now) {
+				return true, nil
+			}
+			if time.Now().After(end) {
+				return false, err
+			}
+			select {
+			case <-ctx.Done():
+				return false, ctx.Err()
+			case <-time.After(200 * time.Millisecond):
+			}
+		}
+	}
+	gone, err := waitFor(codexAppGoneWait, func(now []int) bool {
+		return !slices.ContainsFunc(now, func(p int) bool { return slices.Contains(pids, p) })
+	})
+	if !gone {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
+			return err
+		}
+		return ErrCodexAppNoEnd
+	}
+	back, err := waitFor(codexAppBackWait, func(now []int) bool { return len(now) > 0 })
+	if !back {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
+			return err
+		}
+		return ErrCodexAppNotBack
+	}
+	DismissCodexApp()
+	return nil
+}

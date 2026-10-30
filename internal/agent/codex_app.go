@@ -67,3 +67,35 @@ func reopenApp(ctx context.Context, a *Agent, bundle string) error {
 	}
 	return restartAppServer(ctx, bundle)
 }
+
+// What the Restart on Codex's "the Codex app is still signed in as" notice
+// says when it didn't go through (tNotice).
+var (
+	noticeSwitchAppGone    = newNotice("The {agent} app isn't running any more. It opens on the new account.")
+	noticeSwitchAppNoEnd   = newNotice("magpie couldn't restart the {agent} app's app-server. Quit the app and open it again.")
+	noticeSwitchAppNotBack = newNotice("The {agent} app's app-server ended, but the app didn't start another. Quit the app and open it again.")
+	noticeSwitchAppUnknown = newNotice("magpie couldn't tell whether the {agent} app restarted. Quit the app and open it again.")
+)
+
+// restartSwitchedApp restarts the Codex app's app-server; a var so tests
+// don't end a real one.
+var restartSwitchedApp = provider.RestartSwitchedCodexApp
+
+// RestartSwitchedCodexApp restarts the Codex desktop app's app-server
+// after Codex's account was switched, so the app is on the new account
+// (provider.RestartSwitchedCodexApp), and says in the reader's language
+// what went wrong when it didn't.
+func RestartSwitchedCodexApp(ctx context.Context) error {
+	err := restartSwitchedApp(ctx)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, provider.ErrCodexAppGone):
+		return errors.New(noticeSwitchAppGone.say("agent", "Codex"))
+	case errors.Is(err, provider.ErrCodexAppNoEnd):
+		return errors.New(noticeSwitchAppNoEnd.say("agent", "Codex"))
+	case errors.Is(err, provider.ErrCodexAppNotBack):
+		return errors.New(noticeSwitchAppNotBack.say("agent", "Codex"))
+	}
+	return errors.New(noticeSwitchAppUnknown.say("agent", "Codex"))
+}

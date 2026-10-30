@@ -12990,10 +12990,8 @@ function renderAccounts(a, p) {
   return list;
 }
 
-// renderCodexDaemon: Codex's background app-server read the sign-in when it
-// started, so after a switch the Codex sessions that attach to it are still
-// on the account before (user) until it restarts. magpie doesn't restart it
-// unasked: that ends the Codex sessions running on it.
+// renderCodexDaemon: Codex's background app-server, on the account before a
+// switch (user); a restart ends its sessions, so only on a press
 function renderCodexDaemon(user) {
   const box = codexNote("", t("Codex's background service is still signed in as {user}", { user }),
     t("Restart it to use the new account. Running Codex sessions will be interrupted."));
@@ -13006,16 +13004,20 @@ function renderCodexDaemon(user) {
   return box;
 }
 
-// renderCodexApp: the Codex desktop app reads the sign-in only when it
-// opens, so after a switch it stays on the account before (user): it shows
-// that account's limits and, once they are spent, sends in no thread. Only
-// quitting and opening it again moves it; magpie doesn't quit it unasked.
+// renderCodexApp: the Codex app, on the account before a switch (user) till
+// its app-server restarts; Restart does it now, asked first (nb5p_hQ on X)
 function renderCodexApp(user) {
   const box = codexNote("", t("The Codex app is still signed in as {user}", { user }),
     t("It shows that account's usage limits until it is quit and opened again. Quit it and open it again to use the new account."));
   const ok = el("button", "text", t("Got it"));
   ok.onclick = () => accountAction("codex/daemon/dismiss-app", {});
-  box.append(ok);
+  const go = el("button", "text primary", t("Restart"));
+  go.onclick = async () => {
+    if (!(await confirmRestart(t("The Codex app"), t("Its app-server restarts and signs in to the new account; its window stays. A running turn stops.")))) return;
+    go.classList.add("busy");
+    accountAction("codex/daemon/restart-app", {}, t("Codex app-server restarted"), true, tNotice);
+  };
+  box.append(ok, go);
   return box;
 }
 
@@ -13198,18 +13200,10 @@ function quotaError(err, q) {
   // it with (accessKeyCard, #1821): the card used to be left out unsaid
   if (/^this plan's usage is read with the account's access key: give its SecretId/.test(err)) return t("This plan's usage needs the account's SecretId and SecretKey — give them in the provider's settings");
   if (/^this plan's usage is read with the account's access key/.test(err)) return t("This plan's usage needs the account's AccessKey ID and Secret — give them in the provider's settings");
-  // ZCode with no GLM Coding Plan and no Start Plan left: the account has
-  // nothing to spend, which is not a reading that failed (#1001). Both the
-  // built-in (zcodeStartQuota, internal/provider/zcode_start.go) and the
-  // plugin (NO_START, packages/zcode) put these words on the card — the
-  // same string, byte for byte — and neither names a way out: the
-  // "subscribe at …" wording is in the sign-in errors (zcodeSignedIn /
-  // signedIn), which never reach this card. So the action is said here, on
-  // the card. "has ended" would also be wrong for an account that never
-  // started one, hence "no free Start Plan". "could not be read" is the
-  // other one: that is a reading that failed. The match is anchored on the whole
-  // card sentence, so the sign-in errors — which name the address themselves —
-  // and "could not be read" are left alone.
+  // ZCode with no GLM Coding Plan and no Start Plan left: nothing to spend,
+  // not a failed read (#1001). The plugin's card (NO_START, packages/zcode)
+  // names no way out, so it is said here; anchored on the whole sentence so
+  // the sign-in errors and "could not be read" are left alone.
   if (/^this account has no GLM Coding Plan, and ZCode's Start Plan has ended or was never started$/.test(err)) return t("ZCode: no GLM Coding Plan, and no free Start Plan — subscribe to a GLM Coding Plan to use this account");
   // an OpenCode Go key's windows (planWindows, planquota.go): Go is the
   // subscribing member's, in their workspace, so a key from anyone else
@@ -13995,7 +13989,7 @@ function runsOutText(w, when = resetClock) {
 
 // accountAction changes which account a provider uses, or which it has,
 // and leaves its editor open on the result.
-async function accountAction(path, body, okMsg, confirmed = false) {
+async function accountAction(path, body, okMsg, confirmed = false, say = (m) => m) {
   const key = path === "keys/remove" && providers?.providers?.find((p) => p.id === body.id)?.keyList?.find((k) => k.id === body.ref);
   if (!confirmed && (path === "login/forget" || path === "keys/remove") && !await confirmRemoval(body.user || key?.name || key?.masked || body.ref,
     "This account or key will stop being used for requests. You will need to add it again to use it.")) return false;
@@ -14007,7 +14001,7 @@ async function accountAction(path, body, okMsg, confirmed = false) {
     saidMoved(okMsg);
     return true;
   } catch (e) {
-    if (!editorError(e.message, "err")) status(e.message, "err");
+    if (!editorError(say(e.message), "err")) status(say(e.message), "err");
     document.querySelector(".editor .busy")?.classList.remove("busy");
     return false;
   }

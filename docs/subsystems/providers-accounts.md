@@ -305,3 +305,7 @@ real `~/.codex`, `~/.claude`, `~/.config/gcloud` or `~/.config/magpie` files.
 Vertex AI's tests send Vertex AI, Google's token endpoint and IAM Credentials
 to a server of their own (`VertexForTest`). Check a change
 against real accounts in a sandbox HOME, as [Code standards](../code-standards.md#acceptance-criteria) describes.
+
+## Restart after switching Codex accounts
+
+The stale Codex app account notice offers Restart beside dismissal. The confirmation explains that an active turn stops while the window stays open. Only that explicit action calls `POST /api/codex/daemon/restart-app`; ordinary switching never invokes it. The backend ends only app-servers found for the current Codex home with a clean exit, waits for their departure and a replacement, and clears the notice only on success (or when no app remains). Failed listing, failure to exit, and failure to return are distinct translated notices; cancellation and timeouts remain errors. No uninstall or idle-restart behavior is added. `TestRestartSwitchedCodexApp`, `TestRestartSwitchedCodexAppReal`, `TestRestartSwitchedCodexAppSays`, and `codex-app-stale.test.cjs` cover these outcomes using process stubs or a fake app.

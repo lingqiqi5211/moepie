@@ -251,7 +251,7 @@ type providerJSON struct {
 	DrawIDs        []string    `json:"drawIds,omitempty"` // those models' ids, listed apart in its editor
 	Unlisted       bool        `json:"unlisted"`          // its models serve only through routing groups
 	NoModels       bool        `json:"noModels"`          // Select none: none of its models served (#1818)
-	BestInFamily bool `json:"bestInFamily"`
+	BestInFamily   bool        `json:"bestInFamily"`
 	// Groups are the routing groups ("group/<id>") each of its models is
 	// in, by model id: what an unlisted one is still used through, and the
 	// editor names those in none
@@ -2140,6 +2140,15 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 			provider.DismissCodexDaemon()
 		case "dismiss-app":
 			provider.DismissCodexApp()
+		case "restart-app":
+			// the Codex app left on the account before: its app-server
+			// restarted now, after the user said yes (nb5p_hQ on X)
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+			defer cancel()
+			if err := agent.RestartSwitchedCodexApp(ctx); err != nil {
+				fail(rw, err)
+				return
+			}
 		default:
 			http.NotFound(rw, r)
 			return
