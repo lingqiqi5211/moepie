@@ -7,10 +7,13 @@ package gui
 
 import (
 	"encoding/json"
+	"hash/fnv"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yetone/magpie/internal/agent"
@@ -47,6 +50,11 @@ func tuneOf(cs []sessions.Call, days int, home string) tuneState {
 			by[c.Agent] = append(by[c.Agent], tune.FromCalls([]sessions.Call{c})...)
 		}
 	}
+	return adviseOf(by, days, home)
+}
+
+// adviseOf is tuneOf from each agent's calls made tune's already.
+func adviseOf(by map[string][]tune.Call, days int, home string) tuneState {
 	out := tuneState{Days: days, Agents: []tuneAgent{}}
 	for _, name := range []string{"claude", "codex"} {
 		calls := by[name]
@@ -178,8 +186,7 @@ func tuneRoutes(mux *http.ServeMux) {
 		if days <= 0 || days > 30 {
 			days = 7
 		}
-		since := time.Now().AddDate(0, 0, -days)
-		writeJSON(rw, tuneOf(sessions.Calls(since), days, ""))
+		writeJSON(rw, tuneFor(days))
 	})
 	type change struct {
 		Agent, Knob, Model, Value string
@@ -194,6 +201,7 @@ func tuneRoutes(mux *http.ServeMux) {
 			fail(rw, err)
 			return
 		}
+		tuneForget()
 		s, _ := agent.TuneRead("", in.Agent, in.Knob, in.Model)
 		writeJSON(rw, s)
 	})
@@ -207,7 +215,139 @@ func tuneRoutes(mux *http.ServeMux) {
 			fail(rw, err)
 			return
 		}
+		tuneForget()
 		s, _ := agent.TuneRead("", in.Agent, in.Knob, in.Model)
 		writeJSON(rw, s)
 	})
+}
+
+// tuneKept is what tune has read of the Claude Code and Codex files: each
+// file's calls made tune's, by the size and time it had. The Context tab
+// asks for the advice at every refresh, 5s by default, and each ask read
+// every session file of the range whole into sessions.Call (300k calls
+// were ~500 MB at once, a second of CPU each time): a small server went
+// down with the tab open (Yayoi_no_yume on X). Now a file is read again
+// only when it changed, one at a time, and what is kept of a call is
+// tune's ~100 bytes.
+var tuneKept = struct {
+	sync.Mutex
+	files map[string]tuneFile
+}{files: map[string]tuneFile{}}
+
+type tuneFile struct {
+	size  int64
+	mod   time.Time
+	agent string
+	calls []tune.Call
+	// msgs: each of its calls' message, hashed, the failed ones too; at
+	// is where calls[i]'s own is
+	msgs []uint64
+	at   []int
+}
+
+// tuneAnswer is the advice last given. Working it out goes over every
+// call of the range, a week's 300k of them half a second of CPU and a few
+// hundred MB at once, too much for each refresh of the Usage page (5s): it
+// stands for ctxAgain, and a setting tune changes lets it go at once.
+var tuneAnswer struct {
+	sync.Mutex
+	days int
+	at   time.Time
+	out  tuneState
+}
+
+// tuneFor is the advice over the last days.
+func tuneFor(days int) tuneState {
+	tuneAnswer.Lock()
+	defer tuneAnswer.Unlock()
+	if tuneAnswer.days == days && time.Since(tuneAnswer.at) < ctxAgain {
+		return tuneAnswer.out
+	}
+	out := adviseOf(tuneCallsSince(time.Now().AddDate(0, 0, -days)), days, "")
+	tuneAnswer.days, tuneAnswer.at, tuneAnswer.out = days, time.Now(), out
+	return out
+}
+
+func tuneForget() {
+	tuneAnswer.Lock()
+	tuneAnswer.at = time.Time{}
+	tuneAnswer.Unlock()
+}
+
+// tuneRead, in tests, is told each file tune reads.
+var tuneRead func(path string)
+
+func msgHash(s string) uint64 {
+	if s == "" {
+		return 0
+	}
+	h := fnv.New64a()
+	h.Write([]byte(s))
+	return h.Sum64() | 1
+}
+
+// tuneCallsSince is each agent's calls since, as sessions.Calls has them:
+// a message a resumed Claude Code session copied is the earlier file's.
+func tuneCallsSince(since time.Time) map[string][]tune.Call {
+	var srcs []sessions.CallSource
+	for _, s := range sessions.CallSources() {
+		if (s.Agent == "claude" || s.Agent == "codex") && !s.Modified.Before(since) {
+			srcs = append(srcs, s)
+		}
+	}
+	// earlier files own messages copied into a resumed Claude session
+	sort.Slice(srcs, func(i, j int) bool {
+		if !srcs[i].Modified.Equal(srcs[j].Modified) {
+			return srcs[i].Modified.Before(srcs[j].Modified)
+		}
+		return srcs[i].Path < srcs[j].Path
+	})
+	tuneKept.Lock()
+	defer tuneKept.Unlock()
+	on := make(map[string]bool, len(srcs))
+	for _, s := range srcs {
+		on[s.Path] = true
+		if f, ok := tuneKept.files[s.Path]; ok && f.size == s.Size && f.mod.Equal(s.Modified) && f.agent == s.Agent {
+			continue
+		}
+		if tuneRead != nil {
+			tuneRead(s.Path)
+		}
+		f := tuneFile{size: s.Size, mod: s.Modified, agent: s.Agent}
+		cs := sessions.ReadCallSource(s)
+		f.msgs = make([]uint64, len(cs))
+		for i, c := range cs {
+			f.msgs[i] = msgHash(c.Msg)
+			if tc := tune.FromCalls(cs[i : i+1]); len(tc) == 1 {
+				f.calls = append(f.calls, tc[0])
+				f.at = append(f.at, i)
+			}
+		}
+		tuneKept.files[s.Path] = f
+	}
+	for p := range tuneKept.files {
+		if !on[p] {
+			delete(tuneKept.files, p)
+		}
+	}
+	by := map[string][]tune.Call{}
+	seen := map[uint64]bool{}
+	for _, s := range srcs {
+		f := tuneKept.files[s.Path]
+		for i, c := range f.calls {
+			if m := f.msgs[f.at[i]]; m != 0 && seen[m] || c.Time.Before(since) {
+				continue
+			}
+			by[f.agent] = append(by[f.agent], c)
+		}
+		for _, m := range f.msgs {
+			if m != 0 {
+				seen[m] = true
+			}
+		}
+	}
+	for _, cs := range by {
+		slices.SortStableFunc(cs, func(a, b tune.Call) int { return b.Time.Compare(a.Time) })
+	}
+	return by
 }

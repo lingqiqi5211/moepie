@@ -210,6 +210,7 @@ func (s *pickScratch) release() {
 	clear(s.slab)
 	s.slab = s.slab[:0]
 	keptPicks.Store(s)
+	lingerScratch()
 }
 
 // codexChunkResponsePairs are the Codex calls the gateway and a session file
@@ -584,6 +585,10 @@ var effortBehind = true
 var effortBuilt func()
 
 // CodexModelEffort reports each Codex thread's own priced ledger consumption.
+// The answer is the kept one, shared by every ask until the next build
+// replaces it: callers read it and copy a thread's slice before keeping it,
+// never write it. A copy of every thread's for each ask was ~230 MB every
+// 80 s of a Sessions page open over a large history (#2278).
 func CodexModelEffort(p Period) map[string][]sessions.ModelEffort {
 	if LogCalls != nil { // synthetic logs carry no state to key on
 		return codexModelEffort(codexEffortRows(p, Clock(), LogCalls))
@@ -594,7 +599,7 @@ func CodexModelEffort(p Period) map[string][]sessions.ModelEffort {
 		e.used = codexEffort.built
 		value := e.value
 		codexEffort.Unlock()
-		return cloneEffort(value) // read before the state is: that is most of an unchanged ask's cost
+		return value // read before the state is: that is most of an unchanged ask's cost
 	}
 	codexEffort.Unlock()
 	now := Clock()
@@ -611,7 +616,7 @@ func CodexModelEffort(p Period) map[string][]sessions.ModelEffort {
 	if e.have && (e.key == st.key || e.building != nil && e.root == st.root) {
 		value := e.value // current, or the last one while the next is built
 		codexEffort.Unlock()
-		return cloneEffort(value)
+		return value
 	}
 	if wait := e.building; wait != nil { // the first answer is on its way
 		codexEffort.Unlock()
@@ -619,7 +624,7 @@ func CodexModelEffort(p Period) map[string][]sessions.ModelEffort {
 		codexEffort.Lock()
 		value := e.value
 		codexEffort.Unlock()
-		return cloneEffort(value)
+		return value
 	}
 	done := make(chan struct{})
 	e.building = done
@@ -627,10 +632,10 @@ func CodexModelEffort(p Period) map[string][]sessions.ModelEffort {
 		value := e.value
 		codexEffort.Unlock()
 		go buildEffort(e, st, p, now, done)
-		return cloneEffort(value)
+		return value
 	}
 	codexEffort.Unlock()
-	return cloneEffort(buildEffort(e, st, p, now, done))
+	return buildEffort(e, st, p, now, done)
 }
 
 // buildEffort builds p's answer under st into e, and closes done when it
@@ -735,14 +740,6 @@ func forgetEffortPeriods(p Period) {
 		}
 		delete(codexEffort.periods, oldest)
 	}
-}
-
-func cloneEffort(values map[string][]sessions.ModelEffort) map[string][]sessions.ModelEffort {
-	out := make(map[string][]sessions.ModelEffort, len(values))
-	for actor, v := range values {
-		out[actor] = slices.Clone(v)
-	}
-	return out
 }
 
 func codexModelEffort(rows []Row) map[string][]sessions.ModelEffort {

@@ -105,7 +105,7 @@ magpie.plugin("usage", (ctx) => {
   <div class="usage-pane ctx-pane" id="contextPane" hidden></div>
   <div class="usage-pane sess-pane" id="sessionsPane" hidden>
     <div class="sess-tools">
-      <div class="segs" id="sessAgent"></div>
+      <button class="sess-pick" id="sessAgent" type="button" hidden></button>
       <button class="sess-pick" id="sessModel" type="button" hidden></button>
       <button class="sess-pick" id="sessFolder" type="button" hidden></button>
     </div>

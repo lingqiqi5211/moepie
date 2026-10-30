@@ -301,7 +301,12 @@ func callsFor(since time.Time, session, agent string) []Call {
 func callFiles() []file { return callFilesWith(codexFiles()) }
 
 // callFilesWith is callFiles with codex the rollouts codexFiles found.
-func callFilesWith(codex []file) []file {
+func callFilesWith(codex []file) []file { return distinctOf(callFileLists(codex)...) }
+
+// callFileLists are callFilesWith's lists, each path not yet kept once:
+// the callers that list more add theirs and keep each path once, over
+// all of them (distinctOf), instead of copying callFilesWith's again.
+func callFileLists(codex []file) [][]file {
 	lists := [][]file{ccFiles("claude", ClaudeDir())}
 	for _, d := range desktopReadDirs() {
 		// Cowork keeps a Claude Code folder of its own for each session
@@ -310,24 +315,7 @@ func callFilesWith(codex []file) []file {
 			lists = append(lists, ccFiles("claude-desktop", h))
 		}
 	}
-	lists = append(lists, allowed(codex), wslFiles("claude", "codex"))
-	// sized once: a file is ~200 bytes, and growing a list of ~20k of them
-	// on every 15 s poll was ~36 MB a read
-	n := 0
-	for _, fs := range lists {
-		n += len(fs)
-	}
-	out := make([]file, 0, n)
-	seen := make(map[string]bool, n)
-	for _, fs := range lists {
-		for _, f := range fs {
-			if !seen[f.path] {
-				seen[f.path] = true
-				out = append(out, f)
-			}
-		}
-	}
-	return out
+	return append(lists, allowed(codex), wslFiles("claude", "codex"))
 }
 
 // callSources are callFiles and the other agents' session files. Most are
@@ -343,18 +331,18 @@ func callFilesWith(codex []file) []file {
 func callSources() []file { return callSourcesWith(codexFiles()) }
 
 // callSourcesWith is callSources with codex the rollouts codexFiles found.
-func callSourcesWith(codex []file) []file {
-	out := callFilesWith(codex)
-	out = append(out, openCodeCallFiles()...)
-	out = append(out, zcodeCallFiles()...)
-	out = append(out, dshCallFiles()...)
-	out = append(out, minimaxCallFiles()...)
-	out = append(out, kimiCallFiles()...)
-	out = append(out, wslFiles("kimi")...)
-	out = append(out, piCallFiles()...)
-	out = append(out, codebuddyCallFiles()...)
-	out = append(out, agyCallFiles()...) // #2097
-	return allowed(distinctPaths(append(out, workbuddyCallFiles()...)))
+func callSourcesWith(codex []file) []file { return callSourcesInto(nil, codex) }
+
+// callSourcesInto is callSourcesWith appended to out.
+func callSourcesInto(out []file, codex []file) []file {
+	lists := append(callFileLists(codex), openCodeCallFiles(), zcodeCallFiles(), dshCallFiles(),
+		minimaxCallFiles(), kimiCallFiles(), wslFiles("kimi"), piCallFiles(), codebuddyCallFiles(),
+		agyCallFiles(), // #2097
+		workbuddyCallFiles())
+	if out == nil {
+		return allowed(distinctOf(lists...))
+	}
+	return allowed(distinctInto(out, lists...))
 }
 
 // desktopDataDirs are Claude Desktop's folders on this computer that
@@ -1196,8 +1184,29 @@ func CallSources() []CallSource { return callSourcesOf(callSources()) }
 // ~150ms of each rebuild.
 func CallSourcesAndCodexIdentities() ([]CallSource, map[string]CodexIdentity) {
 	codex := codexFiles()
-	sources := callSourcesOf(callSourcesWith(codex))
+	// the listing is let go once its sources are taken: made new on each
+	// Requests and effort ask, it was ~100 MB of a minute of polls (#2278)
+	fs := callSourcesInto(listingBuf(), codex)
+	sources := callSourcesOf(fs)
+	putListingBuf(fs)
 	return sources, codexIdentitiesOf(codex)
+}
+
+// listingBufs are listings a read takes and lets go of before it ends,
+// kept on a shelf: a sync.Pool, emptied by the collections a poll makes
+// about twice a second, had none for most reads (#2278).
+var listingBufs shelf[[]file]
+
+func listingBuf() []file {
+	if b, ok := listingBufs.take(nil); ok {
+		return b[:0]
+	}
+	return nil
+}
+
+func putListingBuf(fs []file) {
+	clear(fs[:cap(fs)]) // its files' strings go with the listing
+	listingBufs.give(fs[:0], func(h, fs []file) bool { return cap(h) < cap(fs) })
 }
 
 func callSourcesOf(fs []file) []CallSource {

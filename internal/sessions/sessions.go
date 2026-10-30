@@ -515,6 +515,9 @@ func statFiles(files []file, follow bool) []file {
 			f.size, f.mod, ok[i] = fi.Size(), fi.ModTime(), true
 		}
 	})
+	for i, l := range listed {
+		l.Done(order[i])
+	}
 	kept := files[:0]
 	for i, f := range files {
 		if ok[i] {
@@ -573,9 +576,17 @@ func ccFiles(agent, dir string) []file {
 	return heldFiles("cc\x00"+agent+"\x00"+dir, func() []file { return listCCFiles(agent, dir) })
 }
 
+// ccListed is how many files each folder's last listCCFiles found: its
+// listing grown from none, a file at a time, was ~35 MB of a minute of the
+// page's polls over 13 GB of Claude Code history (#2278).
+var ccListed sync.Map // dir → int
+
 func listCCFiles(agent, dir string) []file {
 	projects := filepath.Join(dir, "projects")
-	var out []file
+	n, _ := ccListed.Load(dir)
+	last, _ := n.(int)
+	out := make([]file, 0, last+last/8)
+	defer func() { ccListed.Store(dir, len(out)) }()
 	for _, project := range readDirectory(projects) {
 		if !dirent.IsFolder(projects, project) {
 			continue
@@ -623,15 +634,61 @@ func allFiles() []file {
 	if filesHook != nil {
 		filesHook()
 	}
-	var out []file
-	for _, fs := range [][]file{callFiles(), openCodeFiles(), piFiles(),
-		wslFiles("pi", "omp", "kimi"), zcodeFiles(), dshFiles(), clineFiles(), ccFiles("qoder", QoderDir("qoder")), ccFiles("qoder-cn", QoderDir("qoder-cn")),
-		grokFiles(), workbuddyFiles(), codebuddyFiles(), droidFiles(), ompFiles(), cursorFiles(), hermesFiles(), almaFiles(), kimiFiles(), agyFiles()} {
-		out = append(out, fs...)
-	}
 	// each lister asked Reads already; a file listed under another
 	// agent's name is held to that agent too
-	return allowed(distinctPaths(out))
+	return allowed(distinctOf(append(callFileLists(codexFiles()), openCodeFiles(), piFiles(),
+		wslFiles("pi", "omp", "kimi"), zcodeFiles(), dshFiles(), clineFiles(), ccFiles("qoder", QoderDir("qoder")), ccFiles("qoder-cn", QoderDir("qoder-cn")),
+		grokFiles(), workbuddyFiles(), codebuddyFiles(), droidFiles(), ompFiles(), cursorFiles(), hermesFiles(), almaFiles(), kimiFiles(), agyFiles())...))
+}
+
+// distinctOf is lists one after another with each path kept once, the
+// first time it is listed (distinctPaths), in one slice and one set made
+// at their size: a file is ~200 bytes, and the call files were copied and
+// a set of them made once, then copied and a set made again with the
+// other agents' (allFiles, callSources), ~10 MB on each of a poll's
+// several passes over ~34k sessions (#2278).
+func distinctOf(lists ...[]file) []file {
+	n := 0
+	for _, fs := range lists {
+		n += len(fs)
+	}
+	return distinctInto(make([]file, 0, n), lists...)
+}
+
+// distinctInto is distinctOf appended to out.
+func distinctInto(out []file, lists ...[]file) []file {
+	seen := pathSet()
+	defer putPathSet(seen)
+	for _, fs := range lists {
+		for _, f := range fs {
+			if _, ok := seen[f.path]; !ok {
+				seen[f.path] = struct{}{}
+				out = append(out, f)
+			}
+		}
+	}
+	return out
+}
+
+// pathSets are sets of paths made for one pass over a listing and given
+// back after it: a set of every session file's path, made new on each of
+// a poll's several passes (distinctOf, refresh, pruneCalls), was ~100 MB
+// of what a minute of polls allocated over ~34k files (#2278). A set
+// keeps its room when cleared. They are kept on a shelf: a poll collects
+// garbage about twice a second, which emptied a sync.Pool of them before
+// the next pass.
+var pathSets shelf[map[string]struct{}]
+
+func pathSet() map[string]struct{} {
+	if m, ok := pathSets.take(nil); ok {
+		return m
+	}
+	return map[string]struct{}{}
+}
+
+func putPathSet(m map[string]struct{}) {
+	clear(m)
+	pathSets.give(m, nil)
 }
 
 // distinctPaths is fs with each path kept once, the first time it is
@@ -639,11 +696,12 @@ func allFiles() []file {
 // holds twice under one id (a TEXT and a BLOB row, #2932), or a folder
 // two agents are told to share, would otherwise be counted twice.
 func distinctPaths(fs []file) []file {
-	seen := make(map[string]bool, len(fs))
+	seen := pathSet()
+	defer putPathSet(seen)
 	out := fs[:0]
 	for _, f := range fs {
-		if !seen[f.path] {
-			seen[f.path] = true
+		if _, ok := seen[f.path]; !ok {
+			seen[f.path] = struct{}{}
 			out = append(out, f)
 		}
 	}
@@ -717,10 +775,10 @@ func codexFiles() []file {
 	warmListing.Lock()
 	defer warmListing.Unlock()
 	if warmListing.files != nil && time.Since(warmListing.at) < warmListingFor {
-		return slices.Clone(warmListing.files)
+		return warmListing.files // only read, as heldFiles' are
 	}
-	files := listCodexFiles()
-	warmListing.at, warmListing.files = time.Now(), slices.Clone(files)
+	files := slices.Clip(listCodexFiles())
+	warmListing.at, warmListing.files = time.Now(), files
 	return files
 }
 
@@ -839,6 +897,12 @@ func codexFilesIn(dir string) []file {
 // rolloutsListed is how many rollouts each root's last listing found.
 var rolloutsListed sync.Map
 
+// rolloutsSeen are each folder's rollouts as its last listing found them,
+// in name order: their paths and keys, made again for each of ~20k
+// rollouts on every listing, were ~50 MB of a minute of the page's polls
+// (#2278).
+var rolloutsSeen sync.Map // shown folder → []file
+
 // listedRollouts are the rollouts under root, in walkLinked's order and
 // with their sizes and times, read with one listing a folder
 // (dirent.Stats) rather than a listing and an lstat() a file: Codex's day
@@ -872,18 +936,40 @@ func listedRollouts(root string) (out []file, ok bool) {
 		if !ok {
 			return false
 		}
+		defer entries.Done(real)
+		prev, _ := rolloutsSeen.Load(shown)
+		seen, _ := prev.([]file)
+		start, made, leaf := len(out), false, true
 		for _, e := range entries {
 			name := e.Name
 			switch e.Mode {
 			case fs.ModeDir:
+				leaf = false
 				if !in(filepath.Join(real, name), filepath.Join(shown, name)) {
 					return false
 				}
 			case 0:
+				// both in name order: a rollout listed before keeps its
+				// path and key, and only its size and time are new
+				for len(seen) > 0 && filepath.Base(seen[0].path) < name {
+					seen = seen[1:]
+				}
+				if len(seen) > 0 && filepath.Base(seen[0].path) == name {
+					f := seen[0]
+					f.size, f.mod = e.Size, e.Mod
+					out = append(out, f)
+					continue
+				}
 				if m := rolloutName.FindStringSubmatch(name); m != nil {
 					out = append(out, file{agent: "codex", key: "codex:" + m[1], path: filepath.Join(shown, name), main: true, size: e.Size, mod: e.Mod})
+					made = true
 				}
 			}
+		}
+		// a day folder's only: in a folder with folders in it, out has
+		// their rollouts among its own
+		if n, _ := prev.([]file); leaf && (made || len(out)-start != len(n)) {
+			rolloutsSeen.Store(shown, slices.Clone(out[start:]))
 		}
 		return true
 	}
@@ -1142,12 +1228,13 @@ func refresh(want, all []file) {
 	}
 	gone := false
 	if len(cache) > 0 && all != nil {
-		on := make(map[string]bool, len(all))
+		on := pathSet()
+		defer putPathSet(on)
 		for _, f := range all {
-			on[f.path] = true
+			on[f.path] = struct{}{}
 		}
 		for p := range cache {
-			if !on[p] {
+			if _, ok := on[p]; !ok {
 				delete(cache, p)
 				gone = true
 			}
@@ -1401,6 +1488,7 @@ func Reset() {
 	saved()
 	cache, loaded = nil, false
 	cacheGeneration++
+	forgetKeptStats()
 }
 
 // List reads the latest sessions of every agent, the most recently active
@@ -1430,7 +1518,7 @@ func listSessions(limit int) []Session {
 	defer useDBs()()
 	files := allFiles()
 	groups := byKey(files, nil)
-	latest := map[string]time.Time{}
+	latest := make(map[string]time.Time, len(groups))
 	for _, f := range files {
 		if f.mod.After(latest[f.key]) {
 			latest[f.key] = f.mod
@@ -1460,7 +1548,8 @@ func listSessions(limit int) []Session {
 	copyIDs := copiesByKeeper(copies, groups)
 
 	price, titles := pricer(), codexTitleOf()
-	out := []Session{}
+	// made for the page at once, not grown an append at a time (#2278)
+	out := make([]Session, 0, min(limit, len(keys)))
 	for _, k := range keys {
 		if copies[k] != "" {
 			continue

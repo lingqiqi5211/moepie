@@ -13,6 +13,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -87,7 +88,9 @@ func TraceAgent(agent string) bool {
 
 // Claude child transcripts are discovered alongside their parent stores.
 func traceLineFiles() []file {
-	files := append(codexFiles(), piFiles()...)
+	// a slice of its own: traceRecentFiles sorts it, and Codex's listing
+	// is shared (heldFiles)
+	files := slices.Concat(codexFiles(), piFiles())
 	claude := func(agent, dir string) { files = append(files, ccFiles(agent, dir)...) }
 	claude("claude", ClaudeDir())
 	for _, dir := range desktopReadDirs() {

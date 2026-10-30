@@ -28,12 +28,16 @@ import (
 // read are judged: what has not been read is no one's copy.
 func ccCopies(files []file) map[string]string {
 	type one struct {
-		f  file
+		f  *file
 		st *state
 	}
 	// files start alike when they start with the same message, or one
 	// starts with a compaction's summary the other holds: a copy made
 	// after /compact holds only what follows the summary
+	// a file is held by its place in files, not copied: ~200 bytes for
+	// each Claude Code file on each poll, and a group made for each of
+	// them though only one of two or more is judged, were ~140 MB in 80s
+	// of polls (#2278)
 	var all []one
 	up := []int{} // each file's group, by its index in all (union-find)
 	find := func(i int) int {
@@ -44,7 +48,8 @@ func ccCopies(files []file) map[string]string {
 		return i
 	}
 	at := map[string]int{} // a message a file starts with or holds a summary as
-	for _, f := range files {
+	for k := range files {
+		f := &files[k]
 		if !f.main || !parserFor(f.agent).claude {
 			continue
 		}
@@ -64,10 +69,18 @@ func ccCopies(files []file) map[string]string {
 			}
 		}
 	}
+	size := make([]int, len(all))
+	for i := range all {
+		size[find(i)]++
+	}
 	groups := map[int][]one{}
 	for i, o := range all {
-		r := find(i)
-		groups[r] = append(groups[r], o)
+		if r := find(i); size[r] > 1 {
+			if groups[r] == nil {
+				groups[r] = make([]one, 0, size[r])
+			}
+			groups[r] = append(groups[r], o)
+		}
 	}
 	var out map[string]string
 	used := map[string]bool{}
@@ -77,7 +90,7 @@ func ccCopies(files []file) map[string]string {
 		}
 		holds := func(b one, uuid string) bool {
 			used[b.f.path] = true
-			return b.st.Leaf == uuid || ccUUIDsOf(b.f)[uuid]
+			return b.st.Leaf == uuid || ccUUIDsOf(*b.f)[uuid]
 		}
 		// before reports whether b is kept over a: the one that holds
 		// the other's first message too (a copy made after a compaction
@@ -124,11 +137,9 @@ func ccCopies(files []file) map[string]string {
 	}
 	// a file judged here that no longer starts like another lets its
 	// uuids go; another caller's files are left as they are
-	for _, g := range groups {
-		for _, o := range g {
-			if !used[o.f.path] {
-				delete(ccUUIDMemo, o.f.path)
-			}
+	for _, o := range all {
+		if !used[o.f.path] {
+			delete(ccUUIDMemo, o.f.path)
 		}
 	}
 	return out

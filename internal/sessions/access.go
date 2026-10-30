@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 
@@ -149,8 +150,14 @@ func SetReads(all *bool, agents map[string]bool) error {
 // allowed is fs without the files of agents magpie may not read.
 func allowed(fs []file) []file {
 	r := currentReads()
-	out := fs[:0:0]
-	for _, f := range fs {
+	// most polls read every agent: fs as it is then, not a copy of each
+	// file listed (#2278)
+	k := slices.IndexFunc(fs, func(f file) bool { return !r.Reads(f.agent) })
+	if k < 0 {
+		return fs
+	}
+	out := slices.Clone(fs[:k])
+	for _, f := range fs[k+1:] {
 		if r.Reads(f.agent) {
 			out = append(out, f)
 		}

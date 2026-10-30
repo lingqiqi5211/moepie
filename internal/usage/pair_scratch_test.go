@@ -91,3 +91,31 @@ func TestMatchScratchForgetsTheLastCall(t *testing.T) {
 		t.Fatal("the last call's ids were looked up")
 	}
 }
+
+// The scratch a pairing kept goes once no pairing has used it for
+// scratchLinger (#2278), and a pairing before then finds it kept.
+func TestPairScratchGoesWhenUnused(t *testing.T) {
+	was := scratchLinger
+	scratchLinger = 2 * time.Second
+	t.Cleanup(func() {
+		scratchLinger = was
+		ReleaseScratch()
+	})
+	now := time.Date(2026, 10, 1, 13, 0, 0, 0, time.UTC)
+	g, l := pairFixture(12, 9)
+	ReleaseScratch()
+	pairRows(All, now, g, l, nil, nil)
+	kept := keptMatch.Load()
+	if kept == nil || keptPicks.Load() == nil {
+		t.Fatal("nothing kept for the next call")
+	}
+	pairRows(All, now, g, l, nil, nil)
+	if keptMatch.Load() != kept {
+		t.Fatal("a pairing right after made scratch of its own")
+	}
+	for deadline := time.Now().Add(30 * time.Second); keptMatch.Load() != nil || keptPicks.Load() != nil; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the scratch was kept with no pairing using it")
+		}
+	}
+}

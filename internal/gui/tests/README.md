@@ -1096,10 +1096,13 @@ at least 5em, at 420 wide the long names are shortened while no bar is under
 Chromium and WebKit, English and Chinese.
 
 `usage-sessions-agents-fit.test.cjs` checks Usage › Sessions with 15 agents
-(#929): at 860 and 560 wide the page, its main and the Usage view never
-scroll sideways; the agent strip fits the window and scrolls in itself, and
-the last agent, clicked at the strip's end, stays in view as the strip is
-drawn again; in Chromium and WebKit, English and Chinese.
+(#929): the agent filter is a menu button like the model and folder ones, no
+segment per agent; at 860 and 560 wide nothing scrolls sideways and the three
+filters sit on one line inside the window; the menu lists "All agents" and
+every agent, the most used first, a few letters narrow it, a pick shows on the
+button and stays checked when the page is drawn again, and "All agents" clears
+it. One agent in range leaves the filter hidden. Chromium and WebKit, English
+and Chinese.
 
 `usage-unpriced-names.test.cjs` checks Usage › Sessions where an agent
 recorded tokens under no model name (tony on Discord: the cost's note read
@@ -1486,17 +1489,6 @@ unfolded, the row opened and brought into sight by that click, with no
 scroll refused), another agent's switches the page to it, and All sessions
 opens the page. At 420px a row still fits with its title readable. English
 and Chinese, WebKit (Chromium too where it launches), API faked.
-
-`sess-agent-strip.test.cjs` keeps Usage → Sessions' agent filter inside the
-window (#929): with eleven agents in range the strip is wider than an 866px
-window, and it scrolls in itself instead of the page scrolling sideways, the
-way the regions strip and Connect's five APIs do; its first and last option
-are both reachable and both choose their agent, the model and folder picks
-beside it stay visible and open, and in a window wider than the strip nothing
-scrolls and the options keep their own widths. One agent in range still
-leaves the filter hidden, and the other strips on the page and elsewhere keep
-their behaviour. No left-border accent. English and Chinese, Chromium and
-WebKit, API faked.
 
 `sessions-purge.test.cjs` erases sessions in magpie's trash for good (#487):
 a trashed row's Delete forever and the Trash's Empty trash each ask in

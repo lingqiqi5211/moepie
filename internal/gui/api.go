@@ -2540,10 +2540,10 @@ func held(h http.Handler) http.Handler {
 			// and collected under GOGC 25 while it runs: a poll's reads
 			// allocated ~330 MB to keep ~105 MB, and at the default 100 the
 			// heap grew to twice what it kept before a collection, ~320 MB
-			// in Activity Monitor during a poll. The memory limit the
-			// warm-up's read takes too isn't taken here: held as close as
-			// heldMemory, every poll collected over and over, 5x the CPU.
-			defer tightenGC(false)()
+			// in Activity Monitor during a poll. No memory limit: held as
+			// close as what Go held, every poll collected over and over,
+			// 5x the CPU.
+			defer tightenGC()()
 		}
 		if !(api && r.Method == http.MethodGet) {
 			// anything that may have written drops what was held, once it
@@ -2672,11 +2672,12 @@ func writeJSON(rw http.ResponseWriter, v any) {
 // history's ~8 MB list and ~0.7 MB of stats every 15 s, and parsed and
 // compared them whole to find them the same. Not an ETag and a 304:
 // WebView2 is sent no If-None-Match, and Wails turns its 304 into a 505.
-func writeJSONSame(rw http.ResponseWriter, r *http.Request, v any) {
+// It returns the tag, or "" when v could not be written.
+func writeJSONSame(rw http.ResponseWriter, r *http.Request, v any) string {
 	var b bytes.Buffer
 	if err := json.NewEncoder(&b).Encode(v); err != nil {
 		fail(rw, err)
-		return
+		return ""
 	}
 	sum := sha256.Sum256(b.Bytes())
 	tag := hex.EncodeToString(sum[:16])
@@ -2684,10 +2685,11 @@ func writeJSONSame(rw http.ResponseWriter, r *http.Request, v any) {
 	if r.Header.Get("X-Magpie-Had") == tag {
 		rw.Header().Set("X-Magpie-Same", "1")
 		rw.WriteHeader(http.StatusOK)
-		return
+		return tag
 	}
 	rw.Header().Set("Content-Type", "application/json")
 	_, _ = rw.Write(b.Bytes())
+	return tag
 }
 
 // sentRows is each row's hash in the last few lists writeJSONRows sent, by

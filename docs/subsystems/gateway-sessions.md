@@ -21,6 +21,18 @@ routing summaries reuse versioned log snapshots; appends and rewrites invalidate
 them, and price/provider changes also invalidate priced projections. Single-session
 lookups use the cached identity index. Native exclusions are applied per caller.
 
+Repeated Sessions stats reads reuse immutable results for an unchanged native
+cache generation (`keptStats`); the GUI reuses encoded stats for that generation.
+The overview shares native sessions instead of copying them. File listings are
+shared within a hold, while reusable listing buffers and path sets reduce poll
+allocations without changing the read-consent gate or supported agents.
+Usage's Context tab retains daily aggregates and per-file tuning calls until
+their inputs change, and briefly keeps the computed advice; applying a tuning
+change invalidates that advice (`tuneForget`). Opening Requests or Sessions
+reads no vendor allowances; only Overview asks for them (`loadUsage`).
+Verification: `stats_kept_test.go`, `sessions_stats_gen_test.go`,
+`context_kept_test.go` and `allowance-open-read.test.cjs`.
+
 WorkBuddy and CodeBuddy Code name their conversation in `X-Conversation-ID`.
 The gateway reads it as a native session header, after the existing native
 headers; `X-Magpie-Session` still overrides the recorded session without

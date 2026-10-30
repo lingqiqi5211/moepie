@@ -131,7 +131,10 @@ let usageRead = 0;
 async function loadUsage(asked) {
   renderUsageTab();
   renderUsageEvery(); // the refresh's tooltip says what it reads on this tab
-  if (asked) quotasOpened();
+  // only the Overview shows the allowances: the page opened on another
+  // tab asks no vendor, nor reads their history, beside its own read and
+  // the page's way in (#4064)
+  if (asked && usageTab === "usage") quotasOpened();
   if (usageTab === "sessions") return loadSessions();
   if (usageTab === "requests") return loadLedger();
   if (usageTab === "context") return window.loadContext?.();
@@ -2597,8 +2600,7 @@ function renderSessionsLoading() {
   view.setAttribute("aria-busy", "true");
   $("#usageCost").replaceChildren(el("span", "skeleton sk-cost"));
   renderSessRange(true);
-  $("#sessAgent").replaceChildren();
-  $("#sessModel").hidden = $("#sessFolder").hidden = true;
+  $("#sessAgent").hidden = $("#sessModel").hidden = $("#sessFolder").hidden = true;
   $("#sessChart").hidden = true;
   $("#sessGrid").hidden = true;
   $("#sessListHead").hidden = true;
@@ -2877,35 +2879,11 @@ function renderSessions() {
   const rows = st.days.flatMap((d) => d.usage.map((u) => ({ ...u, date: d.date })));
   const acts = st.days.flatMap((d) => d.active.map((a) => ({ ...a, date: d.date })));
 
-  // one segment per agent that has sessions, or usage in the range
+  // the agent filter is a menu, as the model and folder ones beside it: a
+  // strip of a segment per agent ran past the window with a dozen of them
+  // in range, and scrolled sideways to reach the last
   const agents = [...new Map([...all.map((s) => [s.agent, s.name]), ...Object.entries(st.agents || {})]).entries()];
   if (sessAgent !== "all" && !agents.some(([id]) => id === sessAgent)) sessAgent = "all";
-  const seg = $("#sessAgent");
-  seg.hidden = agents.length < 2;
-  const opts = [["all", t("All")], ...agents];
-  // the same agents keep their buttons: drawn anew, a strip with more than
-  // fit (#929) would lose where it was scrolled to (WebKit)
-  const was = [...seg.querySelectorAll(":scope > .opt")];
-  if (was.length !== opts.length || was.some((b, i) => b.dataset.agent !== opts[i][0] || b.textContent !== opts[i][1])) {
-    seg.replaceChildren();
-    for (const [id, name] of opts) {
-      const b = el("button", "opt", name);
-      b.dataset.agent = id;
-      b.onclick = () => { sessAgent = id; renderSessions(); };
-      seg.append(b);
-    }
-  }
-  for (const b of seg.querySelectorAll(":scope > .opt")) {
-    b.classList.toggle("on", b.dataset.agent === sessAgent);
-    b.setAttribute("aria-pressed", String(b.dataset.agent === sessAgent));
-  }
-  // and the agent picked is brought into the strip, the page left where it is
-  const picked = seg.querySelector(":scope > .on");
-  if (picked && seg.scrollWidth > seg.clientWidth) {
-    if (picked.offsetLeft < seg.scrollLeft) seg.scrollLeft = picked.offsetLeft;
-    else if (picked.offsetLeft + picked.offsetWidth > seg.scrollLeft + seg.clientWidth) seg.scrollLeft = picked.offsetLeft + picked.offsetWidth - seg.clientWidth;
-  }
-  slide(seg, "sessAgent");
 
   // the model and folder filters offer what the range has, under the other filters
   const byAgent = (x) => sessAgent === "all" || x.agent === sessAgent;
@@ -2918,6 +2896,10 @@ function renderSessions() {
   };
   const models = spent(rows.filter((r) => byAgent(r) && byFolder(r)), "model").map(([v, n]) => ({ v, name: v, note: t("{n} tokens", { n: fmtN(n) }) }));
   const folders = spent(rows.filter((r) => byAgent(r) && byModel(r)), "cwd").map(([v, n]) => ({ v, name: baseName(v), note: v + " · " + t("{n} tokens", { n: fmtN(n) }) }));
+  const agentSpent = new Map(spent(rows.filter((r) => byModel(r) && byFolder(r)), "agent"));
+  const agentOpts = agents.map(([v, name]) => ({ v, name: name || v, note: agentSpent.has(v) ? t("{n} tokens", { n: fmtN(agentSpent.get(v)) }) : "" }))
+    .sort((a, b) => (agentSpent.get(b.v) || 0) - (agentSpent.get(a.v) || 0));
+  sessPick($("#sessAgent"), "All agents", sessAgent === "all" ? "" : sessAgent, agentOpts, "Agent", (v) => { sessAgent = v || "all"; renderSessions(); });
   sessPick($("#sessModel"), "All models", sessModel, models, "Model", (v) => { sessModel = v; renderSessions(); });
   sessPick($("#sessFolder"), "All folders", sessFolder, folders, "Folder", (v) => { sessFolder = v; renderSessions(); });
 
