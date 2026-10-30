@@ -5,6 +5,7 @@ const run = require("node:util").promisify(execFile);
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
 const { fixture } = require("./fixtures/caller-keys.cjs");
+const { reach } = require("./reader.cjs");
 
 // FourLeafTec on #1514: at home on Windows, but mostly running things on a
 // Linux server over ssh. Connect's Shell and curl snippets start as the
@@ -73,6 +74,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         // picked macOS · Linux: export, and nothing moves under the click
         const at = async () => page.evaluate(() => [document.querySelector("#connect .snip-os").getBoundingClientRect().top,
           document.scrollingElement.scrollTop, document.querySelector("#view-gateway").scrollTop]);
+        await reach(page, os(page, "macOS · Linux"));
         const before = await at();
         await os(page, "macOS · Linux").click();
         await snipIs(page, /^export /);
