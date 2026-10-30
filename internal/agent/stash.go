@@ -7,9 +7,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/yetone/magpie/internal/edit"
+	"github.com/yetone/magpie/internal/filelock"
 	"github.com/yetone/magpie/internal/lastgood"
 	"github.com/yetone/magpie/internal/provider"
 )
@@ -18,13 +18,13 @@ import (
 // at the gateway, so switching back restores it instead of guessing.
 //
 // stash.json holds every agent's originals, so a change to it is read,
-// changed and written under stashMu, and written whole (edit.WriteAtomic):
-// two changes at once, or one cut short, never leave it half there, which
-// the next change read as no stash and wrote back over every agent's. A
-// file that doesn't parse (edited by hand, or half written by an older
-// magpie) is copied aside before it is written over, so what it held can
-// still be got back.
-var stashMu sync.Mutex
+// changed and written under stashMu, held across magpies too, and written
+// whole (edit.WriteAtomic): two changes at once, or one cut short, never
+// leave it half there, which the next change read as no stash and wrote
+// back over every agent's. A file that doesn't parse (edited by hand, or
+// half written by an older magpie) is copied aside before it is written
+// over, so what it held can still be got back.
+var stashMu = filelock.Mutex{Path: func() string { return stashPath() + ".lock" }}
 
 func stashPath() string { return filepath.Join(filepath.Dir(provider.Path()), "stash.json") }
 
@@ -51,7 +51,6 @@ func stashWrite(m map[string]string) error {
 	// array too, not only one cut short) as empty: it is copied aside, and
 	// one that can't be copied isn't written over
 	if err := lastgood.KeepUnparsed(p, lastgood.Into[map[string]string]); err != nil {
-		log.Printf("stash.json wasn't written over: %v", err)
 		return err
 	}
 	// made 0600 first: WriteAtomic keeps a file's mode, and the stash holds
@@ -62,6 +61,14 @@ func stashWrite(m map[string]string) error {
 		return err
 	}
 	return edit.WriteAtomic(p, b)
+}
+
+// stashKeep is stashWrite for a caller with no error to return, which
+// dropped it unsaid.
+func stashKeep(m map[string]string) {
+	if err := stashWrite(m); err != nil {
+		log.Printf("stash.json wasn't written: %v", err)
+	}
 }
 
 func stash(kv map[string]string) {
@@ -75,7 +82,7 @@ func stash(kv map[string]string) {
 			m[k] = v
 		}
 	}
-	stashWrite(m)
+	stashKeep(m)
 }
 
 // forget drops stashed values without restoring them.
@@ -86,7 +93,7 @@ func forget(keys ...string) {
 	for _, k := range keys {
 		delete(m, k)
 	}
-	stashWrite(m)
+	stashKeep(m)
 }
 
 func unstash(key string) string {
@@ -96,7 +103,7 @@ func unstash(key string) string {
 	v := m[key]
 	if v != "" {
 		delete(m, key)
-		stashWrite(m)
+		stashKeep(m)
 	}
 	return v
 }

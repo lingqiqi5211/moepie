@@ -131,5 +131,5 @@ const wiredAt = ".wired_at"
 func stashPut(m map[string]string) {
 	stashMu.Lock()
 	defer stashMu.Unlock()
-	stashWrite(m)
+	stashKeep(m)
 }
