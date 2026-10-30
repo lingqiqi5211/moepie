@@ -58,7 +58,8 @@ jobs:
             sessions-paging.test.cjs sessions-folder-paging.test.cjs \
             sessions-manage-paging.test.cjs sessions-talk.test.cjs \
             request-archive.test.cjs request-archive-usage.test.cjs \
-            routing-hidden-stage.test.cjs panel-routing-hidden.test.cjs
+            routing-hidden-stage.test.cjs panel-routing-hidden.test.cjs \
+            routing-hidden-down.test.cjs
 
       - if: failure()
         uses: actions/upload-artifact@v4
