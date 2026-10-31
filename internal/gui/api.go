@@ -33,6 +33,7 @@ import (
 	"github.com/yetone/magpie/internal/agent"
 	"github.com/yetone/magpie/internal/autostart"
 	"github.com/yetone/magpie/internal/catalog"
+	"github.com/yetone/magpie/internal/datamove"
 	"github.com/yetone/magpie/internal/filememo"
 	"github.com/yetone/magpie/internal/fonts"
 	"github.com/yetone/magpie/internal/fx"
@@ -1225,6 +1226,7 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 	archiveRoutes(mux)
 	libraryRoutes(mux, w)
 	updateRoutes(mux, w)
+	dataDirRoutes(mux, w)
 	whatsNewRoutes(mux)
 	cliBehindRoutes(mux)
 	configRepairRoutes(mux, !isWeb(w))
@@ -2501,7 +2503,8 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 	})
 	agentModelsAPI(mux)
 	devListen(mux)
-	return noFramedAPI(held(mux))
+	// a data move waiting for idle holds up the page's writes (datadir.go)
+	return noFramedAPI(datamove.Business.Guard(held(mux), dataControl))
 }
 
 // noFramedAPI turns away a request for /api that no page of the window's

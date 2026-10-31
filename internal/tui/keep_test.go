@@ -30,6 +30,7 @@ func TestKeepGatewayAsTheTerminalQuits(t *testing.T) {
 			install:     func() error { d.installed = true; return installErr },
 			linger:      func() string { return "" },
 			background:  func() (int, string, error) { d.bg = true; return 42, "/x/serve.log", nil },
+			moving:      func() bool { return false },
 		}
 		return d
 	}
@@ -50,6 +51,12 @@ func TestKeepGatewayAsTheTerminalQuits(t *testing.T) {
 	d = setup("linux", false, false, false, errors.New("this system has no systemd"))
 	if msg := keepGateway(true); !d.bg || !strings.Contains(msg, "background") {
 		t.Errorf("no systemd: %+v %q", *d, msg)
+	}
+	// a data move waits for every magpie to exit: none is started for it
+	d = setup("linux", false, true, false, nil)
+	keep.moving = func() bool { return true }
+	if msg := keepGateway(true); d.started || d.installed || d.bg || !strings.HasPrefix(msg, gone) {
+		t.Errorf("moving: %+v %q", *d, msg)
 	}
 	for name, c := range map[string]struct {
 		goos      string

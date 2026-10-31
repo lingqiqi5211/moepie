@@ -855,7 +855,7 @@ func (s *Server) Handler() http.Handler {
 	// the goroutine dump first, ahead of every lock the rest can be stuck
 	// on (dumpFirst)
 	// a socket's turns go through all of it again (socketEntry)
-	return socketEntry(s.dumpFirst(s.counted(holdCatalog(corsGuard(callerGuard(withCaller(keyLimited(mux))))))))
+	return socketEntry(s.dumpFirst(s.admitted(s.counted(holdCatalog(corsGuard(callerGuard(withCaller(keyLimited(mux)))))))))
 }
 
 // responsesOverHTTP answers a GET on /v1/responses. A WebSocket upgrade

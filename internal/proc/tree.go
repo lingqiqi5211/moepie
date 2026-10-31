@@ -1,6 +1,7 @@
 package proc
 
 import (
+	"errors"
 	"os/exec"
 	"sync"
 	"time"
@@ -13,9 +14,10 @@ type Tree struct {
 	cmd *exec.Cmd
 
 	mu      sync.Mutex
-	done    bool          // waited for: its pid may be another process's now
-	waited  chan struct{} // closed once Wait has
-	stopped chan struct{} // Stop's, closed once it has ended the tree
+	done    bool            // waited for: its pid may be another process's now
+	waited  chan struct{}   // closed once Wait has
+	stopped chan struct{}   // Stop's, closed once it has ended the tree
+	swept   <-chan struct{} // closed once Wait's sweep is done
 	group
 }
 
@@ -38,10 +40,40 @@ func (t *Tree) Wait() error {
 	defer t.mu.Unlock()
 	if !t.done {
 		t.done = true
+		t.swept = t.sweep(t.cmd)
 		close(t.waited)
 	}
-	t.sweep(t.cmd)
 	return err
+}
+
+// errLive is a tree Ended couldn't see the end of.
+var errLive = errors.New("the process tree is still running")
+
+// Ended waits up to timeout for the tree to have been waited for and none
+// of its group left: a job with no active process on Windows, a process
+// group no signal reaches on Unix. A data move waits on it before taking
+// files away from under any of it. Without a job (one couldn't be made) it
+// is the command's own exit.
+func (t *Tree) Ended(timeout time.Duration) error {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-t.waited:
+	case <-timer.C:
+		return errLive
+	}
+	t.mu.Lock()
+	swept := t.swept
+	t.mu.Unlock()
+	select {
+	case <-swept:
+	case <-timer.C:
+		return errLive
+	}
+	if t.alive(t.cmd) {
+		return errLive
+	}
+	return nil
 }
 
 // Kill ends the command and every process of its tree.

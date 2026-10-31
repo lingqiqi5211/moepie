@@ -433,6 +433,7 @@ type host struct {
 	calls    map[int64]*call
 	next     int64
 	dead     chan struct{}
+	exited   chan struct{} // closed once Bun's process is waited for
 	err      error
 	loaded   []Loaded
 	// renewing is how many sign-ins the host is renewing: stop lets them
@@ -843,6 +844,9 @@ func get(ctx context.Context) (*host, error) {
 // getLocked requires hostMu. Gateway hooks bound both the lock wait and
 // startup with their request-hook budget.
 func getLocked(ctx context.Context) (*host, error) {
+	if hostsFrozen {
+		return nil, errFrozen
+	}
 	if hostStale.Swap(false) && current != nil {
 		go current.retire()
 		current = nil
@@ -977,6 +981,7 @@ func startOn(ctx context.Context, bun string) (*host, bool, error) {
 		cmd: cmd, in: in,
 		calls:    map[int64]*call{},
 		dead:     make(chan struct{}),
+		exited:   make(chan struct{}),
 		slots:    make(chan struct{}, callLimit()),
 		streams:  make(chan struct{}, streamLimit()),
 		out:      make(chan writeReq, callLimit()),
@@ -990,6 +995,9 @@ func startOn(ctx context.Context, bun string) (*host, bool, error) {
 	}
 	go drainStderr(stderr)
 
+	hostsLive.Lock()
+	hostsLive.m[h] = true
+	hostsLive.Unlock()
 	go h.read(out)
 	go h.writerLoop()
 	go h.ctrlLoop()
@@ -1095,6 +1103,12 @@ func (h *host) read(out io.Reader) {
 		}
 	}
 	err := h.cmd.Wait()
+	hostsLive.Lock()
+	delete(hostsLive.m, h)
+	hostsLive.Unlock()
+	if h.exited != nil {
+		close(h.exited)
+	}
 	if err == nil {
 		err = errors.New("the plugin host quit")
 	}

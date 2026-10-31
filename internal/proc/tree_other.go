@@ -3,6 +3,7 @@
 package proc
 
 import (
+	"errors"
 	"os/exec"
 	"syscall"
 	"time"
@@ -72,4 +73,9 @@ var killFor = 10 * time.Second
 
 // sweep ends what is left of the group once its leader is gone: the group
 // keeps the leader's pid while any of it runs, so none else has it.
-func (g group) sweep(cmd *exec.Cmd) { _ = g.kill(cmd) }
+func (g group) sweep(cmd *exec.Cmd) <-chan struct{} { return g.kill(cmd) }
+
+// alive is whether any of the group is left: a signal still reaches it.
+func (group) alive(cmd *exec.Cmd) bool {
+	return !errors.Is(syscall.Kill(-cmd.Process.Pid, 0), syscall.ESRCH)
+}

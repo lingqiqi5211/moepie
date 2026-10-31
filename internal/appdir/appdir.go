@@ -92,6 +92,14 @@ func Resolve(exe string) string {
 	if real, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = real
 	}
+	// a data move's choice comes first; an unreadable one is CheckMode's
+	// to report, and the data folder is named so nothing installed opens
+	switch mode, err := ReadMode(exe); {
+	case err != nil || mode == ModePortable:
+		return PortableData(exe)
+	case mode == ModeInstalled:
+		return ""
+	}
 	base := Beside(exe)
 	data := filepath.Join(base, DataName)
 	if fi, err := os.Stat(filepath.Join(base, MarkerName)); err == nil && !fi.IsDir() {
@@ -110,6 +118,9 @@ func Resolve(exe string) string {
 func Passed(exe string) string {
 	if real, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = real
+	}
+	if mode, _ := ReadMode(exe); mode != "" {
+		return ""
 	}
 	base := Beside(exe)
 	data := filepath.Join(base, DataName)
@@ -259,6 +270,11 @@ func Cache() string {
 	if p := Portable(); p != "" {
 		return filepath.Join(p, "cache")
 	}
+	return InstalledCache()
+}
+
+// InstalledCache is Cache of an installed magpie.
+func InstalledCache() string {
 	if x := os.Getenv("XDG_CACHE_HOME"); rooted(x) {
 		return filepath.Join(x, "magpie")
 	}
@@ -281,12 +297,34 @@ func WebView() string {
 // (~/Library/Caches/magpie on a Mac, %LocalAppData%\magpie on Windows),
 // which a few caches have always used; portable, it is Cache.
 func SystemCache() (string, error) {
-	if p := Portable(); p != "" {
-		return filepath.Join(p, "cache"), nil
+	d, err := InstalledSystemCache()
+	if err != nil {
+		return "", err
 	}
+	if p := Portable(); p != "" {
+		if SameCachePath(d, InstalledCache()) {
+			return filepath.Join(p, "cache"), nil
+		}
+		return filepath.Join(p, "system-cache"), nil
+	}
+	return d, nil
+}
+
+// InstalledSystemCache is the OS cache root, before portable selection.
+func InstalledSystemCache() (string, error) {
 	d, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(d, "magpie"), nil
+}
+
+// SameCachePath compares the two resolved cache paths. Migration separately
+// refuses filesystem aliases and redirected ancestors before using them.
+func SameCachePath(a, b string) bool {
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }

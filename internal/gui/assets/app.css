@@ -3545,6 +3545,20 @@ input.words.search-key, input.words.search-url { flex: 1 1 120px; width: auto; m
 .prefs .row.rule-editing .val.rule-add { flex-wrap: wrap; row-gap: 6px; }
 .prefs .row.rule-editing .rule-tail { display: flex; align-items: center; gap: 6px; flex: 1 1 240px; min-width: 0; }
 .row.pref .sub.err { color: var(--red); white-space: normal; }
+/* Keep the choice readable; full paths and diagnostics expand on demand. */
+#dataDirRow { flex-wrap: wrap; align-items: flex-start; }
+#dataDirSub { overflow-wrap: anywhere; white-space: normal; }
+#dataDirRow .who { min-width: 0; flex: 1 1 240px; }
+#dataDirSegs { margin-left: auto; max-width: 100%; }
+#dataDirSegs .segs { flex-wrap: wrap; }
+#dataDirRow details { margin-top: 5px; }
+#dataDirRow summary { cursor: pointer; width: fit-content; }
+#dataDirRow summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#dataDirRow .data-dir-place { margin: 6px 0; }
+#dataDirRow .data-dir-place code { display: block; font-size: 11px; user-select: text; }
+#dataDirRow .data-dir-error { flex-basis: 100%; user-select: text; }
+.row.pref .sub.data-dir-note { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.row.pref .sub.data-dir-note .text { margin-left: -7px; }
 .warm-at { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: none; }
 .warm-at input.at { width: auto; height: 27px; padding: 0 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--card); color: var(--fg); font: inherit; font-size: 12.5px; font-variant-numeric: tabular-nums; outline: none; transition: border-color .12s, box-shadow .12s; }
 .warm-at input.at:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }

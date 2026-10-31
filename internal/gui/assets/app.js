@@ -18971,7 +18971,85 @@ function applyPrefs(s, rate) {
 // Omarchy's bar: magpie's icon there as a widget of its own (Settings → Bar
 // icon), offered only in the app on Omarchy
 let barIcon = null;
-function renderBarIcon() {
+let dataDirLast = null, dataDirTimer = null, dataDirRead = 0;
+ async function renderDataDir() {
+   const read = ++dataDirRead;
+   try {
+     const st = await api("data-directory");
+     if (read !== dataDirRead) return;
+     if (!Array.isArray(st?.places)) { $("#dataDirRow").hidden = true; return; }
+     dataDirLast = st;
+     drawDataDir(st);
+   } catch (e) {
+     $("#dataDirRow").hidden = false;
+     $("#dataDirSub").textContent = t("Cannot read data directory status: {error}", { error: e.message });
+     $("#dataDirSegs").replaceChildren();
+   }
+ }
+ function drawDataDir(st) {
+   dataDirLast = st;
+   clearTimeout(dataDirTimer);
+   const row = $("#dataDirRow"), sub = $("#dataDirSub"), note = $("#dataDirNote");
+   row.hidden = false;
+   const label = (mode) => mode === "portable" ? t("Beside the app") : t("Original location");
+   const detailsOpen = sub.querySelector("details")?.open || false;
+   sub.replaceChildren(el("div", "", t("Current location: {location}", { location: label(st.mode) })));
+   const details = el("details", "data-dir-details");
+   details.open = detailsOpen;
+   details.append(el("summary", "", t("Directory details")));
+   for (const p of st.places) {
+     const place = el("div", "data-dir-place");
+     place.append(el("div", "", label(p.mode)));
+     for (const path of new Set([p.config, p.cache, p.systemCache, p.web].filter(Boolean))) {
+       place.append(el("code", "", path));
+     }
+     details.append(place);
+   }
+   if (st.webStays) details.append(el("div", "", t("System browser storage stays in its original location on this platform.")));
+   sub.append(details);
+   const pending = !!st.phase || (st.move && !["complete", "failed", "cleanup"].includes(st.move.state));
+   const cleanup = st.move?.state === "cleanup";
+   const box = segs(st.places.map((p) => [p.mode, label(p.mode)]), st.mode, async (mode) => {
+     drawDataDir(st); // a choice becomes active only after a verified move
+     const p = st.places.find((p) => p.mode === mode);
+     if (!p || mode === st.mode || p.blocked || pending || cleanup || st.unavailable) return;
+     if (!await confirmAction(t("Move data directory?"), t("Existing requests finish first. The app then closes, copies and verifies the data, removes the verified old data, and opens again. Existing destination files are backed up separately. External agent data stays where it is."), t("Move and restart"))) return;
+     await dataDirAction("start", { mode });
+   });
+   [...box.querySelectorAll("button")].forEach((b, i) => {
+     const p = st.places[i];
+     b.disabled = !!(pending || cleanup || st.unavailable || (p.mode !== st.mode && p.blocked));
+     b.title = p.blocked ? t("Directory unavailable: {error}", { error: p.blocked }) : [p.config, p.cache, p.systemCache, p.web].filter(Boolean).join("\n");
+   });
+   $("#dataDirSegs").replaceChildren(box);
+   note.replaceChildren();
+   const say = (text) => note.append(el("span", "", text));
+   const button = (text, action) => { const b = el("button", "text", text); b.onclick = () => dataDirAction(action); note.append(b); };
+   if (st.unavailable) say(t("Change the data directory from the app's own window."));
+   else if (st.phase === "waiting") { say(t("Waiting for existing requests to finish…")); button(t("Cancel"), "cancel"); }
+   else if (st.phase || pending) say(t("Stopping services and moving data; the app will open again…"));
+   else if (cleanup) { say(t("Data moved. Some old data could not be removed; the new directory is in use.")); button(t("Retry cleanup"), "retry"); }
+   else if (st.move?.state === "complete") { say(t("Data moved and verified old data removed.")); button(t("Close"), "dismiss"); }
+   else if (st.move?.state === "failed") { say(t("Data move failed; the original directory remains in use.")); button(t("Try again"), "retry"); button(t("Close"), "dismiss"); }
+   const error = st.error || st.move?.error;
+   if (error) {
+     if (!note.childNodes.length) say(t("Could not move data."));
+     const details = el("details", "data-dir-error");
+     details.append(el("summary", "", t("Details")), el("div", "", error));
+     note.append(details);
+   }
+   note.hidden = !note.childNodes.length;
+   note.classList.toggle("err", !!error || cleanup);
+   if (pending) dataDirTimer = setTimeout(() => { if (view === "settings") renderDataDir(); }, 1000);
+ }
+ async function dataDirAction(action, body = {}) {
+   try { drawDataDir(await api("data-directory/" + action, body)); }
+   catch (e) {
+     const st = dataDirLast || { places: [] };
+     drawDataDir({ ...st, error: e.message });
+   }
+ }
+ function renderBarIcon() {
   $("#barIconRow").hidden = !barIcon?.available || gatewayMode; // the desktop's, not a gateway's
   if ($("#barIconRow").hidden) return;
   $("#barIconSegs").replaceChildren(segs([["off", t("Off")], ["on", t("On")]], barIcon.on ? "on" : "off", (v) =>
@@ -19406,6 +19484,7 @@ function renderSettings() {
   $("#wslAgentsSegs").replaceChildren(segs([["off", t("Off")], ["on", t("On")]], s.noWSLAgents ? "off" : "on",
     (v) => savePrefs({ ...keep, noWSLAgents: v === "off" })));
   renderSessionTerminal(s, keep);
+  renderDataDir();
   renderBarIcon();
   // what each row does, kept in its tooltip, the row saying its name
   // alone as Settings › General does (#2120); Open at login's says where

@@ -141,7 +141,15 @@ func TestFolders(t *testing.T) {
 	if Portable() != data || Config() != data || Cache() != filepath.Join(data, "cache") {
 		t.Errorf("portable: portable %q, config %q, cache %q", Portable(), Config(), Cache())
 	}
-	if d, _ := SystemCache(); d != filepath.Join(data, "cache") {
+	system, err := InstalledSystemCache()
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf := "system-cache"
+	if SameCachePath(system, InstalledCache()) {
+		leaf = "cache"
+	}
+	if d, _ := SystemCache(); d != filepath.Join(data, leaf) {
 		t.Errorf("portable system cache %q", d)
 	}
 }

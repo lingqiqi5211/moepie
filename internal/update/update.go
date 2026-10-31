@@ -1056,6 +1056,13 @@ func openBeside(bundle string, window bool) string {
 	return fmt.Sprintf("open -n %q --args tray", bundle)
 }
 
+// StartDetached starts exe with args on its own, outliving this process:
+// the data move's helper, which runs once the window has quit.
+func StartDetached(exe string, args ...string) error {
+	_, _, err := launch(exe, args, os.Environ())
+	return err
+}
+
 // StartBeside starts exe now, beside this process, as RelaunchBinary's
 // args say: the new version of a restart that hands the gateway over. It
 // isn't told to wait for this one (MAGPIE_REPLACES): it takes the gateway

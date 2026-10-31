@@ -651,6 +651,8 @@ type streamConn struct {
 	send    func(ctx context.Context, b []byte) error
 	stopped func()
 	once    sync.Once
+	// ended confirms a started server's tree is gone (nil for a URL)
+	ended func(time.Duration) error
 }
 
 // read takes one message off the stream: a reply is its request's, a
@@ -735,7 +737,7 @@ func dialStdio(s *Server, changed func()) (*streamConn, error) {
 	exited := make(chan struct{})
 	go func() { exitErr = tree.Wait(); close(exited) }()
 	var wmu sync.Mutex
-	c := &streamConn{}
+	c := &streamConn{ended: tree.Ended}
 	c.send = func(_ context.Context, b []byte) error {
 		wmu.Lock()
 		defer wmu.Unlock()

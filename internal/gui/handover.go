@@ -46,7 +46,7 @@ var startExe string
 
 // handsOver is whether a restart now would hand the gateway over.
 var handsOver = func() bool {
-	if !handoverHost.Load() || gateway.Handover || os.Getenv("MAGPIE_NO_HANDOVER") != "" || startExe == "" {
+	if !handoverHost.Load() || gateway.Handover || os.Getenv("MAGPIE_NO_HANDOVER") != "" || startExe == "" || moving.Load() {
 		return false
 	}
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {

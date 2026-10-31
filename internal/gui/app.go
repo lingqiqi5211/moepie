@@ -22,6 +22,7 @@ import (
 	"github.com/yetone/magpie/internal/agent"
 	"github.com/yetone/magpie/internal/appdir"
 	"github.com/yetone/magpie/internal/autostart"
+	"github.com/yetone/magpie/internal/datamove"
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/library"
 	"github.com/yetone/magpie/internal/omarchy"
@@ -309,6 +310,7 @@ const panelStart = 520
 // showMain opens the window immediately; otherwise only the tray icon appears.
 // link is a magpie:// link the app was started with, to confirm and import.
 func Run(version string, showMain bool, link string) error {
+	datamove.TrackBrowserWriters()
 	Version = version
 	webkitDefaults()
 	// `make dev` runs the backend on its own, so a Go change restarts only
@@ -407,7 +409,10 @@ func Run(version string, showMain bool, link string) error {
 			// Codex's own, for the threads no Codex has open: with magpie
 			// gone they still go on (LukeMa on X)
 			agent.PortCodexRollouts(3 * time.Second)
-			updates.install(false)
+			// a data move's helper runs this program next (datadir.go)
+			if !moving.Load() {
+				updates.install(false)
+			}
 		},
 		// Wails exits on some webview errors; say why before it does.
 		ErrorHandler: func(err error) { log.Println("magpie:", err) },

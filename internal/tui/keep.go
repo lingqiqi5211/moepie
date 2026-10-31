@@ -11,6 +11,7 @@ import (
 	"github.com/yetone/magpie/internal/appdir"
 	"github.com/yetone/magpie/internal/autostart"
 	"github.com/yetone/magpie/internal/daemon"
+	"github.com/yetone/magpie/internal/datamove"
 	"github.com/yetone/magpie/internal/proc"
 )
 
@@ -35,6 +36,7 @@ type keeper struct {
 	install     func() error
 	linger      func() string
 	background  func() (pid int, log string, err error)
+	moving      func() bool
 }
 
 var keep = keeper{
@@ -46,6 +48,7 @@ var keep = keeper{
 	install:     func() error { return daemon.Install(daemon.Options{}) },
 	linger:      daemon.Linger,
 	background:  serveInBackground,
+	moving:      dataMoving,
 }
 
 // keepGateway hands the gateway on as the terminal quits having served it
@@ -54,6 +57,11 @@ func keepGateway(connected bool) string {
 	k := keep
 	if k.goos != "linux" || !connected || k.autostartOn() {
 		return gatewayGoneNote()
+	}
+	// a data move waits for every magpie to exit, and one started now
+	// would be refused at the closed folder
+	if k.moving() {
+		return gatewayGoneNote() + " (magpie is moving its data directory)"
 	}
 	st, err := k.status()
 	switch {
@@ -108,6 +116,16 @@ func serveInBackground() (int, string, error) {
 	pid := cmd.Process.Pid
 	cmd.Process.Release()
 	return pid, log, nil
+}
+
+// dataMoving is whether a data move is under way for this magpie.
+func dataMoving() bool {
+	exe, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	tx, err := datamove.Status(exe)
+	return err == nil && tx != nil && !tx.Terminal()
 }
 
 // wslHere: this Linux is a WSL distro.

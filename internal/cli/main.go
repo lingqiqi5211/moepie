@@ -191,6 +191,13 @@ func Main(v string) {
 	for _, v := range ignored {
 		fmt.Fprintf(os.Stderr, "magpie: ignoring %s: not an absolute path (the programs magpie starts still get it)\n", v)
 	}
+	if err := dataStartup(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, "moepie:", err)
+		os.Exit(1)
+	}
+	if len(os.Args) > 1 && os.Args[1] == "data-directory" {
+		return
+	}
 	if provider.TookOpenedURL(os.Args[1:]) {
 		// Claude Code, signing in for magpie, handed over the page to open
 		return

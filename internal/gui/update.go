@@ -755,6 +755,9 @@ func restartInto(web, window bool, view string, bySelf bool) bool {
 	if pending.Load() != nil {
 		return false // a handover under way restarts already
 	}
+	if moving.Load() {
+		return false // a data move quits this one, and its helper opens magpie
+	}
 	bundle, exe := updates.bundle, updates.exe
 	updates.mu.Lock()
 	version := ""

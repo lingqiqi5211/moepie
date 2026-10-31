@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/yetone/magpie/internal/datamove"
 )
 
 // Busy is what a restart of the magpie serving the gateway would cut
@@ -111,6 +113,33 @@ func (s *Server) counted(h http.Handler) http.Handler {
 		h.ServeHTTP(w, r)
 	})
 }
+
+// admitted is h closed to new work while a data move waits for this magpie
+// to be idle (datamove.Business): reads and magpie's own calls go on
+// uncounted, and so does a bridge turn waiting on its tool results, whose
+// next request is the caller's answer. MCP isn't counted either, its
+// streams being open for as long as an agent runs, but none is taken once
+// closed: the move has stopped the servers behind it.
+func (s *Server) admitted(h http.Handler) http.Handler {
+	guarded := datamove.Business.Guard(h, func(r *http.Request) bool {
+		switch {
+		case r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions,
+			strings.HasPrefix(r.URL.Path, "/_magpie/"), strings.HasPrefix(r.URL.Path, "/mcp/"):
+			return true
+		}
+		return anthropicPath(r.URL.Path) && s.subscription.parked() > 0
+	})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/mcp/") && datamove.Business.Closed() {
+			w.Header().Set("Retry-After", "2")
+			http.Error(w, "magpie is moving its data directory", http.StatusServiceUnavailable)
+			return
+		}
+		guarded.ServeHTTP(w, r)
+	})
+}
+
+func anthropicPath(p string) bool { return p == "/v1/messages" || p == "/messages" }
 
 // busyCounters are the Server's counts for Busy.
 type busyCounters struct {
