@@ -798,6 +798,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/magpie/trace", s.gatewayTrace)
 	mux.HandleFunc("GET /v1/magpie/concurrency", s.concurrency)
 	mux.HandleFunc("GET /v1/magpie/limit", s.keyLimit)
+	mux.HandleFunc("GET "+OwnMCPPath, s.ownMCPList)
 	// the Claude Code processes the Claude subscription runs, for magpie
 	// claude-code runs (loopback only)
 	mux.HandleFunc("GET "+ClaudeRunsPath, s.claudeRuns)
@@ -890,7 +891,7 @@ var catalogSize stamped[struct{}, int]
 
 func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"name": "magpie", "version": Version, "models": catalogSize.get(struct{}{}, func() int { return len(provider.Catalog()) }), "window": Window,
-		"apis": []string{"/v1/chat/completions", "/v1/responses", "/v1/messages", "/v1/systemone", "/v1beta/models/{model}:generateContent", "/v1/images/generations", "/v1/images/edits", "/v1/videos", "/v1/embeddings", "/v1/rerank", "/v1/audio/transcriptions", "/v1/audio/translations", "/v1/magpie/quotas", "/v1/magpie/quotas/history", "/v1/magpie/usage", "/v1/magpie/usage/requests", "/v1/magpie/route", "/v1/magpie/trace", SearchMCPPath, VisionMCPPath, ImageMCPPath, ToolsMCPPath, HubMCPAll, HubMCPPath + "{agent}"}}
+		"apis": []string{"/v1/chat/completions", "/v1/responses", "/v1/messages", "/v1/systemone", "/v1beta/models/{model}:generateContent", "/v1/images/generations", "/v1/images/edits", "/v1/videos", "/v1/embeddings", "/v1/rerank", "/v1/audio/transcriptions", "/v1/audio/translations", "/v1/magpie/quotas", "/v1/magpie/quotas/history", "/v1/magpie/usage", "/v1/magpie/usage/requests", "/v1/magpie/route", "/v1/magpie/trace", OwnMCPPath, SearchMCPPath, VisionMCPPath, ImageMCPPath, ToolsMCPPath, HubMCPAll, HubMCPPath + "{agent}"}}
 	// which process serves, for another magpie on this computer to name it
 	// on its Routing page (#2606); not told to another machine
 	if local(r) {
@@ -1879,13 +1880,13 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 	// the group's, as "group/<id>" is, rather than one provider's that
 	// serves it: the Routing view shows the group it went to
 	asked = call.Model
-	desktopCheck := false // Claude Desktop's check that the gateway answers
 	var moved *ModelMove
 	move := func(to, why string) {
 		if why != "" && to != "" && to != call.Model {
 			moved = &ModelMove{To: to, Why: why}
 		}
 	}
+	desktopCheck := false // Claude Desktop's check that the gateway answers
 	if agent == "claude-desktop" {
 		sub, _ := subagentOf(r.Header)
 		probe := desktopProbe(body)
@@ -1932,14 +1933,14 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 		// Claude Code's auto mode classifier on its sonnet tier, which
 		// follows a main model /model has moved: the model it moved to
 		asked = grouped(at(m))
-	} else if m := claudeTierStandIn(r, agent, asked); m != "" {
 		move(m, movedClassifier)
+	} else if m := claudeTierStandIn(r, agent, asked); m != "" {
 		// Claude Code (or a wrapper, T3 Code) naming one of Anthropic's
 		// models by its full id: the model it is set to use for that tier,
 		// whether or not magpie serves the id too
 		asked = grouped(at(m))
-	} else if g := grouped(asked); g != asked {
 		move(m, movedClaudeTier)
+	} else if g := grouped(asked); g != asked {
 		asked = g
 	} else if m := standIn(agent, asked); m != "" {
 		// Codex's config on a group by its bare name (model = "my-group",
@@ -1947,12 +1948,12 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 		// group, and its auto-review's codex-auto-review, stood in for by
 		// that same name, went on unresolved, a 404 (Adam on Discord)
 		asked = grouped(at(m))
-	}
 		move(m, movedStandIn)
+	}
 	if m := s.codexMemoryStandIn(r, call.Agent, agent, call.Kind, asked, body); m != "" {
 		asked = m
-	}
 		move(m, movedCodexTurn)
+	}
 	// a Codex subagent on the model set for Codex's subagents, whatever
 	// its lead asked for (willz on Discord), and a Claude Desktop
 	// subagent's tool turn on the one set for Desktop's; one already put
