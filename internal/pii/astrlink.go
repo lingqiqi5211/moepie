@@ -323,7 +323,7 @@ func (guardModel) Warm() {
 		go func() {
 			guardBackend.turn <- struct{}{}
 			defer func() { <-guardBackend.turn }()
-			guardClassify([]string{"warm"})
+			classifySafely(guardClassify, []string{"warm"})
 		}()
 	}
 }

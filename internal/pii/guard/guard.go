@@ -137,14 +137,17 @@ func (m *Model) Find(text string) []Span {
 	} else {
 		var next atomic.Int32
 		var wg sync.WaitGroup
+		var c carried
 		for range at {
 			wg.Go(func() {
+				defer c.catch()
 				for w := int(next.Add(1)) - 1; w < len(starts); w = int(next.Add(1)) - 1 {
 					read(w, max(1, procs/at))
 				}
 			})
 		}
 		wg.Wait()
+		c.rethrow()
 	}
 	lab := make([]int, n)
 	prob := make([]float64, n)
@@ -177,6 +180,26 @@ func (m *Model) Find(text string) []Span {
 		}
 	}
 	return decode(toks, lab, prob)
+}
+
+// carried is the first panic in the goroutines a read starts, panicked
+// again by rethrow on the goroutine that waited for them, where Find's
+// caller can recover it: a panic left on a goroutine of its own ends the
+// whole process (#4553 ended magpie on Windows).
+type carried struct{ p atomic.Pointer[any] }
+
+// catch is deferred by each goroutine.
+func (c *carried) catch() {
+	if r := recover(); r != nil {
+		c.p.CompareAndSwap(nil, &r)
+	}
+}
+
+// rethrow is called once they have all ended.
+func (c *carried) rethrow() {
+	if p := c.p.Load(); p != nil {
+		panic(*p)
+	}
 }
 
 // decode reads the tokens' BIO tags (lab, by index into labels) into

@@ -348,3 +348,34 @@ func TestDefaultModelIsBounded(t *testing.T) {
 		t.Fatal("turned on by the user, the model was asked Bounded")
 	}
 }
+
+// panics is a model whose Find panics, as AstrLink Guard's tokenizer did
+// on a stray byte (#4553).
+type panics struct{ fake }
+
+func (panics) Find(context.Context, []string) ([][]redact.Found, error) {
+	var s []int
+	_ = s[3]
+	return nil, nil
+}
+
+// A model that panics is the request's error, not a panic on find's own
+// goroutine, which ended magpie on Windows (#4553).
+func TestModelPanicIsTheRequestsError(t *testing.T) {
+	_, err := find(context.Background(), panics{fake{installed: true}}, []string{"hello \xff"})
+	if err == nil || !strings.Contains(err.Error(), "failed reading this request") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// Recovery still holds back a request when the user explicitly enabled
+// the model: the error must reach gwmw.Safely, rather than look like no PII.
+func TestModelPanicHoldsStrictRequest(t *testing.T) {
+	defer func() {
+		err, ok := recover().(error)
+		if !ok || !strings.Contains(err.Error(), "failed reading this request") {
+			t.Fatalf("strict masking did not hold the request: %v", err)
+		}
+	}()
+	model(context.Background(), panics{fake{installed: true}}, 0.8, true)([]string{"hello \xff"})
+}
