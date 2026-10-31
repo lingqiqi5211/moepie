@@ -31,6 +31,20 @@ import (
 const traceKeep = 60
 
 // Route is one request's way through routing.
+// ModelMove is a stand-in that put a request on another model than the one
+// it named: To, the model it went on (before a routing group's pick), and
+// Why, a word the Routing page says it by. A Desktop's own call (desktopMove's
+// reasons), Claude Code's tiers (movedClaudeTier, movedClassifier), an
+// agent's configured stand-in (movedStandIn), Codex's last turn's model
+// (movedCodexTurn) and Privacy's unmasked route (movedPrivacy). Without it
+// a row read "asked for chatflowsai/claude-opus-5-5 → agentrouter" with
+// nothing to say a title, not the user's turn, was put on the chat's model
+// (Neo on Discord).
+type ModelMove struct {
+	To  string `json:"to"`
+	Why string `json:"why"`
+}
+
 type Route struct {
 	// callerKey: the gateway key the request came with, so a key held to
 	// a budget, models or accounts is told the routes of its own requests
@@ -71,6 +85,10 @@ type Route struct {
 	// Subagent is a Codex or Claude Desktop subagent's request put on
 	// the model set for its subagents, or kept on the one asked for and why
 	Subagent *SubagentPick `json:"subagent,omitempty"`
+	// Moved: the request was served on another model than Model names,
+	// by one of magpie's stand-ins, and why (ModelMove); nil when it went
+	// where it asked, or to a routing group by its name
+	Moved *ModelMove `json:"moved,omitempty"`
 	// Sub: the Claude Code subagent the request is of (subagentOf), whose
 	// session header is its conversation's; "" for the conversation's own
 	Sub string `json:"sub,omitempty"`
