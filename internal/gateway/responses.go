@@ -319,6 +319,12 @@ func parseResponses(body []byte) (*Request, error) { return readResponses(body, 
 // of raw values a parse kept would need. Run on every request, a long
 // Codex conversation's tool outputs were most of the parse (#3394).
 func readResponses(body []byte, facts bool) (*Request, error) {
+	return readResponsesFor(body, facts, false)
+}
+
+// readResponsesFor keeps instruction roles and positions on Responses-to-
+// Responses turns. Other APIs keep their existing system/cache mapping.
+func readResponsesFor(body []byte, facts, keepInstructions bool) (*Request, error) {
 	decode := decodeJSON
 	if facts {
 		decode = decodeJSONView
@@ -371,6 +377,10 @@ func readResponses(body []byte, facts bool) (*Request, error) {
 				var parts []Part
 				if !facts || role != "assistant" {
 					parts = responsesParts(it.Content)
+				}
+				if keepInstructions && (it.Role == "system" || it.Role == "developer") {
+					r.Messages = append(r.Messages, Message{Role: it.Role, Parts: parts})
+					continue
 				}
 				if (it.Role == "system" || it.Role == "developer") && replied {
 					// in place, told as the system's, not the user's words
@@ -879,13 +889,47 @@ func pairToolItems(body []byte) []byte {
 func mergeTurns(msgs []Message) []Message {
 	var out []Message
 	for _, m := range msgs {
-		if n := len(out); n > 0 && out[n-1].Role == m.Role {
+		if n := len(out); n > 0 && out[n-1].Role == m.Role && (m.Role == "user" || m.Role == "assistant") {
 			out[n-1].Parts = append(out[n-1].Parts, m.Parts...)
 			continue
 		}
 		out = append(out, m)
 	}
 	return out
+}
+
+// responseInstructions applies the existing cache-preserving mapping only
+// at an API that cannot keep native Responses instruction items.
+func responseInstructions(r *Request) *Request {
+	if !slices.ContainsFunc(r.Messages, func(m Message) bool { return m.Role == "system" || m.Role == "developer" }) {
+		return r
+	}
+	out := *r
+	out.Messages = nil
+	replied := false
+	for _, m := range r.Messages {
+		if m.Role == "assistant" || slices.ContainsFunc(m.Parts, func(p Part) bool {
+			return p.Kind == ToolCall || p.Kind == ToolResult || p.Kind == Thinking
+		}) {
+			replied = true
+		}
+		if m.Role == "system" || m.Role == "developer" {
+			if t := text(m.Parts); t != "" {
+				if replied {
+					out.Messages = append(out.Messages, Message{Role: "user", Parts: []Part{{Kind: Text, Text: "<system-reminder>\n" + t + "\n</system-reminder>"}}})
+				} else {
+					if out.System != "" {
+						out.System += "\n\n"
+					}
+					out.System += t
+				}
+			}
+			continue
+		}
+		out.Messages = append(out.Messages, m)
+	}
+	out.Messages = mergeTurns(out.Messages)
+	return &out
 }
 
 func responsesParts(raw json.RawMessage) []Part {

@@ -106,7 +106,11 @@ preserve the optional field; the packed row keeps `ReasoningHidden` in
 its own `Flags` bit (`rowReasoningHidden`), apart from pricing's
 `swapKnown`, which every priced row carries. `ReasoningHidden` (`reasoning_hidden` in the
 ledger, `reasoningHidden` in traces) suppresses a no-text speed even when
-redacted/encrypted thinking has no reported reasoning-token count. A
+redacted/encrypted thinking has no reported reasoning-token count. Visible
+reasoning streamed by Anthropic or Chat with no separate reasoning usage
+is also marked unknown: the vendor's `Reasoning` stays 0, without an estimate.
+A counted visible reasoning stream keeps its existing speed evidence
+(`firstToken.hidesReasoning`, `TestStreamedReasoningWithoutCount`). A
 Responses summary is marked this way on its own-login path too, and after
 an endpoint fallback, where the try's protocol still names the first
 endpoint, by the upstream that answered (`summaryUpstream` in

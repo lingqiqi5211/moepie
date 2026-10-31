@@ -321,6 +321,7 @@ func chatReplaysReasoning(host, model string) bool {
 }
 
 func buildChat(r *Request, model, host string, rejectTemp bool) []byte {
+	r = responseInstructions(r)
 	var msgs []map[string]any
 	if r.System != "" {
 		msgs = append(msgs, map[string]any{"role": "system", "content": r.System})

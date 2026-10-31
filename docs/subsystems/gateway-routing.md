@@ -1,5 +1,36 @@
 # Gateway routing and fallback
 
+## Selected upstream behavior updates
+
+A provider fallback hands the next turn back to the recovered primary
+(`affine` in `affinity.go`, `TestFallbackGivesTheConversationBackOnceTheMainIsReady`).
+Members of a routing group retain their conversation affinity; the fork's
+spread and rotation controls still apply.
+
+Nested routing groups share one classifier wait, beginning with the first
+question (`Server.askWaited`, `askClassifierIn` in `classify.go`). Decision
+keys and models within a decision group share the remaining deadline
+(`askDecideTries`, `askDecisionGroup` in `decide_group.go`). Exhausting an
+ancestor's budget follows the child's own order without marking that child
+unhealthy. The fork retains its watched waits and HTTP 408 behavior;
+`TestNestedGroupsShareTheClassifierWait` covers the request budget.
+
+Responses translated back to Responses preserve the position and authority
+of `system` and `developer` messages, including later Codex mode changes;
+top-level `instructions` remains separate (`readResponsesFor`,
+`responseInstructions` in `responses.go`). Other API builders retain their
+existing instruction mapping without mutating the native request.
+`TestResponsesInstructionRolesThroughSearch` and
+`TestResponsesInstructionsOtherAPIsUnchanged` cover both paths.
+
+Chat tool calls with a missing or blank name are dropped, including their
+later argument deltas, while valid neighboring calls survive
+(`chatTidy.nameless` in `chattidy.go`, `wholeNameless` in `chat_call_ids.go`,
+`TestNamelessCallBesideAGoodOne`). On a severed SSE relay the pending
+incomplete JSON line is dropped before appending the failure event; a final
+line containing complete JSON or `[DONE]` is preserved (`passthrough` in
+`gateway.go`, `TestChatStreamCutMidLineLeavesNoHalfEvent`).
+
 The gateway is magpie's local LLM endpoint (`127.0.0.1:3425` by default). It
 serves Chat Completions, Responses, Anthropic Messages and Gemini. It finds
 the provider, key or account and model for each request. When the upstream

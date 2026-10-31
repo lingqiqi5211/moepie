@@ -118,7 +118,7 @@ func attachmentText(p Part) string {
 
 // Message is one turn.
 type Message struct {
-	Role  string // user | assistant
+	Role  string // user | assistant; system | developer on Responses-to-Responses
 	Parts []Part
 }
 

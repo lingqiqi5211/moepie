@@ -897,6 +897,7 @@ func buildAnthropic(r *Request, model string) []byte {
 // signature goes as its text instead of being left out. host is the
 // upstream's (outputEffortAt).
 func anthropicBody(r *Request, model, host string, replay bool) []byte {
+	r = responseInstructions(r)
 	if r.Format != nil && r.Format.schema() == nil {
 		// output_config.format takes a schema only: any JSON object is
 		// asked for in words

@@ -111,8 +111,13 @@ type Record struct {
 	// native Codex call established whether a gateway row compacted.
 	Compaction *bool `json:"compaction,omitempty"`
 	// FirstReasoning is the start of paced visible reasoning, absent for hidden reasoning.
-	FirstReasoning  int64 `json:"first_reasoning_ms,omitempty"`
-	ReasoningHidden bool  `json:"reasoning_hidden,omitempty"`
+	FirstReasoning int64 `json:"first_reasoning_ms,omitempty"`
+	// ReasoningHidden: the reply reasoned and its stream doesn't tell how
+	// much — sealed or summarised, or streamed with no reasoning count in
+	// its usage (#4545: Anthropic's usage never has one), when Reasoning is
+	// 0 for unknown, not for none. A reply of no text then tells no speed
+	// (Decode).
+	ReasoningHidden bool `json:"reasoning_hidden,omitempty"`
 	// Sent: ms from the request to its answering try going out to the
 	// vendor, its body written, as TTFT is counted: magpie's own time and
 	// the tries that failed first are before it, and TTFT-Sent is how
