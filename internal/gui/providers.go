@@ -1155,6 +1155,21 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 		}
 		writeJSON(rw, map[string]string{"icon": icon})
 	})
+	// a picture's address typed for the icon, or with none the letter tile;
+	// one that can't be used gives the tile too, and failed says why
+	mux.HandleFunc("POST /api/icons/url", func(rw http.ResponseWriter, r *http.Request) {
+		var in struct{ URL, Name, Base string }
+		if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in); err != nil {
+			fail(rw, err)
+			return
+		}
+		icon, failed, err := provider.IconFromURL(r.Context(), in.URL, in.Name, in.Base)
+		if err != nil {
+			fail(rw, err)
+			return
+		}
+		writeJSON(rw, map[string]string{"icon": icon, "failed": failed})
+	})
 	mux.HandleFunc("GET /api/icons/{name}", func(rw http.ResponseWriter, r *http.Request) {
 		// a big picture comes scaled to what the window draws (#909)
 		f, ctype := provider.IconServed(r.PathValue("name"))

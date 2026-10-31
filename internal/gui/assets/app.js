@@ -7968,7 +7968,8 @@ const MORE_ICONS = [
 
 function iconPicker(ed) {
   const box = el("div", "icon-pick");
-  const draw = () => {
+  const draw = (top = ed.querySelector(".ebody")?.scrollTop) => {
+    const scroller = ed.querySelector(".ebody");
     box.replaceChildren();
     const now = el("span", "icon-now");
     now.append(icon(draft.icon || "generic"));
@@ -7996,24 +7997,41 @@ function iconPicker(ed) {
     };
     const choose = el("button", "text", t("Choose a picture…"));
     choose.onclick = () => file.click();
-    // the site's own icon, looked for from the base URL typed above
-    const site = el("button", "text", t("From the website"));
-    site.title = t("Look for the icon of the site the base URL is on");
-    site.onclick = async () => {
-      const base = draft[apiField[draft.api]] || draft.chat || draft.responses || draft.anthropic || "";
+    // the site's own icon (as before), a picture's address, or the name's
+    // letters on a tile: many sites have no /favicon.ico (usrname1833)
+    const base = () => draft[apiField[draft.api]] || draft.chat || draft.responses || draft.anthropic || "";
+    const site = el("button", "text", t("Get icon"));
+    site.setAttribute("aria-haspopup", "menu");
+    site.setAttribute("aria-expanded", "false");
+    site.append(svg(CHEV, 11, 1.7));
+    const get = async (path, body) => {
+      const top = ed.querySelector(".ebody")?.scrollTop;
       site.disabled = true;
       site.textContent = t("Looking…");
+      let note = "", kind = "warn";
       try {
-        const data = await api("icons/favicon", { url: base, name: draft.name || "" });
+        const data = await api(path, { name: draft.name || "", ...body });
         draft.icon = data.icon;
-        editorError("");
-        draw();
-        syncHead();
+        if (data.failed) note = t("That picture couldn't be used, so the icon is the name's letters: {why}", { why: data.failed });
+        asking = !!data.failed;
       } catch (e) {
-        editorError(e.message);
-        site.disabled = false;
-        site.textContent = t("From the website");
+        note = e.message;
+        kind = "err";
       }
+      draw(top);
+      syncHead();
+      editorError(note, kind);
+    };
+    site.onclick = (e) => {
+      e.stopPropagation();
+      openProtoMenu(site, [
+        { v: "site", name: "Automatic", note: "The site's own icon, looked for from the base URL" },
+        { v: "url", name: "Image URL…", note: "A PNG, JPEG, GIF, WebP, ICO or SVG at a public https address" },
+        { v: "letter", name: "Letter icon", note: "The name's first letters on a coloured tile" },
+      ], "", (v) => {
+        if (v === "url") { asking = true; draw(); return box.querySelector(".icon-url").focus({ preventScroll: true }); }
+        v === "site" ? get("icons/favicon", { url: base() }) : get("icons/url", { base: base() });
+      }, "Icon");
     };
     const builtin = el("button", "text", t("Built-in icons"));
     builtin.onclick = () => { open = !open; draw(); };
@@ -8022,6 +8040,17 @@ function iconPicker(ed) {
       const reset = el("button", "text", t("Default"));
       reset.onclick = () => { draft.icon = ""; draw(); syncHead(); };
       box.append(reset);
+    }
+    if (asking) {
+      const u = input(typed, "https://example.com/icon.png", "url");
+      u.className = "icon-url";
+      u.setAttribute("aria-label", t("Image URL"));
+      u.onkeydown = (e) => {
+        e.stopPropagation();
+        if (e.key === "Escape") { asking = false; draw(); box.querySelector("[aria-haspopup]").focus({ preventScroll: true }); }
+        else if (e.key === "Enter" && (typed = u.value.trim()) && !site.disabled) get("icons/url", { url: typed, base: base() });
+      };
+      box.append(u);
     }
     if (open) {
       const grid = el("div", "icon-grid");
@@ -8045,8 +8074,12 @@ function iconPicker(ed) {
       box.append(find, grid);
       find.oninput();
     }
+    if (scroller) {
+      scroller.scrollTop = top;
+      requestAnimationFrame(() => { if (scroller.isConnected) scroller.scrollTop = top; });
+    }
   };
-  let open = false, seek = "";
+  let open = false, seek = "", asking = false, typed = "";
   // the dialog's title shows the icon too
   const syncHead = () => {
     const old = ed.querySelector(".ehead .ic");
