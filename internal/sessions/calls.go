@@ -453,7 +453,9 @@ func cxAnswerItem(b []byte) bool {
 		return false
 	}
 	switch typeAfter(h, cxPayload) {
-	case "reasoning", "function_call", "custom_tool_call", "web_search_call", "local_shell_call", "tool_search_call", "image_generation_call":
+	// magpie_reasoning: a reasoning item of magpie's, written so as Codex let
+	// magpie go (PortCodexRolloutsLeft)
+	case "reasoning", "magpie_reasoning", "function_call", "custom_tool_call", "web_search_call", "local_shell_call", "tool_search_call", "image_generation_call":
 		return true
 	case "message":
 		return typeAfter(h, cxRole) == "assistant"

@@ -56,9 +56,17 @@ func init() {
 
 // codexAppRoute is where Codex's config sends it, as the app-server reads
 // it at its start: the keys magpie writes for that, never one the Codex
-// app writes itself (model); and whether magpie is Codex's provider for
-// its used-up ChatGPT account (AppOut). Not known when Codex's config
-// can't be read.
+// app writes itself (model, model_reasoning_effort); and whether magpie
+// is Codex's provider for its used-up ChatGPT account (AppOut). Not known
+// when Codex's config can't be read.
+//
+// The model list (model_catalog_json, the file and what it holds) is not
+// in it. A change of route ends the app's app-server, and the ChatGPT app
+// takes that as a crash and relaunches. The catalog follows magpie's names
+// and the effort new sessions start at, which the app saves on each pick,
+// so a route that hashed it ended the app every few minutes
+// (indekkusu141209 on X, #4550). A new list is read at the app's next
+// launch, and the Agents row offers a Restart for it (StaleCopies).
 func codexAppRoute() (route string, out, known bool) {
 	// asked every 3s for as long as magpie runs: the config looked at once
 	// for its keys, not once for each (#1665)
@@ -70,21 +78,12 @@ func codexAppRoute() (route string, out, known bool) {
 	}
 	out = a.AppOut != nil && a.AppOut()
 	var b strings.Builder
-	for _, k := range []string{"model_provider", "openai_base_url", "model_catalog_json"} {
+	for _, k := range []string{"model_provider", "openai_base_url"} {
 		v, _ := edit.GetTOMLTop(a.Path, k)
 		b.WriteString(k + "=" + v + "\n")
 	}
 	t, _ := edit.GetTOMLTable(a.Path, "model_providers."+magpieID)
 	b.WriteString("magpie.base_url=" + t["base_url"] + "\n")
-	// and the list in that catalog, which the app-server also reads only
-	// as it starts: a provider or group renamed, or a model added, left
-	// the app on the names and models it started with (lucis0116 on X)
-	if c, _ := edit.GetTOMLTop(a.Path, "model_catalog_json"); c != "" {
-		if !filepath.IsAbs(c) {
-			c = filepath.Join(filepath.Dir(a.Path), c)
-		}
-		b.WriteString("catalog=" + codexCatalogTag(c) + "\n")
-	}
 	if out {
 		b.WriteString("out\n")
 	}
