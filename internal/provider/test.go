@@ -189,7 +189,7 @@ func (p Provider) mantleBase(base, model string) string {
 func tinyBody(q Provider, proto Protocol, model string) (url, body string) {
 	switch proto {
 	case Chat:
-		if q.IsBedrock() || q.IsAzure() {
+		if q.IsBedrock() || q.IsAzure() || HostOf(q.Chat) == "api.openai.com" {
 			return q.mantleBase(q.Chat, model) + "/chat/completions", fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}],"max_completion_tokens":16}`, model)
 		}
 		return q.Chat + "/chat/completions", fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}],"max_tokens":16}`, model)
@@ -317,6 +317,9 @@ func (p Provider) testOne(ctx context.Context, model string) Result {
 		proto = clientProto(client, protos)
 	} else if draws {
 		proto = Chat
+	} else if _, ok := p.keySeeing(Responses, model); ok && p.Native(model) == Responses {
+		// Match the gateway's preferred API when a key can serve it.
+		proto = Responses
 	} else if apis := p.APIs(model); apis != nil {
 		if i := slices.IndexFunc(protos, func(pr Protocol) bool { return slices.Contains(apis, pr) }); i >= 0 {
 			proto = protos[i]

@@ -161,6 +161,14 @@ that the upstream does not list are named against all listed names and ids;
 listed models keep their `Available` names unchanged
 ([`Exposed`](../../internal/provider/models.go)).
 
+Model tests (`TestModels` in [`test.go`](../../internal/provider/test.go))
+prefer `Native(model)`'s Responses API when a key on that API sees the model;
+explicit model API picks and the vendor's listed APIs still constrain that
+choice. A Chat-only key keeps its Chat test. Chat probes to `api.openai.com`
+use `max_completion_tokens`, as translated requests already do; Chat
+requests relayed as written have `max_tokens` converted before forwarding.
+Other compatible API hosts keep their existing token field.
+
 ## Constraints and failure behavior
 
 An allowance deliberately not requested (a saved Claude account outside

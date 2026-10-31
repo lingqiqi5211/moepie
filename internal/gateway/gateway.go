@@ -4684,9 +4684,9 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 			// OpenAI as well
 			body = withoutFields(body, "enable_thinking", "thinking")
 		}
-		if p.IsBedrock() || p.IsAzure() {
-			// Azure's reasoning deployments (o4-mini, gpt-5) turn
-			// max_tokens away as Bedrock's GPT models do
+		if p.IsBedrock() || p.IsAzure() || provider.HostOf(p.Chat) == "api.openai.com" {
+			// OpenAI's reasoning models, including Azure's deployments
+			// and Bedrock's GPT models, turn max_tokens away.
 			body = asCompletionTokens(body)
 		}
 	case provider.Gemini:
