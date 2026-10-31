@@ -364,7 +364,7 @@ func turnIn(req *Request) (turn int, within bool) {
 		if m.Role != "user" {
 			continue
 		}
-		said, result := userSaid(m) != "", false
+		said, result := saysAnything(m), false
 		for _, p := range m.Parts {
 			switch p.Kind {
 			case Image, File:

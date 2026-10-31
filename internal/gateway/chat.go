@@ -320,6 +320,25 @@ func chatReplaysReasoning(host, model string) bool {
 	return strings.Contains(host, "deepseek") || strings.Contains(strings.ToLower(model), "deepseek") || host == provider.CommandCodePlanID || host == "qoder" || host == "qoder-cn"
 }
 
+// joinTexts joins text parts once, at their joined size: a long turn
+// is many parts, and a Builder grown part by part copied the turn
+// several times over on every request
+func joinTexts(content []map[string]any) string {
+	if len(content) == 1 {
+		return content[0]["text"].(string)
+	}
+	n := 0
+	for _, c := range content {
+		n += len(c["text"].(string))
+	}
+	var b strings.Builder
+	b.Grow(n)
+	for _, c := range content {
+		b.WriteString(c["text"].(string))
+	}
+	return b.String()
+}
+
 func buildChat(r *Request, model, host string, rejectTemp bool) []byte {
 	r = responseInstructions(r)
 	var msgs []map[string]any
@@ -454,11 +473,7 @@ func buildChat(r *Request, model, host string, rejectTemp bool) []byte {
 				seen = nil
 			}
 			if plain {
-				var b strings.Builder
-				for _, c := range content {
-					b.WriteString(c["text"].(string))
-				}
-				msgs = append(msgs, map[string]any{"role": "user", "content": b.String()})
+				msgs = append(msgs, map[string]any{"role": "user", "content": joinTexts(content)})
 			} else {
 				msgs = append(msgs, map[string]any{"role": "user", "content": content})
 			}
