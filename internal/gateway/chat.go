@@ -1031,10 +1031,15 @@ type cUsage struct {
 		CachedTokens     int `json:"cached_tokens"`
 		CacheWriteTokens int `json:"cache_write_tokens"`
 	} `json:"magpie_deferred,omitempty"`
+	// MagpieCacheUnknown: a plugin's usage saying its vendor gave no cache
+	// counts, as aUsage's CacheUnknown, so the zero is not a miss: Trae's
+	// token_usage naming no cache field (yetone/magpie#3991, #3979).
+	// It is read, never told: chat() leaves it out.
+	MagpieCacheUnknown bool `json:"magpie_cache_unknown"`
 }
 
 func (u cUsage) usage() Usage {
-	out := Usage{Output: u.CompletionTokens}
+	out := Usage{Output: u.CompletionTokens, cacheUnknown: u.MagpieCacheUnknown}
 	if d := u.PromptTokensDetails; d != nil {
 		out.CacheRead, out.CacheWrite = d.CachedTokens, d.CacheWriteTokens
 	}
