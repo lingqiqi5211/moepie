@@ -815,8 +815,10 @@ func unanswered(key string, c candidate) {
 // item rs_… could not be verified", invalid_encrypted_content; xAI's
 // (Grok's API and a SuperGrok account alike) "Could not decrypt the
 // provided encrypted_content. Ensure the value is the unmodified
-// encrypted_content from a previous response."
-var foreignReasoning = regexp.MustCompile(`(?i)invalid_encrypted_content|encrypted[ _]content.{0,80}could not be (verified|decrypted)|could not (decrypt|verify).{0,40}encrypted[ _]content`)
+// encrypted_content from a previous response."; Azure's (through a relay
+// in front of a deployment, snowshadow) "invalid encrypted summary",
+// which names no item and spells it with spaces.
+var foreignReasoning = regexp.MustCompile(`(?i)invalid_encrypted_content|invalid[ _]encrypted[ _](summary|content)|encrypted[ _]content.{0,80}could not be (verified|decrypted)|could not (decrypt|verify).{0,40}encrypted[ _]content`)
 
 // refusedSeals remembers, per conversation and the key or account that
 // refused it, the sealed reasoning another one wrote. Codex hands every

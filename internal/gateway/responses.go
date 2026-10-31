@@ -1426,6 +1426,84 @@ type responsesDecoder struct {
 	held    string          // its deltas since they made whole JSON, not given yet
 	whole   jsonWhole       // where its deltas stand in their JSON
 	full    string          // the open call's arguments as its done events give them
+	// waiting are the calls added but not given yet, in the order added;
+	// giving, while it lasts, is the call whose lines are being given
+	waiting []*rCall
+	giving  *rCall
+}
+
+// rCall is a function_call item added before its arguments came (#3985):
+// an upstream may add every call of a turn before any is argued, and a
+// start given then would close the call before it with none of its own.
+// Its lines are kept as they came and read when its own first arguments
+// or its item done arrives.
+type rCall struct {
+	itemID string
+	index  int      // the output_index its events name
+	lines  []string // its added, argument and item done lines
+	ended  bool     // its output_item.done came
+}
+
+// waitingCall is the call waiting whose item an event names, by item_id
+// or, when it names none waiting, by output_index. An event that names
+// nothing at all goes, while no call is open, to the first waiting one: a
+// stream whose events name nothing streams its calls in order. nil when
+// none is, and a delta naming no call waiting then goes on to the open
+// one as before, so a stream whose events name nothing still reads.
+func (d *responsesDecoder) waitingCall(itemID string, index *int) *rCall {
+	if itemID != "" {
+		for _, c := range d.waiting {
+			if c.itemID == itemID {
+				return c
+			}
+		}
+	}
+	if index != nil {
+		for _, c := range d.waiting {
+			if c.index == *index {
+				return c
+			}
+		}
+	}
+	if itemID == "" && index == nil && !d.calling && len(d.waiting) > 0 {
+		return d.waiting[0]
+	}
+	return nil
+}
+
+// give hands the client a waiting call: its lines as they came, read one
+// call at a time through the decoder as before. A call whose item hasn't
+// done is then the open one, the rest of its arguments going on as they
+// come.
+func (d *responsesDecoder) give(c *rCall, emit func(Event)) error {
+	d.waiting = slices.DeleteFunc(d.waiting, func(w *rCall) bool { return w == c })
+	d.giving = c
+	defer func() { d.giving = nil }()
+	for _, line := range c.lines {
+		if err := d.decode(line, emit); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// giveWaiting gives the calls still waiting, in their items' order: every
+// one when the reply ends, else those whose items did while another call
+// was open.
+func (d *responsesDecoder) giveWaiting(all bool, emit func(Event)) error {
+	calls := slices.Clone(d.waiting)
+	slices.SortStableFunc(calls, func(a, b *rCall) int { return cmp.Compare(a.index, b.index) })
+	for _, c := range calls {
+		if all || c.ended {
+			if err := d.give(c, emit); err != nil {
+				return err
+			}
+		}
+	}
+	if all {
+		d.endCall(emit) // the last one given may still be open
+	}
+	return nil
 }
 
 // argsDelta gives an open call's argument delta, or holds it when with
@@ -1519,6 +1597,9 @@ func (d *responsesDecoder) decode(data string, emit func(Event)) error {
 		Type  string `json:"type"`
 		Delta string `json:"delta"`
 		Item  rItem  `json:"item"`
+		// the item an argument delta or done names, and where it sits
+		ItemID      string `json:"item_id"`
+		OutputIndex *int   `json:"output_index"`
 		// function_call_arguments.done's
 		Arguments string `json:"arguments"`
 		Response  struct {
@@ -1556,6 +1637,15 @@ func (d *responsesDecoder) decode(data string, emit func(Event)) error {
 	case "response.output_item.added":
 		d.endCall(emit)
 		if ev.Item.Type == "function_call" {
+			if d.giving == nil {
+				// the call waits for its own arguments (#3985)
+				c := &rCall{itemID: ev.Item.ID, lines: []string{data}}
+				if ev.OutputIndex != nil {
+					c.index = *ev.OutputIndex
+				}
+				d.waiting = append(d.waiting, c)
+				return nil
+			}
 			d.called, d.calling = true, true
 			emit(Event{Kind: KToolStart, ID: ev.Item.CallID, Name: ev.Item.Name})
 		}
@@ -1570,21 +1660,55 @@ func (d *responsesDecoder) decode(data string, emit func(Event)) error {
 		d.endCall(emit)
 		emit(Event{Kind: KThink, Text: ev.Delta})
 	case "response.function_call_arguments.delta":
+		if d.giving == nil {
+			if c := d.waitingCall(ev.ItemID, ev.OutputIndex); c != nil {
+				c.lines = append(c.lines, data)
+				if d.calling {
+					return nil // the open call keeps its own; this one waits its turn
+				}
+				return d.give(c, emit)
+			}
+		}
 		if d.calling {
 			d.argsDelta(ev.Delta, emit)
 		} else {
 			emit(Event{Kind: KToolArgs, Text: ev.Delta})
 		}
 	case "response.function_call_arguments.done":
+		if d.giving == nil {
+			if c := d.waitingCall(ev.ItemID, ev.OutputIndex); c != nil {
+				c.lines = append(c.lines, data)
+				return nil
+			}
+		}
 		if d.calling && ev.Arguments != "" {
 			d.full = ev.Arguments
 		}
 	case "response.output_item.done":
 		if ev.Item.Type == "function_call" {
+			if d.giving == nil {
+				if c := d.waitingCall(ev.Item.ID, ev.OutputIndex); c != nil {
+					c.lines = append(c.lines, data)
+					c.ended = true
+					if d.calling {
+						return nil // it goes when the open call is done with its own
+					}
+					return d.give(c, emit)
+				}
+			}
 			if ev.Item.Arguments != "" {
 				d.full = string(ev.Item.Arguments)
 			}
 			d.endCall(emit)
+			// the calls whose items ended while the open one streamed go
+			// now — not while a call is being given, whose lines are still
+			// reading; those go when the reply ends
+			if d.giving == nil {
+				if err := d.giveWaiting(false, emit); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
 		if ev.Item.Type == "reasoning" && ev.Item.EncryptedContent != "" {
 			// sealed: the item as the upstream wrote it, for a Responses
@@ -1621,6 +1745,10 @@ func (d *responsesDecoder) decode(data string, emit func(Event)) error {
 			}
 			emit(Event{Kind: KError, Text: cmp.Or(msg, streamErrorText(data)), Code: code, Status: status, Said: said})
 			return nil
+		}
+		// the reply ends: every call still waiting goes before its stop
+		if err := d.giveWaiting(true, emit); err != nil {
+			return err
 		}
 		stop := "stop"
 		if ev.Response.Status == "incomplete" {

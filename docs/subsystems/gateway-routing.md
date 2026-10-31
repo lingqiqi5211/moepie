@@ -134,6 +134,21 @@ text is never taken as a suggestion, as Codex would put it in the user's
 composer as their next message, so it gives no prediction and the call is
 recorded as a prediction failure (`noPrediction`).
 
+## Protocol compatibility repairs
+
+- `refusedOptional` recognizes LiteLLM's rejection of a value *for* a named
+  field, such as `'priority' is not supported for 'service_tier'`. The existing
+  retry removes that field and remembers the provider's refusal. A rejection
+  of a value without naming the field is still returned to the caller.
+- `foreignReasoning` recognizes Azure's `invalid encrypted summary` as a
+  foreign reasoning seal. The existing retry omits the rejected seal and
+  remembers that refusal for the conversation and destination.
+- `responsesDecoder` associates pending function-call arguments with
+  `item_id`, falling back to `output_index`, and emits each call's arguments
+  separately. Batched or interleaved calls no longer concatenate their
+  arguments into the last call. Unnamed sequential events keep their existing
+  fallback; completed-item arguments can still fill gaps in streamed deltas.
+
 ## Runtime path
 
 1. `handle(proto)` reads the body and the model (`requestBody`, `requestModel`), then calls `serveAgent`. Every route that reads an agent's body (each API, count_tokens, Gemini's, embeddings, images, videos, System One, the Codex backend path) reads it through `readBoundedRequestBody` in [`request_bounds.go`](../../internal/gateway/request_bounds.go). It decodes a `Content-Encoding` of `gzip` or `zstd` (`decodedBody`; Codex sends zstd to a custom provider's `/v1/responses` too, #1223) and drops the header, so the provider is sent plain JSON, with one exception: a ChatGPT account's turn (POST `CodexBase`/responses, from the accounts loop in `forwardOnce` or relayed by `codexUpstreamOn`) is compressed again with zstd and a window of at most 2 MiB, as Codex's own client sends it (`provider.CodexCompressed`; openai/codex `responses_request_compression` and `http-client/src/request.rs`). It is compressed once the body is final, and again on each try. `/responses/compact`, an API key's requests and every other provider stay plain. Sent plain, a 1.1 MB text-only turn was answered 503 (ylorn on X). The plain body is what magpie keeps and shows, and `codexDropped` judges a reset by the bytes that went on the wire. `codexDropped` also reads Envoy's 507 "exceeded request buffer limit while retrying upstream" (the backend failed and the front couldn't retry a body that large) as that reset, at any size, told as a 503 so magpie, Codex and pi ask again and nobody rests (#2034). The size limit (`defaultBodyLimit`, 512 MB) holds for the decoded bytes (413), and any other encoding is refused 415. It was 128 MB until a long Codex session that had read many images went past it decoded, its inline screenshots resent each turn, and got the 413 on all five of Codex's retries (#1422, `TestImageHeavyCodexTurnIsRead`). magpie's own 413 says it is magpie's gateway limit, with the size, and that the provider was not asked (`overLimit`); `writeError` adds to any 413 it isn't holding that this is a byte limit, not the model's context, and to `/compact` or start a new conversation (`TestOverLimitSaysWhoseAndWhatToDo`). Every shape but Gemini's types a 413 `request_too_large`, Anthropic's own type, which pi's overflow table knows: pi compacts and tries once more rather than stopping on an OpenAI-shaped `api_error` (@wilsonxuuuu on X, `TestPayloadTooLargeSaysRequestTooLargeToPi`). `keyLimited` reads a limited key's compressed body the same way, so its reservation is the decoded size. `serveAgent` runs the [middleware](gateway-middleware.md) chain, then `serve`.

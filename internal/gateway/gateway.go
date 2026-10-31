@@ -6264,6 +6264,13 @@ var rejectedOptionalField = regexp.MustCompile("(?i)(?:^|\\b(?:parameter|field|p
 // echo of the input, is not taken for it.
 var leadingRejectedOptionalField = regexp.MustCompile("(?i)^\\s*([a-z_]+)\\s+is\\s+(?:unsupported|not supported)\\b")
 
+// valueRejectedForField is a vendor naming the field after the value it
+// turned away: litellm's "'priority' is not supported for 'service_tier'
+// on this model" (#3978). The name after "for" is what separates this
+// from a value's refusal ("... is not supported with this model"),
+// which reaches the client as it came.
+var valueRejectedForField = regexp.MustCompile("(?i)['\"\\x60][^'\"\\x60]{0,64}['\"\\x60]\\s+is\\s+(?:unsupported|not supported)\\s+for\\s+['\"\\x60]([a-z_]+)['\"\\x60]")
+
 func unsupportedOptionalField(fault any, field string) bool {
 	switch v := fault.(type) {
 	case string:
@@ -6308,6 +6315,11 @@ func unsupportedOptionalField(fault any, field string) bool {
 			}
 		}
 		for _, match := range rejectedOptionalField.FindAllStringSubmatch(v, -1) {
+			if match[1] == field {
+				return true
+			}
+		}
+		for _, match := range valueRejectedForField.FindAllStringSubmatch(v, -1) {
 			if match[1] == field {
 				return true
 			}
