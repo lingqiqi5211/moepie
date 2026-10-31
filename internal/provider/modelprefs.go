@@ -511,6 +511,10 @@ type ModelPref struct {
 	// Kind is what the model makes, as SetModelKind takes it: "image",
 	// "video", or "" for what its vendor's list and name say (#1399)
 	Kind *string `json:"kind,omitempty"`
+	// ID is the id the model is listed by at its provider, as SetModelID
+	// takes it: "" for the provider's own. It is applied after every
+	// other change of the save, so those go with the model to its id.
+	ID *string `json:"id,omitempty"`
 }
 
 // SetModelPrefs makes the changes to a provider's models, by model id, as
@@ -580,9 +584,43 @@ func SetModelPrefs(pid string, prefs map[string]ModelPref) error {
 				}
 			}
 		}
-		return nil
+		return setModelIDs(pid, prefs, set)
 	}()
 	return touchedIf(changed, err)
+}
+
+// setModelIDs gives the models of one save the ids it lists them by
+// (ModelPref.ID), after everything else it changed. Two of them given one
+// id are refused before either is: one id is one model of a provider.
+func setModelIDs(pid string, prefs map[string]ModelPref, set func(bool, error) error) error {
+	to := map[string]string{}
+	for _, model := range slices.Sorted(maps.Keys(prefs)) {
+		id := prefs[model].ID
+		if id == nil {
+			continue
+		}
+		want := strings.TrimSpace(*id)
+		if want == "" {
+			continue
+		}
+		if other, ok := to[want]; ok {
+			return fmt.Errorf("%s and %s can't both be listed as %s: one id is one model of a provider", other, model, want)
+		}
+		to[want] = model
+	}
+	for want, model := range to {
+		if other := prefs[want].ID; other != nil && want != model && strings.TrimSpace(*other) != want {
+			return fmt.Errorf("%s is listed as another id in the same save that gives its id to %s: save one, then the other", want, model)
+		}
+	}
+	for _, model := range slices.Sorted(maps.Keys(prefs)) {
+		if id := prefs[model].ID; id != nil {
+			if _, c, err := setModelID(pid+"/"+model, *id); set(c, err) != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // setModelSame says which model a provider's model, spelt "provider/model",
@@ -923,7 +961,7 @@ func ServesModel(p Provider, model string) bool { return p.serves(model) }
 // model asked for by the name the vendor serves it under is not read as
 // another one.
 func UpstreamName(p Provider, model string) string {
-	return UpstreamNameIn(settings.Load().ModelWires, p.ID, model)
+	return UpstreamNameIn(settings.Load().Wires(), p.ID, model)
 }
 
 // UpstreamNameIn is UpstreamName over a settings' ModelWires already read,
@@ -953,7 +991,7 @@ func UpstreamNameIn(wires map[string]string, pid, model string) string {
 // asks for gemini-3.7-flash-high and gemini-3.7-flash-low each by its own,
 // rather than for the one id whatever level the effort picked.
 func UpstreamNameAs(p Provider, model, sent string) string {
-	return UpstreamNameAsIn(settings.Load().ModelWires, p.ID, model, sent)
+	return UpstreamNameAsIn(settings.Load().Wires(), p.ID, model, sent)
 }
 
 // UpstreamNameAsIn is UpstreamNameAs over a settings' ModelWires already
@@ -1012,6 +1050,14 @@ func SentNameIn(wires map[string]string, pid, model, effort string) string {
 // the route, which is holding the provider, asks about the account and lets
 // the gateway's dispatch (codeAssistID, on the same agent) be the one rule.
 func SentNameOnIn(wires map[string]string, pid, account, model, effort string) string {
+	if account == "antigravity" {
+		// a family the user lists by an id of theirs (SetModelID) goes
+		// out as the variant of its own id the effort picks, as the
+		// gateway's envelope does (codeAssistBody)
+		if own := modelIDsOf(pid).ownOf(model); own != model {
+			return UpstreamNameAsIn(wires, pid, own, antigravitySentID(account, own, effort))
+		}
+	}
 	return UpstreamNameAsIn(wires, pid, model, antigravitySentID(account, model, effort))
 }
 

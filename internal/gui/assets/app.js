@@ -10948,6 +10948,23 @@ function renderModels(p) {
       });
       // the long-context price, a quiet row of its own: shown where there is
       // one, else behind a link
+      const savedID = m.vendor ? m.id : "";
+      const idNow = () => prefs[id]?.id ?? savedID;
+      let idInput = null;
+      if (m.ids) {
+        const idBox = el("label", "msame mlocal");
+        idInput = input(idNow(), m.vendor || m.id);
+        idInput.title = t("The id magpie lists {id} by at this provider: agents, routing groups, the groups magpie finds, gateway keys and Usage all use it, and the provider is still asked for {own}. Empty: its own id", { id: m.id, own: m.vendor || m.id });
+        idInput.spellcheck = false;
+        idInput.onchange = () => {
+          const v = idInput.value.trim();
+          if (v === savedID) delete pref().id; else pref().id = v;
+          drawReset();
+        };
+        idInput.onkeydown = (e) => { e.stopPropagation(); if (e.key === "Enter") idInput.blur(); else if (e.key === "Escape") { idInput.value = idNow(); idInput.blur(); } };
+        idBox.append(el("span", "", t("Listed as")), idInput);
+        row.append(idBox);
+      }
       const tierRow = el("div", "mtier");
       tierRow.title = t("What the whole request costs when its input — cached tokens and cache writes included — is over this many tokens, as OpenAI bills gpt-6-astra over 272K; empty: the list's");
       const tierNow = () => priceNow()?.tiers?.[0];
@@ -11103,7 +11120,7 @@ function renderModels(p) {
       const unsaved = el("span", "hint munsaved", t("unsaved"));
       unsaved.title = t("Made when the provider is saved; Cancel drops it");
       const reset = el("button", "text action", t("Restore default"));
-      reset.title = t("Its own name, every reasoning level it has, whether it sees images, the API it is asked on, the model it is the same as, and its list price");
+      reset.title = t("Its own name, every reasoning level it has, whether it sees images, the API it is asked on, the model it is the same as, its own id, and its list price");
       reset.onclick = () => {
         prefs[id] = {};
         if (draft.priceTyped) delete draft.priceTyped[id];
@@ -11129,7 +11146,7 @@ function renderModels(p) {
         unsaved.hidden = !prefs[id] && !draft.priceTyped?.[id];
         // staged back to its own already, there is nothing to restore
         const images = prefs[id]?.ownImages ? false : prefs[id]?.images !== undefined ? prefs[id].images !== !!m.ownImages : !!m.imageSet;
-        const custom = nameNow() !== "" || noneNow() || (prefs[id]?.efforts ? prefs[id].efforts.length > 0 : !!m.kept?.length) || images || apiNow() !== "" || sameNow() !== "" || priceNow() !== null || !!draft.priceTyped?.[id];
+        const custom = nameNow() !== "" || noneNow() || (prefs[id]?.efforts ? prefs[id].efforts.length > 0 : !!m.kept?.length) || images || apiNow() !== "" || sameNow() !== "" || idNow() !== "" || priceNow() !== null || !!draft.priceTyped?.[id];
         reset.hidden = !custom;
       };
       row.append(unsaved, reset);
@@ -11166,6 +11183,8 @@ function renderModels(p) {
   const allOn = el("button", "text action", t("Select all"));
   allOn.title = t("Pick every model listed that this provider can serve (those the filter shows)");
   allOn.onclick = () => {
+        if (savedID) prefs[id].id = "";
+        if (idInput) idInput.value = idNow();
     const f = (q?.value || "").trim().toLowerCase();
     const ids = p.models.filter((m) => !noAPI(m) && (!draft.best || m.best)).filter((m) => !f || m.id.toLowerCase().includes(f) || (m.name || "").toLowerCase().includes(f) || (m.default || "").toLowerCase().includes(f)).map((m) => m.id);
     draft.chosen = [...draft.chosen, ...ids.filter((id) => !draft.chosen.includes(id))];

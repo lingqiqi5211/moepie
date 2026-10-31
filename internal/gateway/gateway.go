@@ -140,7 +140,7 @@ type wiresKey struct{}
 // only where something asks for one: a request refused before any name is
 // looked up pays for nothing.
 func withWires(r *http.Request) *http.Request {
-	load := sync.OnceValue(func() map[string]string { return settings.Shared().ModelWires })
+	load := sync.OnceValue(func() map[string]string { return settings.Shared().Wires() })
 	return r.WithContext(context.WithValue(r.Context(), wiresKey{}, load))
 }
 
@@ -1508,7 +1508,7 @@ func (s *Server) countOn(w http.ResponseWriter, r *http.Request, p provider.Prov
 	}
 	// the names in force, read at most once however many candidates are
 	// counted, and not at all where there are none
-	wires := sync.OnceValue(func() map[string]string { return settings.Shared().ModelWires })
+	wires := sync.OnceValue(func() map[string]string { return settings.Shared().Wires() })
 	for i, c := range counts {
 		res, err := s.forward(r.Context(), c.p, provider.Anthropic, "/v1/messages/count_tokens", rewriteModel(body, provider.UpstreamNameIn(wires(), c.p.ID, model)), r.Header)
 		if tooMany := (*errRPM)(nil); errors.As(err, &tooMany) {

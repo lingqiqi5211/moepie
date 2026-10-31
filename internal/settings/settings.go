@@ -10,6 +10,7 @@ package settings
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -782,6 +783,17 @@ type Settings struct {
 	// the routing groups, the usage records and what a call is priced at —
 	// keeps the name magpie knows the model by.
 	ModelWires map[string]string `json:"modelWires,omitempty"`
+	// ModelIDs are the ids the user lists a provider's models by, from
+	// "<provider id>/<the id magpie lists it by>" to the id the provider
+	// itself serves it under (zeewell on X: deepseek-v4.1-flash-1017 known
+	// as deepseek-v4.1-flash). The model is listed, picked, grouped, found
+	// in routing groups, limited by gateway keys and recorded in usage by
+	// that id, and a request for it goes out under the provider's own, as
+	// a ModelWires name does (Wires). Keyed by the id it is known by, so one
+	// id of a provider is one of its models; a model of the provider's own
+	// with that id is not listed while another goes by it. Absent leaves
+	// each model to the provider's id (provider.SetModelID).
+	ModelIDs map[string]string `json:"modelIDs,omitempty"`
 	// ModelAPIs is the one API a model is asked on at its provider, by
 	// "<provider id>/<model id>": chat, responses or anthropic, for a relay
 	// whose one key serves some models on one and others on another
@@ -1176,6 +1188,70 @@ func (s *Settings) KeepOwn(cur Settings) {
 	s.RequestArchiveLocal, s.RequestArchiveLocalMB = cur.RequestArchiveLocal, cur.RequestArchiveLocalMB
 }
 
+// Wires is ModelWires with the provider's own id of each model the user
+// lists by another (ModelIDs): what a request for "<provider>/<id>" goes out
+// under. A name the user gave the model itself in ModelWires is kept, and a
+// provider's "*" name is the provider's own id in its "*". With no ModelIDs
+// it is ModelWires itself; else it is made again only when either map holds
+// something else than the last time. It is read, never written to.
+func (s Settings) Wires() map[string]string {
+	if len(s.ModelIDs) == 0 {
+		return s.ModelWires
+	}
+	wiresMemo.Lock()
+	defer wiresMemo.Unlock()
+	if wiresMemo.out != nil && maps.Equal(wiresMemo.ids, s.ModelIDs) && maps.Equal(wiresMemo.wires, s.ModelWires) {
+		return wiresMemo.out
+	}
+	out := make(map[string]string, len(s.ModelWires)+len(s.ModelIDs))
+	maps.Copy(out, s.ModelWires)
+	for k, own := range s.ModelIDs {
+		pid, _, ok := strings.Cut(k, "/")
+		own = strings.TrimSpace(own)
+		if !ok || own == "" || strings.TrimSpace(s.ModelWires[k]) != "" {
+			continue
+		}
+		if all := strings.TrimSpace(s.ModelWires[pid+"/*"]); all != "" {
+			own = strings.ReplaceAll(all, "*", own)
+		}
+		out[k] = own
+	}
+	wiresMemo.ids, wiresMemo.wires, wiresMemo.out = maps.Clone(s.ModelIDs), maps.Clone(s.ModelWires), out
+	return out
+}
+
+// wiresMemo is the Wires last made, and copies of the two maps it was
+// made of: compared by what they hold, as a caller may change its own
+// settings' maps in place.
+var wiresMemo struct {
+	sync.Mutex
+	ids, wires, out map[string]string
+}
+
+// MoveModel moves what the user said of the model keyed from
+// ("<provider>/<model>") to the key to, in every per-model map but
+// ModelIDs, and says whether anything moved. A map with something under
+// to already keeps it, and what from had there stays where it was: what
+// the user said of the model now keyed to is theirs and is not written
+// over.
+func (s *Settings) MoveModel(from, to string) bool {
+	moved := false
+	PerModelKeys(s, func(name string, m reflect.Value) {
+		if name == "ModelIDs" || m.IsNil() {
+			return
+		}
+		fk, tk := reflect.ValueOf(from).Convert(m.Type().Key()), reflect.ValueOf(to).Convert(m.Type().Key())
+		v := m.MapIndex(fk)
+		if !v.IsValid() || m.MapIndex(tk).IsValid() {
+			return
+		}
+		m.SetMapIndex(fk, reflect.Value{})
+		m.SetMapIndex(tk, v)
+		moved = true
+	})
+	return moved
+}
+
 // RenamePerModel moves what the user said of a provider's models to the id
 // it has now: in every per-model map (see ModelNames) each key beginning
 // with from+"/" is rewritten to to+"/", and it says whether any key moved at
@@ -1300,6 +1376,52 @@ func Shared() Settings {
 	}
 	return s
 }
+
+// SharedModelIDs is Shared().ModelIDs, read for each model a list is
+// built of: only that field is parsed, once per change of the file, and a
+// missing file has none without the defaults Shared builds each time.
+// Unreadable or unparsable, it is what Shared says. It is shared: the
+// caller must not change it.
+func SharedModelIDs() map[string]string {
+	fileMu.RLock()
+	ids, err := filememo.Read("settings-model-ids", pathNow(), func(b []byte) (map[string]string, error) {
+		var s struct {
+			ModelIDs map[string]string `json:"modelIDs"`
+		}
+		err := json.Unmarshal(b, &s)
+		return s.ModelIDs, err
+	})
+	fileMu.RUnlock()
+	if err == nil {
+		return ids
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return Shared().ModelIDs
+}
+
+// pathNow is Path, built again only when what it is built from changed:
+// SharedModelIDs is read several times for each list, and Path's joins
+// were most of what building one allocated.
+func pathNow() string {
+	k := pathFrom{appdir.Portable(), os.Getenv("XDG_CONFIG_HOME"), os.Getenv("HOME"), os.Getenv("USERPROFILE")}
+	if m := lastPath.Load(); m != nil && m.from == k {
+		return m.path
+	}
+	path := Path()
+	lastPath.Store(&pathMemo{k, path})
+	return path
+}
+
+type pathFrom struct{ portable, xdg, home, profile string }
+
+type pathMemo struct {
+	from pathFrom
+	path string
+}
+
+var lastPath atomic.Pointer[pathMemo]
 
 // sharedFor is the shared Settings parse keeps for contents b, when it
 // keeps them.

@@ -219,7 +219,15 @@ var npmBase = map[string]string{
 	"@ai-sdk/deepseek":       "https://api.deepseek.com/v1",
 }
 
+// pluginModel is the model of pp's list by the id id, which is the
+// plugin's own or one the user lists it by at magpie's provider of pp
+// (SetModelID): what the plugin says of its model (its API, tiers, price)
+// holds under either.
 func pluginModel(pp plugin.Provider, id string) (plugin.Model, bool) {
+	return pluginOwnModel(pp, modelIDsOf(PluginID(pp.ID)).ownOf(id))
+}
+
+func pluginOwnModel(pp plugin.Provider, id string) (plugin.Model, bool) {
 	for _, m := range pp.Models {
 		if m.ID == id {
 			return m, true

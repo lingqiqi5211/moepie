@@ -275,8 +275,11 @@ func perKeyBarred(p provider.Provider, model string, from provider.Protocol) (ou
 		})
 		// an account whose plan lacks the model (a Free one behind a Plus)
 		// would only answer 400; it is tried only when none lists it
+		// (by the vendor's own id: an account's list names its models by
+		// theirs, not by one the user lists one by)
+		own := p.OwnModelID(model)
 		for _, c := range all {
-			if c.p.Account.Lists(model) {
+			if c.p.Account.Lists(own) {
 				out = append(out, c)
 			} else {
 				left = append(left, c)

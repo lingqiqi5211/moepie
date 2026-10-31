@@ -56,6 +56,11 @@ type modelJSON struct {
 	Same       string   `json:"same,omitempty"`      // the model the user said it is the same as, for the groups magpie finds (#583)
 	Merge      string   `json:"merge,omitempty"`     // what those groups merge it by when the user says nothing
 	Kind       string   `json:"kind,omitempty"`      // what the user said it makes: image or video (#1399)
+	// Vendor is the provider's own id of a model the user lists by
+	// another (provider.SetModelID), "" for one listed by its own; IDs
+	// says the provider's models can be given ids at all (a key's)
+	Vendor string `json:"vendor,omitempty"`
+	IDs    bool   `json:"ids,omitempty"`
 	// Desktop is the number Claude Desktop's menu says beside this model
 	// (gateway.DesktopNumber), so a row of that menu can be matched to its
 	// provider (#2578): only for a model Claude Desktop, installed here,
@@ -772,6 +777,10 @@ func providerInfoWith(p provider.Provider, agents []agentUse, desktop map[string
 		}
 		j.NoAPI = p.NoAPIFor(m.ID)
 		j.Same = sames[p.ID+"/"+m.ID]
+		if own := p.OwnModelID(m.ID); own != m.ID {
+			j.Vendor = own
+		}
+		j.IDs = p.TakesModelIDs()
 		j.Kind = p.ModelKind(m.ID)
 		j.Merge = provider.MergeName(m.ID)
 		j.Desktop = desktop[p.ID+"/"+m.ID]

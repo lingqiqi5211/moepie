@@ -189,10 +189,14 @@ func isKiloFree(id string) bool {
 // kiloFreeModel reports whether model is one of the Kilo Gateway's free
 // models on p: one the fetched list marks free, else one free by its id.
 func (p Provider) kiloFreeModel(model string) bool {
+	return p.kiloOwnFreeModel(p.OwnModelID(model))
+}
+
+func (p Provider) kiloOwnFreeModel(model string) bool {
 	if !p.IsKilo() {
 		return false
 	}
-	if ms := p.liveByID(model); len(ms) > 0 {
+	if ms := p.liveByOwnID(model); len(ms) > 0 {
 		return ms[0].Free
 	}
 	return isKiloFree(model)

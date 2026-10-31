@@ -40,7 +40,8 @@ func (p Provider) Available() []catalog.Model {
 	if p.DecideOnly() {
 		return p.decideModels()
 	}
-	ms := p.available()
+	// by the ids the user lists them by (SetModelID)
+	ms := p.ids().list(p.available())
 	if p.Decides() {
 		// a gateway's Jev among its chat models, with its window and input
 		ms = slices.Clone(ms)
@@ -166,6 +167,25 @@ func (p Provider) live() ([]catalog.Model, time.Time, bool) {
 // liveByID are the models of live with this id: what a look at one
 // model, asked for each of a list's, reads instead of the whole list.
 func (p Provider) liveByID(model string) []catalog.Model {
+	if !p.lists() {
+		return nil
+	}
+	// a model listed by an id the user gave it is in the vendor's list
+	// under its own (SetModelID)
+	own := p.OwnModelID(model)
+	ms := p.liveByOwnID(own)
+	if own == model {
+		return ms
+	}
+	out := slices.Clone(ms)
+	for i := range out {
+		out[i].ID = model
+	}
+	return out
+}
+
+// liveByOwnID reads a vendor ID without interpreting it as a listed ID again.
+func (p Provider) liveByOwnID(model string) []catalog.Model {
 	if !p.lists() {
 		return nil
 	}
@@ -300,7 +320,8 @@ func liveIDs(id string) map[string]bool {
 	for _, m := range ms {
 		out[m.ID] = true
 	}
-	return out
+	// picks are of the ids the user lists them by (SetModelID)
+	return modelIDsOf(id).ids(out)
 }
 
 // dropGonePicks takes out of the saved provider's picks those before had
@@ -1442,10 +1463,13 @@ func (p Provider) Serves(k KeyAccount, model string) bool { return p.Serving(mod
 // thousand keys (@NetRozee on X).
 func (p Provider) Serving(model string) func(KeyAccount) bool {
 	x, ok := p.keyLists()
-	if !ok {
+	if !ok || len(x.listed) == 0 {
+		// no key is listed to any model: every key serves it, and the
+		// model's own id needn't be looked up
 		return func(KeyAccount) bool { return true }
 	}
-	keys, found := x.of[model]
+	// the vendor's lists name the model by its own id (SetModelID)
+	keys, found := x.of[p.OwnModelID(model)]
 	return func(k KeyAccount) bool {
 		id := keyID(k.Key)
 		return !found || len(keys) == 0 || !x.listed[id] || keys[id]
@@ -1868,10 +1892,22 @@ var makerCatalogs = sync.OnceValue(func() []string {
 // is at the price its plugin lists it at (pluginListPrice), else, when the
 // plugin says the plan serves it free, costs nothing (pluginFree).
 func (p Provider) ListPrice(model string) (catalog.Price, bool) {
-	if pr, ok := p.remotePrice(model); ok {
+	if own := p.OwnModelID(model); own != model {
+		// Listed IDs map directly to vendor IDs. A vendor ID can also
+		// be another model's listed ID, so never resolve it a second time.
+		if pr, ok := p.listPrice(own); ok {
+			return pr, true
+		}
+	}
+	return p.listPrice(model)
+}
+
+// listPrice looks up a vendor model without resolving its listed alias again.
+func (p Provider) listPrice(model string) (catalog.Price, bool) {
+	if pr, ok := p.remoteOwnPrice(model); ok {
 		return pr, true
 	}
-	if p.clineFreeModel(model) || p.kiloFreeModel(model) {
+	if p.clineOwnFreeModel(model) || p.kiloOwnFreeModel(model) {
 		// served at no cost: not at the price of the model it is free of
 		return catalog.Price{}, true
 	}
@@ -1927,7 +1963,7 @@ func (p Provider) pluginListPrice(model string) (catalog.Price, bool) {
 	if !ok {
 		return catalog.Price{}, false
 	}
-	m, ok := pluginModel(pp, model)
+	m, ok := pluginOwnModel(pp, model)
 	if !ok {
 		return catalog.Price{}, false
 	}
@@ -1947,7 +1983,7 @@ func (p Provider) pluginFree(model string) bool {
 	if !ok {
 		return false
 	}
-	m, ok := pluginModel(pp, model)
+	m, ok := pluginOwnModel(pp, model)
 	return ok && m.Free
 }
 
@@ -2057,7 +2093,7 @@ func (p Provider) grokFastPrice(model string) (catalog.Price, bool) {
 	if !ok {
 		return catalog.Price{}, false
 	}
-	pr, ok := p.ListPrice(base)
+	pr, ok := p.listPrice(base)
 	if !ok {
 		return catalog.Price{}, false
 	}
@@ -2115,7 +2151,7 @@ func (p Provider) factoryFastPrice(model string) (catalog.Price, bool) {
 	if !ok || times == 0 {
 		return catalog.Price{}, false
 	}
-	pr, ok := p.ListPrice(base)
+	pr, ok := p.listPrice(base)
 	if !ok {
 		return catalog.Price{}, false
 	}

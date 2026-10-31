@@ -4379,7 +4379,9 @@ func (s *Server) serveClaudeSubscription(w http.ResponseWriter, r *http.Request,
 			}
 			return nil, nil, err
 		}
-		return s.subscription.start(ctx, req, model, dir, owner, from)
+		// Claude Code is asked for the model by Anthropic's id, not one
+		// the user lists it by (SetModelID): no wire name reaches its run
+		return s.subscription.start(ctx, req, p.OwnModelID(model), dir, owner, from)
 	}
 	return s.serveSubscription(w, r, from, "Claude Code", model, owner, body, usage, start)
 }

@@ -154,13 +154,17 @@ func isClineFree(id string) bool {
 // clineFreeModel reports whether model is one of Cline's free models on
 // p: one the fetched list marks free, else one free by its id.
 func (p Provider) clineFreeModel(model string) bool {
+	return p.clineOwnFreeModel(p.OwnModelID(model))
+}
+
+func (p Provider) clineOwnFreeModel(model string) bool {
 	if !p.IsCline() {
 		return false
 	}
 	if strings.HasPrefix(model, clineFreePrefix) {
 		return true
 	}
-	if ms := p.liveByID(model); len(ms) > 0 {
+	if ms := p.liveByOwnID(model); len(ms) > 0 {
 		return ms[0].Free
 	}
 	return isClineFree(model)

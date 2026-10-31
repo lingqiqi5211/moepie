@@ -148,10 +148,14 @@ func (p Provider) listHeadersAt(u string) map[string]string {
 // remotePrice is what a remote magpie's list said the model costs there,
 // if it said.
 func (p Provider) remotePrice(model string) (catalog.Price, bool) {
+	return p.remoteOwnPrice(p.OwnModelID(model))
+}
+
+func (p Provider) remoteOwnPrice(model string) (catalog.Price, bool) {
 	if !p.IsRemoteMagpie() {
 		return catalog.Price{}, false
 	}
-	for _, m := range p.liveByID(model) {
+	for _, m := range p.liveByOwnID(model) {
 		if m.Price != nil {
 			return *m.Price, true
 		}

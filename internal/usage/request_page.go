@@ -660,7 +660,7 @@ func readRequestState(now time.Time) requestState {
 	renamed := provider.UsageRenames().Key()
 	cfg := settings.Load()
 	prices, _ := json.Marshal(cfg.ModelPrices)
-	wires, _ := json.Marshal(cfg.ModelWires)
+	wires, _ := json.Marshal(cfg.Wires())
 	meta := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s", ids, renamed, prices, wires, statKey(provider.Path()), statKey(catalog.CachePath()), clientAgentsKey(), clearedKey())
 	h := sha256.New()
 	for _, current := range provider.All() {
@@ -934,7 +934,7 @@ func readRequestBlocks(idx *requestIndex, st requestState, p Period, now time.Ti
 		return func(r Record, source string) Row {
 			sent := r.Model
 			if source == "" {
-				sent = provider.SentNameIn(cfg.ModelWires, r.priceID(), r.Model, r.Effort)
+				sent = provider.SentNameIn(cfg.Wires(), r.priceID(), r.Model, r.Effort)
 			}
 			row := Row{Record: r, Source: source, Routed: GroupRouted(sent, r.Served)}
 			if r.Served != "" {
@@ -966,7 +966,7 @@ func readRequestBlocks(idx *requestIndex, st requestState, p Period, now time.Ti
 	// cache budget every query priced the whole history again.
 	var gateways []*rowChunk
 	renames := provider.UsageRenames()
-	priced := newBlockPricer(renames, cfg.ModelWires, price)
+	priced := newBlockPricer(renames, cfg.Wires(), price)
 	meta := sha256.Sum256([]byte(st.root + "|" + st.meta))
 	priced.share(meta)
 	for _, packed := range snapshot.blocks {
