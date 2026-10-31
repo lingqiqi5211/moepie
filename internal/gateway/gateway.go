@@ -157,9 +157,9 @@ func wiresOf(ctx context.Context) map[string]string {
 const (
 	movedClassifier = "classifier"
 	movedClaudeTier = "claude-tier"
-	movedStandIn = "stand-in"
-	movedCodexTurn = "codex-turn"
-	movedPrivacy = "privacy"
+	movedStandIn    = "stand-in"
+	movedCodexTurn  = "codex-turn"
+	movedPrivacy    = "privacy"
 )
 
 // standIn is StandIn's model for one magpie shows no entry for: not a
