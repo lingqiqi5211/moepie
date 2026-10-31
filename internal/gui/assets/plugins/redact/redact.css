@@ -264,27 +264,148 @@ body.window .msk-onebar::before { inset: -6px -16px; }
 .md-chev { flex: none; color: var(--faint); transition: transform .2s; }
 .md-row[aria-expanded="true"] .md-chev { transform: rotate(90deg); }
 .md-body { border-top: 1px solid var(--line-2); padding: 14px 16px; }
-.mask-flow { color: var(--fg); font-size: 12px; line-height: 1.5; }
+/* Steps on top, a stage under them: this computer and the remote model on
+   either side of a dashed network line. Values (amber) turn over into
+   placeholders (accent) in place, the mapping table stays on this side, and
+   a packet crosses each way. Motion is transform and opacity only. */
+.mask-flow { --mf-ease: cubic-bezier(.2, .7, .2, 1); color: var(--fg); font-size: 12px; line-height: 1.5; }
 .mask-flow * { box-sizing: border-box; }
 .mf-note { margin: 0 0 14px; color: var(--muted); }
-.mf-steps { list-style: none; padding: 0; margin: 0 0 16px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 20px; }
-.mf-step { min-width: 0; position: relative; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-2); transition: background-color .2s, border-color .2s; }
-.mf-step + .mf-step::before { content: "→"; position: absolute; left: -18px; top: 40px; color: var(--faint); }
-.mf-current { border-color: var(--accent); background: var(--accent-soft); }
-.mf-place { display: block; color: var(--muted); font-size: 11px; min-height: 34px; }
-.mf-node { all: unset; display: flex; align-items: baseline; gap: 6px; width: 100%; color: var(--fg); cursor: pointer; }
-.mf-number { color: var(--muted); font-variant-numeric: tabular-nums; }
-.mf-title { font-weight: 600; }
-.mf-detail { margin: 10px 0; color: var(--fg-2); }
-.mf-example { margin: 0; padding: 8px; border-radius: 6px; background: var(--card); border: 1px solid var(--line-2); font-family: var(--code); font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg); }
+.mf-steps { list-style: none; padding: 0; margin: 0 0 14px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.mf-step { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.mf-node { all: unset; box-sizing: border-box; display: flex; align-items: flex-start; gap: 8px; width: 100%; color: var(--muted); cursor: pointer; transition: color .25s; }
+.mf-node:hover { color: var(--fg-2); }
+.mf-number { flex: none; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; border: 1.5px solid var(--line); background: var(--card); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; transition: background-color .25s, border-color .25s, color .25s, box-shadow .25s; }
+.mf-title { min-width: 0; padding-top: 2px; font-weight: 500; overflow-wrap: anywhere; }
+.mf-done .mf-node { color: var(--fg-2); }
+.mf-done .mf-number { border-color: transparent; background: var(--accent-soft); color: var(--accent); }
+.mf-current .mf-node { color: var(--fg); }
+.mf-current .mf-title { font-weight: 600; }
+.mf-current .mf-number { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); box-shadow: 0 0 0 4px var(--accent-soft); }
+/* a step's bar: full once done, filling over the timer's wait while current */
+.mf-bar { position: relative; display: block; height: 3px; border-radius: 3px; background: var(--line-2); overflow: hidden; }
+.mf-bar i { position: absolute; inset: 0; border-radius: inherit; background: var(--accent); transform: scaleX(0); transform-origin: left center; transition: transform .35s var(--mf-ease); }
+.mf-done .mf-bar i { transform: none; }
+.mf-ticking .mf-current .mf-bar i { transition: none; animation: mf-fill var(--mf-dwell) linear both; }
+@keyframes mf-fill { from { transform: scaleX(0); } to { transform: none; } }
+
+.mf-caption { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 12px; }
+.mf-place { max-width: 100%; padding: 1px 9px; border-radius: 999px; background: var(--pill); color: var(--fg-2); font-weight: 600; }
+.mf-place.mf-far { background: var(--accent-soft); color: var(--accent); }
+.mf-detail { flex: 1 1 240px; min-width: 0; margin: 0; color: var(--fg-2); }
+
+.mf-stage { display: grid; grid-template-columns: minmax(0, 1.12fr) 60px minmax(0, 1fr); grid-template-rows: auto auto 1fr; row-gap: 10px; margin-bottom: 14px; }
+.mf-zone { grid-row: 1 / 4; display: grid; grid-template-rows: subgrid; align-content: start; min-width: 0; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card-2); }
+.mf-local { grid-column: 1; }
+.mf-remote { grid-column: 3; border-color: color-mix(in srgb, var(--accent) 24%, var(--line)); background: color-mix(in srgb, var(--accent) 5%, var(--card-2)); }
+.mf-zhead { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--fg-2); font-weight: 600; }
+.mf-icon { flex: none; display: inline-flex; width: 16px; height: 16px; color: var(--muted); }
+.mf-icon svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.mf-remote .mf-icon, .mf-thead .mf-icon { color: var(--accent); }
+
+/* a side's cards share one place, so a swap never moves the layout;
+   they slide in from inside it, never past its edge */
+.mf-slot { display: grid; min-width: 0; overflow: clip; overflow-clip-margin: 4px; }
+.mf-slot > * { grid-area: 1 / 1; min-width: 0; }
+.mf-msg, .mf-empty { --dx: 0px; --dy: 0px; opacity: 0; visibility: hidden; transform: translate(var(--dx), var(--dy)); transition: opacity .22s, transform .22s, visibility 0s .22s; }
+.mf-msg.mf-on, .mf-empty.mf-on { opacity: 1; visibility: visible; transform: none; transition: opacity .45s var(--mf-ease) var(--in, 0s), transform .45s var(--mf-ease) var(--in, 0s), visibility 0s var(--in, 0s); }
+.mf-msg.mf-on.mf-sent { opacity: .5; }
+.mf-remote .mf-req { --dx: -14px; --in: .42s; }
+.mf-remote .mf-rep { --dy: 6px; }
+.mf-local .mf-rep { --dx: 14px; --in: .5s; }
+.mf-msg { padding: 8px 10px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); box-shadow: 0 1px 2px color-mix(in srgb, var(--fg) 7%, transparent); }
+.mf-mlabel { display: block; margin-bottom: 4px; color: var(--muted); }
+.mf-line { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-family: var(--code); line-height: 1.9; }
+.mf-key { color: var(--muted); }
+.mf-say { margin: 0; line-height: 1.9; color: var(--fg); overflow-wrap: anywhere; }
+.mf-empty { align-self: stretch; display: flex; align-items: center; justify-content: center; margin: 0; padding: 14px 10px; border-radius: 9px; border: 1px dashed var(--line); color: var(--muted); text-align: center; }
+
+/* A token: its value and its placeholder in one place, one turned toward
+   the reader. Masking turns the value away and the placeholder up after it.
+   A face shown takes its card's visibility at once, never with a delay. */
+.mf-tok { display: inline-grid; vertical-align: middle; font-family: var(--code); font-size: 12px; line-height: 1.6; }
+.mf-rep .mf-tok { --i: 2; }
+.mf-face { --d: calc(var(--i, 0) * 140ms); --show: opacity .26s ease-out calc(var(--d) + .16s), transform .34s var(--mf-ease) calc(var(--d) + .16s);
+  grid-area: 1 / 1; justify-self: center; padding: 0 5px; border-radius: 5px; white-space: nowrap; color: var(--fg); backface-visibility: hidden; transition: var(--show); }
+.mf-val { background: color-mix(in srgb, var(--amber) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--amber) 42%, transparent); }
+.mf-ph { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent); }
+.mf-local .mf-slot .mf-ph, .mf-local.mf-masked .mf-slot .mf-val { opacity: 0; visibility: hidden; transition: opacity .18s ease-in var(--d), transform .18s ease-in var(--d), visibility 0s linear calc(var(--d) + .18s); }
+.mf-local .mf-slot .mf-ph { transform: perspective(160px) rotateX(90deg); }
+.mf-local.mf-masked .mf-slot .mf-val { transform: perspective(160px) rotateX(-90deg); }
+.mf-local.mf-masked .mf-slot .mf-ph { opacity: 1; visibility: inherit; transform: none; transition: var(--show); }
+
+/* The mapping table, locked on this computer: written as values are
+   replaced, read as the reply's placeholders are put back. */
+.mf-table { min-width: 0; padding: 9px 10px 10px; border-radius: 9px; border: 1px dashed color-mix(in srgb, var(--accent) 38%, var(--line)); background: var(--card); }
+.mf-thead { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; color: var(--fg-2); font-weight: 600; }
+.mf-tbody { display: grid; }
+.mf-tbody > * { grid-area: 1 / 1; min-width: 0; }
+.mf-tempty { align-self: center; color: var(--muted); transition: opacity .25s .2s, visibility 0s; }
+.mf-filled .mf-tempty { opacity: 0; visibility: hidden; transition: opacity .15s, visibility 0s .15s; }
+.mf-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.mf-row { --d: calc(.3s + var(--i, 0) * 140ms); position: relative; isolation: isolate; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin: 0 -5px; padding: 2px 5px; border-radius: 6px; opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity .2s, transform .2s, visibility 0s .2s; }
+.mf-filled .mf-row { opacity: 1; visibility: visible; transform: none; transition: opacity .35s var(--mf-ease) var(--d), transform .35s var(--mf-ease) var(--d), visibility 0s var(--d); }
+.mf-row::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--accent-soft); opacity: 0; }
+.mf-row.mf-hit::before { animation: mf-hit 1.5s ease-out var(--d) both; }
+@keyframes mf-hit { 0% { opacity: 0; } 25% { opacity: 1; } 100% { opacity: 0; } }
+.mf-row .mf-tok { --i: 0; }
+.mf-arrow { color: var(--muted); }
+
+/* The network: a dashed line, and a packet over it each way. */
+.mf-wire { grid-column: 2; grid-row: 1 / 4; position: relative; display: grid; grid-template-rows: subgrid; }
+.mf-net { position: absolute; top: 4px; bottom: 4px; left: 50%; margin-left: -1px; border-left: 2px dashed var(--line); transition: border-color .3s; }
+.mf-out .mf-net, .mf-back .mf-net { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.mf-wlabel, .mf-dir, .mf-run { grid-column: 1; }
+.mf-wlabel { grid-row: 3; align-self: center; justify-self: center; position: relative; padding: 8px 0; writing-mode: vertical-rl; background: var(--card); color: var(--muted); letter-spacing: .04em; }
+/* which way it goes, also when nothing moves */
+.mf-dir { --r: 0deg; grid-row: 2; align-self: center; justify-self: center; position: relative; display: inline-flex; padding: 3px; border-radius: 50%; background: var(--card); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); opacity: 0; transform: rotate(var(--r)) scale(.6); transition: opacity .25s, transform .3s var(--mf-ease); }
+.mf-dir .mf-icon { width: 14px; height: 14px; color: var(--accent); }
+.mf-out .mf-dir, .mf-back .mf-dir { opacity: 1; transform: rotate(var(--r)); }
+.mf-back .mf-dir { --r: 180deg; }
+.mf-run { grid-row: 2; align-self: center; position: relative; height: 12px; margin: 0 -8px; opacity: 0; }
+.mf-pkt { position: absolute; top: 0; right: 0; width: 18px; height: 12px; border-radius: 4px; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.mf-out .mf-run { animation: mf-out .7s var(--mf-ease) .05s both; }
+.mf-back .mf-run { animation: mf-back .7s var(--mf-ease) .1s both; }
+@keyframes mf-out { 0% { opacity: 0; transform: translateX(-100%); } 20%, 80% { opacity: 1; } 100% { opacity: 0; transform: none; } }
+@keyframes mf-back { 0% { opacity: 0; transform: none; } 20%, 80% { opacity: 1; } 100% { opacity: 0; transform: translateX(-100%); } }
+
 .mf-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .mf-control { all: unset; padding: 5px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--pill); color: var(--fg); cursor: pointer; }
 .mf-control:hover { background: var(--pill-hover); }
 .mf-node:focus-visible, .mf-control:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 5px; }
 .mf-status { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Narrow: the steps a vertical timeline, the stage top to bottom with the
+   network across it. */
 @container (max-width: 760px) {
-  .mf-steps { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-  .mf-step + .mf-step::before { content: "↓"; left: 50%; top: -24px; }
-  .mf-place { min-height: 0; margin-bottom: 6px; }
+  .mf-steps { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .mf-step { display: grid; grid-template-columns: 22px minmax(0, 1fr); }
+  .mf-node { grid-area: 1 / 1 / 2 / 3; padding-bottom: 12px; }
+  .mf-bar { grid-area: 1 / 1; justify-self: center; width: 2px; height: auto; margin: 26px 0 3px; }
+  .mf-step:last-child .mf-bar { display: none; }
+  .mf-bar i { transform: scaleY(0); transform-origin: center top; }
+  .mf-ticking .mf-current .mf-bar i { animation-name: mf-fill-y; }
+  .mf-stage { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 56px auto; row-gap: 0; }
+  .mf-zone { grid-row: auto; display: flex; flex-direction: column; gap: 10px; }
+  .mf-local { grid-area: 1 / 1; }
+  .mf-remote { grid-area: 3 / 1; }
+  .mf-wire { grid-area: 2 / 1; display: block; }
+  .mf-net { top: 50%; bottom: auto; left: 4px; right: 4px; margin: -1px 0 0; border-left: 0; border-top: 2px dashed var(--line); }
+  .mf-wlabel { position: absolute; top: 50%; left: 14px; padding: 0 8px; writing-mode: horizontal-tb; transform: translateY(-50%); }
+  .mf-run { position: absolute; top: -8px; bottom: -8px; left: 50%; width: 12px; height: auto; margin: 0 0 0 -6px; }
+  .mf-dir { --r: 90deg; position: absolute; top: 50%; left: 50%; margin: -10px 0 0 -10px; }
+  .mf-back .mf-dir { --r: -90deg; }
+  .mf-pkt { top: auto; bottom: 0; right: 0; width: 12px; height: 18px; }
+  .mf-out .mf-run { animation-name: mf-out-y; }
+  .mf-back .mf-run { animation-name: mf-back-y; }
+  .mf-remote .mf-req { --dx: 0px; --dy: -12px; }
+  .mf-local .mf-rep { --dx: 0px; --dy: 12px; }
 }
-@media (prefers-reduced-motion: reduce) { .mf-step, .md-chev { transition: none; } }
+@keyframes mf-fill-y { from { transform: scaleY(0); } to { transform: none; } }
+@keyframes mf-out-y { 0% { opacity: 0; transform: translateY(-100%); } 20%, 80% { opacity: 1; } 100% { opacity: 0; transform: none; } }
+@keyframes mf-back-y { 0% { opacity: 0; transform: none; } 20%, 80% { opacity: 1; } 100% { opacity: 0; transform: translateY(-100%); } }
+/* Reduced motion: states switch, nothing moves or fades. */
+@media (prefers-reduced-motion: reduce) {
+  .md-chev { transition: none; }
+  .mask-flow *, .mask-flow *::before, .mask-flow *::after { transition: none !important; animation: none !important; }
+}

@@ -22,8 +22,12 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       for (let step = 0; step < 5; step++) {
         await page.locator(".mf-node").nth(step).click();
         assert.equal(await page.locator("#maskDemo .pii").count(), 0);
-        assert.match(await page.locator(".mf-example").first().innerText(), /demo@ex.test\npassword:\nhello demo/);
-        assert.match(await page.locator(".mf-example").last().innerText(), /demo@ex.test\npassword:\nhello demo/);
+        // Every value written on this computer's side reads as written.
+        assert.deepEqual(await page.locator(".mf-local .mf-req .mf-val").allTextContents(), ["demo@ex.test", "hello demo"]);
+        assert.deepEqual(await page.locator(".mf-local .mf-rep .mf-val, .mf-table .mf-val").allTextContents(), ["demo@ex.test", "demo@ex.test", "hello demo"]);
+        if (step === 0) assert.match(await page.locator(".mf-local .mf-slot").innerText(), /demo@ex.test[\s\S]*hello demo/);
+        if (step > 0) assert.match(await page.locator(".mf-table").innerText(), /demo@ex.test[\s\S]*hello demo/);
+        if (step === 4) assert.match(await page.locator(".mf-local .mf-slot").innerText(), /demo@ex.test/);
       }
       await page.locator("#mdRow").click();
       await page.locator("#mdRow").click();
