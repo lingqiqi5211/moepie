@@ -129,8 +129,13 @@ func vscodeOf(k vscodeKind, home, cfg string) *Agent {
 }
 
 // vscodeUserDir is the User folder of the VS Code k, where its settings.json
-// is: its extensions' (Zoo Code's) settings too.
+// is: its extensions' (Zoo Code's) settings too. A portable build's is in
+// its data folder (vscodePortableUserDir); the OS's place is an installed
+// build's.
 func vscodeUserDir(k vscodeKind, home, cfg string) string {
+	if dir := vscodePortableUserDir(k); dir != "" {
+		return dir
+	}
 	switch runtime.GOOS {
 	case "darwin":
 		cfg = filepath.Join(home, "Library", "Application Support")
@@ -141,6 +146,52 @@ func vscodeUserDir(k vscodeKind, home, cfg string) string {
 		}
 	}
 	return filepath.Join(cfg, k.folder, "User")
+}
+
+// vscodePortableUserDir is the User folder of a portable VS Code k: a build
+// that keeps a data folder beside its program keeps its user data in
+// data\user-data there, not in %APPDATA% — a zip's own data folder, and
+// Scoop's, whose apps\vscode\current\data is the persisted one, current a
+// junction into apps\vscode (#3260). "" for an installed build, whose
+// launcher has no data folder beside it: as VS Code itself takes a build
+// for portable by that folder alone.
+func vscodePortableUserDir(k vscodeKind) string {
+	bin := binAt(k.bin)
+	if bin == "" {
+		return ""
+	}
+	if at := scoopShim(bin); at != "" {
+		bin = at
+	}
+	if resolved, err := filepath.EvalSymlinks(bin); err == nil {
+		bin = resolved
+	}
+	dir := filepath.Dir(bin)
+	if !strings.EqualFold(filepath.Base(dir), "bin") {
+		return ""
+	}
+	data := filepath.Join(filepath.Dir(dir), "data")
+	if !isDir(data) {
+		return ""
+	}
+	return filepath.Join(data, "user-data", "User")
+}
+
+// scoopShim is the launcher a Scoop shim stands for: the path = line of the
+// .shim beside it (code.cmd in scoop's shims folder is a small program that
+// runs it, which proc.Unwrap doesn't read). "" when bin is no shim.
+func scoopShim(bin string) string {
+	b, err := os.ReadFile(strings.TrimSuffix(bin, filepath.Ext(bin)) + ".shim")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 3 && f[0] == "path" && f[1] == "=" {
+			return strings.Trim(strings.Join(f[2:], " "), `"`)
+		}
+	}
+	return ""
 }
 
 func vscodeAt(dir string) *Agent { return vscodeKindAt(vscodeStable, dir) }
