@@ -45,6 +45,34 @@ Settings › General offers only the original location and `data` beside the app
 
 ## Constraints and failure behavior
 
+### Routing's live request card
+
+The live Routing card keeps the request it is explaining while that request
+is running, even when other conversations send newer requests. Once it
+finishes, a newer request still waiting to route does not displace a routed
+one. Pinned requests, historical days and replay retain their own selection;
+background requests still animate without replacing the card's explanation.
+When the card advances, its explanation advances with it, even if the next
+request already animated while the previous card was held.
+The choice is made by `told` in
+[`plugins/routing/client.js`](../../internal/gui/assets/plugins/routing/client.js).
+Verification: `routing-concurrent-hold.test.cjs` in five languages, Chromium
+and WebKit.
+
+### Release dialogs
+
+The window imports [`whatsnew.js`](../../internal/gui/assets/whatsnew.js)
+only when opening What's new or the update confirmation. The core keeps the
+existing fork release feed, API/language selection and startup checks; the
+module keeps the existing dialog rendering, links and focus behavior. Issue
+references still link to yetone/magpie, while fork release URLs stay with
+lingqiqi5211/moepie. The tray panel and an occupied modal update directly;
+a failed optional import also leaves the update able to proceed. A failed
+What's new import reports the existing load error. Assets retain the server's
+ETag/revalidation policy; the module is outside the initial script budget.
+Verification: `whatsnew-lazy.test.cjs`, `update-notes-ask.test.cjs` and
+`TestCoreScriptBudget`.
+
 ### Allowance card refreshes
 
 A card refresh applies only the requested account from the API's full

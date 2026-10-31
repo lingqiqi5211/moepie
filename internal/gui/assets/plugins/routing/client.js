@@ -2220,7 +2220,9 @@ function routingPage(part) {
     rebuild(rs, false);
   }
   function rebuild(rs, force) {
-    cur = src().get((pinned || rs[rs.length - 1]).id) || pinned || rs[rs.length - 1];
+    // live, the request the card tells of stays (told), not the newest staged
+    const stay = pinned || (!rp && !day && cur && src().get(cur.id)) || rs[rs.length - 1];
+    cur = src().get(stay.id) || stay;
     if (force) {
       for (const row of rows.values()) row.wire.remove();
       rows = new Map();
@@ -4079,6 +4081,18 @@ function routingPage(part) {
     render(); renderLog(); renderHist();
   }
   const newest = () => (day ? past : [...routes.values()]).filter(matchesPurpose).reduce((a, b) => (!a || b.id > a.id ? b : a), null);
+  // told: the request the live card tells of. Following the newest, with
+  // several agents or conversations sending at once, the card jumped from
+  // one to the next on every update, and to "not routed yet" for each new
+  // one (qiang2040 on Discord: "狂闪"). It stays on the request it tells
+  // of until that one is done, and a newer one routing hasn't picked for
+  // yet doesn't take it from one that was routed.
+  function told() {
+    const n = newest(), c = cur && !day && routes.get(cur.id);
+    if (!c || !n || c.id === n.id || !matchesPurpose(c)) return n;
+    if (!c.done) return c;
+    return n.done || n.tries.length || !c.tries.length ? n : c;
+  }
 
   // ---------- playing a request ----------
 
@@ -4103,11 +4117,14 @@ function routingPage(part) {
     let r = routes.get(id);
     const g = gen;
     playing.set(id, g);
-    cur = r;
+    // live, it flies, and the card stays on the request it tells of
+    cur = rp ? r : told() || r;
     if (!synced) sync();
-    say(affWhy(r, true) || ruleWhy(r, true) || firstWhy(r));
-    const aside = asides(r).find((s) => s);
-    if (aside) say(aside, true);
+    if (cur.id === r.id) {
+      say(affWhy(r, true) || ruleWhy(r, true) || firstWhy(r));
+      const aside = asides(r).find((s) => s);
+      if (aside) say(aside, true);
+    }
     renderAll();
     const A = agents.get(r.agent);
     // an agent past the stage's four (staged) isn't drawn: its request is
@@ -4399,7 +4416,7 @@ function routingPage(part) {
   function resume() {
     stopPlays();
     if (!loaded) return;
-    if (!pinned && !rp) cur = newest();
+    if (!pinned && !rp) cur = told();
     if (cur) sync(true);
     else empty();
     for (const r of underWay()) play(r.id);
@@ -4635,9 +4652,12 @@ function routingPage(part) {
           // back in sight to requests that came while away: live again
           if (back) backToPick(true);
           if (!pinned && !rp) {
-            cur = newest();
-            if (cur) sync();
-            else empty();
+            const before = cur?.id;
+            cur = told();
+            if (cur) {
+              sync();
+              if (cur.id !== before) say(affWhy(cur, true) || ruleWhy(cur, true) || firstWhy(cur));
+            } else empty();
           }
           // played only in sight: coming back into it plays those still
           // under way, not all that came meanwhile (#302)

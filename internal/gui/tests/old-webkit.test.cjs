@@ -142,8 +142,9 @@ test("compat.js is the first of the page's own scripts", async () => {
   const srcs = all.filter((s) => s !== "boot.js" && s !== "theme.js" && s !== "omarchy.js");
   assert.equal(srcs[0], "compat.js", "loaded first: " + srcs.join(", "));
   // webfonts.js is imported by app.js in a browser tab only, cfgblocked.js
-  // when magpie can't write its folder; the checks above still read them
-  for (const f of await scripts()) if (f !== "webfonts.js" && f !== "cfgblocked.js") assert(all.includes(f), f + " is not loaded by index.html");
+  // when magpie can't write its folder, whatsnew.js when release notes open;
+  // the checks above still read them
+  for (const f of await scripts()) if (!["webfonts.js", "cfgblocked.js", "whatsnew.js"].includes(f)) assert(all.includes(f), f + " is not loaded by index.html");
 });
 
 test("the styles hold up in Safari 15.0", async () => {
