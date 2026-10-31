@@ -69,15 +69,15 @@ func gatewayDays(g usage.GatewaySession) []sessions.ExternalDayUsage {
 
 // gatewayListed is a gateway session as a list shows it: titled by what it
 // was first asked, when magpie recorded it, not by its ses_… id (YOU on
-// Discord)
-func gatewayListed(g usage.GatewaySession) sessions.ExternalSession {
+// Discord). title is a sessions.GatewayTitler's.
+func gatewayListed(g usage.GatewaySession, title func(agent, id string) string) sessions.ExternalSession {
 	e := gatewayExternal(g)
-	e.Title = sessions.GatewayTitle(g.Agent, g.ID)
+	e.Title = title(g.Agent, g.ID)
 	return e
 }
 
 func gatewaySession(g usage.GatewaySession) sessions.Session {
-	return sessions.MergeExternal(nil, []sessions.ExternalSession{gatewayListed(g)})[0]
+	return sessions.MergeExternal(nil, []sessions.ExternalSession{gatewayListed(g, sessions.GatewayTitle)})[0]
 }
 
 func sessionRoutes(mux *http.ServeMux, w Windows) {
@@ -116,8 +116,9 @@ func sessionRoutes(mux *http.ServeMux, w Windows) {
 		}
 		gateway := listedGateway(usage.GatewaySessions(time.Time{}, nativeKeys))
 		ext := make([]sessions.ExternalSession, 0, len(gateway))
+		title := sessions.GatewayTitler()
 		for _, g := range gateway {
-			ext = append(ext, gatewayListed(g))
+			ext = append(ext, gatewayListed(g, title))
 		}
 		list = sessions.MergeExternal(list, ext)
 		if len(list) > n {
@@ -606,8 +607,9 @@ func withGatewaySessions(st sessions.Stats, days int, nativeKeys map[string]bool
 	}
 	gs, gd := usage.GatewaySessionWindowExcept(since, nativeKeys)
 	ext := make([]sessions.ExternalSession, 0, len(gs))
+	title := sessions.GatewayTitler()
 	for _, g := range gs {
-		e := gatewayListed(g)
+		e := gatewayListed(g, title)
 		e.Daily = gatewayDays(g)
 		ext = append(ext, e)
 	}

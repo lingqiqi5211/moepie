@@ -655,10 +655,16 @@ func buildEffort(e *effortEntry, st requestState, p Period, now time.Time, done 
 	}()
 	codexEffortBuilding.Lock()
 	defer codexEffortBuilding.Unlock()
+	key := effortDiskKey(st, p, now)
+	if value := loadEffortDisk(key); value != nil {
+		return value
+	}
 	if effortBuilt != nil {
 		effortBuilt()
 	}
-	return codexEffortOfIndex(st, p, now)
+	value = codexEffortOfIndex(st, p, now)
+	saveEffortDisk(key, p, value)
+	return value
 }
 
 // codexEffortRows are the rows of ledgerOfAt(p, Filter{}, now, reader) that

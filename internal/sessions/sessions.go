@@ -2213,9 +2213,12 @@ func (z *zstdFile) Close() error {
 // without decoding the rest of it.
 func tsAt(b []byte, last bool) time.Time {
 	key := []byte(`"timestamp":"`)
-	i := bytes.Index(b, key)
+	// Search only the requested end; the last timestamp is the line's own.
+	var i int
 	if last {
 		i = bytes.LastIndex(b, key)
+	} else {
+		i = bytes.Index(b, key)
 	}
 	if i < 0 {
 		return time.Time{}

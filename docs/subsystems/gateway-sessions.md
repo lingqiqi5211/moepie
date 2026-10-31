@@ -307,10 +307,20 @@ first asked (YOU on Discord), not its `ses_…` id: `sessions.GatewayTitle` read
 the oldest recorded file of it in the 7 days kept, takes the first user text
 part that isn't a `<…>` context tag, `# AGENTS.md` or an image, and makes it one
 line (`untagged`). A finished file's answer is cached by path; a growing
-`turns.jsonl` with no title yet is read again. With nothing recorded at all
-(the store's folder missing) it costs one stat. `gatewayListed` applies it in
+`turns.jsonl` with no title yet is read again. `sessions.GatewayTitler`
+checks the store's folder once per listing and captures its path; with no
+store, each session then returns an empty title without another stat or
+allocation. A new listing sees a store created since the last one.
+`GatewayTitle` retains the single-session lookup. `gatewayListed` applies it in
 every list (`/api/sessions`, `/manage`, `/one`, the stats summaries); a session
 with no saved Desktop name or recorded text keeps its id as title.
+Verification: `TestGatewayTitlerAsksOnce`, `TestGatewayTitleAndSearch`.
+
+The lightweight JSONL timestamp reader (`tsAt`) searches only the end the
+caller asks for. Claude's last timestamp remains the line's own even when a
+tool result has another timestamp; it no longer scans the first timestamp
+before searching the last. The fork keeps `bytes.LastIndex`.
+Verification: `TestTsAtLastIsTheLines`.
 
 `GET /api/sessions/search?agent=&q=` finds an agent's sessions by what was said
 in them, for the Sessions page's filter. The query is lowered and its spaces
@@ -537,6 +547,24 @@ writes rebuilt the whole ledger, and the app grew to 85 GB. Verification:
 `TestConcurrentCallsShareOneRead`, `TestAgentCallsReadsOneAgent`,
 `TestCodexModelEffort*` in `codex_effort_shared_test.go` (the codex-only
 answer equals the whole ledger's), and `sessions-overview-once.test.cjs`.
+
+The fork also keeps the final Codex model/effort statistics for up to four
+periods across starts in `moepie-effort-v1.json` beside the sessions cache
+([`effort_disk.go`](../../internal/usage/effort_disk.go)). This adapts upstream
+`f1d0c0bfdd2795e043b8b885972320974b6b8d80` without its daily effortSplit
+architecture. All and the overview's 30-day range have separate entries.
+Each entry must match the normalized data roots, full period and actual
+bounds, local day, parser/source version, identities, pricing/settings,
+source/shared-file metadata and parsed gateway log's content hash. A
+process-local log version is never used for a cross-start match. Only final
+statistics are saved by publishing a temporary file with rename under the
+existing single-build lock (0600 on Unix; Windows uses directory ACLs).
+Concurrent processes may lose an entry and cause
+a miss. Unknown, incomplete or unreadable logs disable disk reuse. Missing,
+bad or unknown-version cache files and write failures fall back to the
+existing calculation. There was no fork effort file before this format, so
+no upstream single-entry migration applies. Verification:
+`TestCodexEffortDisk*` in `effort_disk_test.go`.
 
 ### Calls an app reports itself
 
