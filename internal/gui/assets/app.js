@@ -5933,7 +5933,7 @@ $("#foldOff").onclick = () => {
 
 // One row per provider: logo, name, the agents pointed at it, key status.
 // Everything else lives in the editor, a dialog over the page.
-function renderProviders() {
+function renderProviders(quiet) {
   if (accountArranging || providerArranging) { accountRenderPending = true; return; }
   // Rebuilding the list empties the page for a moment, which clamps its
   // scroll to the top; put it back so closing the editor leaves the reader
@@ -6035,7 +6035,7 @@ function renderProviders() {
   keptIcons = null;
   markUpstream();
   view.scrollTop = top; // first: a closing dialog folds into its row where it is
-  if (dialog) openModal(dialog); else closeModal();
+  if (dialog) openModal(dialog, quiet); else closeModal();
 }
 
 // providerHandle is an on row's logo, which is also its handle (#499):
@@ -8336,7 +8336,7 @@ function holdModal(later) {
   // a scroll moves the marked element, not the dialog
   m.addEventListener("scroll", () => modalMark(modalHold.at), true);
 }
-function openModal(content) {
+function openModal(content, quiet) {
   const m = $("#modal"), d = m.firstElementChild;
   const fresh = m.hidden || m.classList.contains("out");
   const top = m.hidden ? 0 : d.querySelector(".ebody")?.scrollTop || 0;
@@ -8345,7 +8345,7 @@ function openModal(content) {
   const namesAt = names && { provider: names.dataset.provider, top: names.scrollTop };
   m.classList.remove("out");
   d.classList.remove("swap");
-  if (!fresh) { void d.offsetWidth; d.classList.add("swap"); } // content changed: a soft refresh, not a re-entrance
+  if (!fresh && !quiet) { void d.offsetWidth; d.classList.add("swap"); } // content changed: a soft refresh, not a re-entrance
   frame(content);
   // an editor that reads long text (a prompt's) takes a wider dialog
   d.classList.toggle("wide", content.classList.contains("wide"));
@@ -10682,6 +10682,7 @@ function renderModels(p) {
   };
   const box = el("div", "models");
   const chips = el("div", "mchips");
+  const verification = el("div", "hint model-hint warn model-verification");
   const names = el("div", "mnames");
   names.dataset.provider = p.id;
   const q = p.models.length > 24 ? input("", t("filter {n} models…", { n: p.models.length })) : null;
@@ -10806,6 +10807,20 @@ function renderModels(p) {
       : draft.unlisted ? t(draft.chosen.length ? "Agents don't see them: only the routing groups they are in use them." : limit ? "Vendor's list: agents don't see it, the routing groups its models are in use up to {n} of it (dashed). Click a model to pick just it." : "Vendor's list: routing groups use all its models (dashed). Click a model to pick just it.", { n: limit })
       : t(draft.chosen.length ? "Agents see the models picked." : limit ? "Vendor's list: agents see up to {n} of its models (dashed), and those it lists later. Click a model to pick just it." : "Vendor's list: agents see all its models (dashed), and those it lists later. Click a model to pick just it.", { n: limit });
     drawLost();
+    verification.replaceChildren();
+    for (const x of Object.values(modelTests[p.id] || {})) {
+      const link = !x?.ok && x?.error?.match(/this Google account needs to be verified: open (https:\/\/\S+) in a browser/)?.[1];
+      if (!link) continue;
+      try {
+        const url = new URL(link);
+        if (url.protocol !== "https:" || url.username || url.password) continue;
+      } catch { continue; }
+      const open = el("button", "text action", t("Open verification"));
+      open.onclick = () => api("open", { url: link }).catch((e) => status(e.message, "err"));
+      verification.append(el("span", "", x.error), open);
+      break;
+    }
+    verification.hidden = !verification.childNodes.length;
   };
   // those of its models in no routing group, while it is kept for groups:
   // nothing can use them, which is said here rather than left for the
@@ -10933,6 +10948,23 @@ function renderModels(p) {
       same.onkeydown = (e) => { e.stopPropagation(); if (e.key === "Enter") same.blur(); else if (e.key === "Escape") { same.value = sameNow(); same.blur(); } };
       sameBox.append(el("span", "", t("Same as")), same);
       row.append(sameBox);
+      const savedID = m.vendor ? m.id : "";
+      const idNow = () => prefs[id]?.id ?? savedID;
+      let idInput = null;
+      if (m.ids) {
+        const idBox = el("label", "msame mlocal");
+        idInput = input(idNow(), m.vendor || m.id);
+        idInput.title = t("The id magpie lists {id} by at this provider: agents, routing groups, the groups magpie finds, gateway keys and Usage all use it, and the provider is still asked for {own}. Empty: its own id", { id: m.id, own: m.vendor || m.id });
+        idInput.spellcheck = false;
+        idInput.onchange = () => {
+          const v = idInput.value.trim();
+          if (v === savedID) delete pref().id; else pref().id = v;
+          drawReset();
+        };
+        idInput.onkeydown = (e) => { e.stopPropagation(); if (e.key === "Enter") idInput.blur(); else if (e.key === "Escape") { idInput.value = idNow(); idInput.blur(); } };
+        idBox.append(el("span", "", t("Listed as")), idInput);
+        row.append(idBox);
+      }
       // what it costs the user, in dollars per million tokens, as the
       // Usage page counts it (#819: only `magpie model price` set it):
       // each box shows its list price until a price is given, a part left
@@ -10981,23 +11013,6 @@ function renderModels(p) {
       });
       // the long-context price, a quiet row of its own: shown where there is
       // one, else behind a link
-      const savedID = m.vendor ? m.id : "";
-      const idNow = () => prefs[id]?.id ?? savedID;
-      let idInput = null;
-      if (m.ids) {
-        const idBox = el("label", "msame mlocal");
-        idInput = input(idNow(), m.vendor || m.id);
-        idInput.title = t("The id magpie lists {id} by at this provider: agents, routing groups, the groups magpie finds, gateway keys and Usage all use it, and the provider is still asked for {own}. Empty: its own id", { id: m.id, own: m.vendor || m.id });
-        idInput.spellcheck = false;
-        idInput.onchange = () => {
-          const v = idInput.value.trim();
-          if (v === savedID) delete pref().id; else pref().id = v;
-          drawReset();
-        };
-        idInput.onkeydown = (e) => { e.stopPropagation(); if (e.key === "Enter") idInput.blur(); else if (e.key === "Escape") { idInput.value = idNow(); idInput.blur(); } };
-        idBox.append(el("span", "", t("Listed as")), idInput);
-        row.append(idBox);
-      }
       const tierRow = el("div", "mtier");
       tierRow.title = t("What the whole request costs when its input — cached tokens and cache writes included — is over this many tokens, as OpenAI bills gpt-6-astra over 272K; empty: the list's");
       const tierNow = () => priceNow()?.tiers?.[0];
@@ -11168,6 +11183,8 @@ function renderModels(p) {
         if (m.api) prefs[id].api = "";
         if (m.same) prefs[id].same = "";
         same.value = sameNow();
+        if (savedID) prefs[id].id = "";
+        if (idInput) idInput.value = idNow();
         if (m.price) prefs[id].ownPrice = true;
         showPrice();
         if (apiSeg) { for (const b of apiSeg.querySelectorAll(".opt")) b.classList.toggle("on", b.dataset.api === apiNow()); slide(apiSeg, "api"); }
@@ -11216,8 +11233,6 @@ function renderModels(p) {
   const allOn = el("button", "text action", t("Select all"));
   allOn.title = t("Pick every model listed that this provider can serve (those the filter shows)");
   allOn.onclick = () => {
-        if (savedID) prefs[id].id = "";
-        if (idInput) idInput.value = idNow();
     const f = (q?.value || "").trim().toLowerCase();
     const ids = p.models.filter((m) => !noAPI(m) && (!draft.best || m.best)).filter((m) => !f || m.id.toLowerCase().includes(f) || (m.name || "").toLowerCase().includes(f) || (m.default || "").toLowerCase().includes(f)).map((m) => m.id);
     draft.chosen = [...draft.chosen, ...ids.filter((id) => !draft.chosen.includes(id))];
@@ -11372,7 +11387,7 @@ function renderModels(p) {
     };
     foot.append(forget);
   }
-  box.append(foot);
+  box.append(foot, verification);
   // a plugin whose list failed shows its defaults (Cursor's Auto alone):
   // why, rather than a short list that looks like the account's
   if (p.listError) box.append(el("div", "hint model-hint warn list-error", t("{p} couldn't list its models: {error}", { p: p.name, error: p.listError })));
@@ -12995,7 +13010,7 @@ function loginUsageOf(agent) {
       .then((d) => { u.data = d || {}; }, () => { u.data = u.data || {}; })
       .finally(() => {
         u.at = Date.now(); u.loading = null;
-        if (providers?.providers.find((p) => p.id === editing)?.account?.agent === agent && !document.querySelector(".editor .rename-in, .editor input:focus, .signing.import textarea:focus")) renderProviders();
+        if (providers?.providers.find((p) => p.id === editing)?.account?.agent === agent && !document.querySelector(".editor .rename-in, .editor input:focus, .signing.import textarea:focus")) renderProviders(true);
       });
   }
   return u.data;
@@ -19608,6 +19623,16 @@ async function renderSync(v) {
     row(t("Upload this computer's setup"), t("It replaces the file on the server. That file is kept in the sync folder first."),
       btn(t("Upload…"), () => askUpload(v.serverFile)));
   }
+  // agent fields set back here after a sync changed them (hayden4608)
+  if (v.on && v.agents !== false && v.own?.length) {
+    const fields = v.own.map((f) => t("{agent} {field}", { agent: f.agent, field: t(f.field) })).join(t(", "));
+    row(t("Kept on this computer"), t("{fields}: set back here after a sync changed them, so they stay as picked here.", { fields }),
+      btn(t("Follow the others"), async (e) => {
+        e.target.classList.add("busy");
+        renderSync(await api("davsync/follow", {}).catch((x) => ({ ...v, error: x.message })));
+        refreshAfterSync();
+      })).classList.add("wraps", "sync-own");
+  }
   if (v.notice) {
     const n = v.notice, r = el("div", "row pref sync-note");
     const lines = [];
@@ -19656,16 +19681,6 @@ function askRestore(v, parts) {
   const goes = ["providers", "settings", "profiles"];
   if (v.agents !== false) goes.push("agents");
   if (v.library !== false) goes.push("library");
-  // agent fields set back here after a sync changed them (hayden4608)
-  if (v.on && v.agents !== false && v.own?.length) {
-    const fields = v.own.map((f) => t("{agent} {field}", { agent: f.agent, field: t(f.field) })).join(t(", "));
-    row(t("Kept on this computer"), t("{fields}: set back here after a sync changed them, so they stay as picked here.", { fields }),
-      btn(t("Follow the others"), async (e) => {
-        e.target.classList.add("busy");
-        renderSync(await api("davsync/follow", {}).catch((x) => ({ ...v, error: x.message })));
-        refreshAfterSync();
-      })).classList.add("wraps", "sync-own");
-  }
   ed.append(el("p", "lib-confirm", t("This computer's {parts} become the ones on the server, as your other computers last synced them. Whatever was changed here since is replaced.", { parts: parts(goes) })));
   ed.append(el("p", "lib-confirm", t("What is here now is sealed into the sync folder first, and Undo puts it back.")));
   const err = el("p", "editor-error", "");

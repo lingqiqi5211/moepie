@@ -2234,6 +2234,7 @@ body.window .foot { padding-left: 18px; }
 .pop li.kept .text.action { flex: none; align-self: center; height: 25px; }
 .model-hint.warn { color: var(--amber); }
 .model-hint .text { margin-left: 4px; }
+.model-verification { overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
 .pop .none { padding: 10px 12px; color: var(--muted); font-size: 12px; white-space: normal; line-height: 1.45; }
 .pop.keying .search { border-bottom-color: var(--accent); color: var(--accent); }
 .pop .none b { color: var(--fg); font-weight: 500; }

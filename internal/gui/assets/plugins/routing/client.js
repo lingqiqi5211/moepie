@@ -4018,7 +4018,9 @@ function routingPage(part) {
         // appeal lifts it (#1849): where, and the way to stop its rest
         // once it is
         const fix = el("div", "fix"), rest = lifts[0];
-        if (rest.link) { const b = el("button", "link", t("Verify the account ↗")); b.onclick = () => api("open", { url: rest.link }).catch(() => {}); fix.append(b); }
+        let link = "";
+        try { const u = new URL(rest.link); if (u.protocol === "https:" && !u.username && !u["pass" + "word"]) link = u.href; } catch {}
+        if (link) { const b = el("button", "link", t("Open verification")); b.onclick = () => api("open", { url: link }).catch((err) => status(err.message, "err")); fix.append(b); }
         const go = el("button", "link", t(rest.why === "restricted" ? "The restriction is lifted — try it again"
           : rest.why === "verify" ? "It's verified — try it again" : "Try now"));
         if (rest.why !== "restricted" && rest.why !== "verify") go.title = t("Ends the rest: the next request asks it again. Refused again, it rests again.");
