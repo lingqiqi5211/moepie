@@ -30,7 +30,7 @@ func TestClientPathCoversHandler(t *testing.T) {
 		"claudeMCPPath": claudeMCPPath, "CodexPath": CodexPath, "CodexCatalogPath": CodexCatalogPath,
 		"AlphaSearchPath": AlphaSearchPath, "HeapPath": HeapPath, "CPUPath": CPUPath,
 		"GoroutinesPath": GoroutinesPath, "ClaudeRunsPath": ClaudeRunsPath, "SearchMCPPath": SearchMCPPath, "VisionMCPPath": VisionMCPPath,
-		"ImageMCPPath": ImageMCPPath, "ImageMCPFiles": ImageMCPFiles,
+		"ImageMCPPath": ImageMCPPath, "ImageMCPFiles": ImageMCPFiles, "OwnMCPPath": OwnMCPPath,
 		"ToolsMCPPath": ToolsMCPPath, "HubMCPPath": HubMCPPath, "HubMCPAll": HubMCPAll, "provider.RemoteCardsPath": provider.RemoteCardsPath,
 		"provider.RemoteRefreshPath": provider.RemoteRefreshPath,
 	}
