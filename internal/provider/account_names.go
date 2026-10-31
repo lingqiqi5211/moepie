@@ -64,6 +64,38 @@ func (p Provider) AccountName(user string) string {
 	return names[accountKey(user)]
 }
 
+// AccountByName is the one of users, accounts of the subscription id, that
+// the user named ref (AccountNameOf, compared without case), "" when none
+// is: an alias picks an account wherever its email does (#4532). It is an
+// error when the name is two accounts', or another account's email or
+// name as magpie lists it, which would then pick one of them by guess.
+func AccountByName(id string, users []string, ref string) (string, error) {
+	ref = cleanAccountName(ref)
+	if ref == "" {
+		return "", nil
+	}
+	var named []string
+	for _, u := range users {
+		if strings.EqualFold(AccountNameOf(id, u), ref) {
+			named = append(named, u)
+		}
+	}
+	switch len(named) {
+	case 0:
+		return "", nil
+	case 1:
+	default:
+		return "", fmt.Errorf("%q is the name of %d accounts, %q: name one by its email, or give them names apart (magpie accounts alias)", ref, len(named), named)
+	}
+	for _, u := range users {
+		email, _, _ := strings.Cut(u, " · ")
+		if !strings.EqualFold(u, named[0]) && (strings.EqualFold(u, ref) || strings.EqualFold(strings.TrimSpace(email), ref)) {
+			return "", fmt.Errorf("%q is the name of %s and the email of %s: name it by its email, or give %s another name (magpie accounts alias)", ref, named[0], u, named[0])
+		}
+	}
+	return named[0], nil
+}
+
 // AccountNameOf is the name the user gave the account user of the
 // subscription id, "" when none.
 func AccountNameOf(id, user string) string {

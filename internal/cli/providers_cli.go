@@ -1572,10 +1572,12 @@ func accountCapCmd(rest []string) error {
 	}
 	refs := p.AccountRefs()
 	if len(rest) > 1 {
-		refs = slices.DeleteFunc(refs, func(r string) bool { return !strings.EqualFold(r, strings.TrimSpace(rest[1])) })
-		if len(refs) == 0 {
+		// by its name or the name the user gave it, as the caps are set
+		r, ok := p.AccountRefOf(rest[1])
+		if !ok {
 			return fmt.Errorf("%s has no account %q", p.Name, rest[1])
 		}
+		refs = []string{r}
 	}
 	if len(refs) == 0 {
 		fmt.Println(muted.Render(p.Name + " has no account"))

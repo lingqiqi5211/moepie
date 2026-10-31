@@ -154,9 +154,12 @@ async function api(path, body, heads, signal) {
     if (data?.code === "bun_unstartable") err.message = t(data.said); // bunSaid in api.go: an i18n.js key
     // an account the agent is signed in to, refused removal while it has
     // another: said in the reader's language
-    if (data?.code === "signed_in") {
+    if (data?.code === "signed_in" || data?.code === "signed_in_only") {
       err.code = data.code;
-      err.message = t("{agent} is signed in to {user} now: sign it in to another of its accounts first (Use on that account), then remove this one", { agent: { codex: "Codex", claude: "Claude Code" }[data.agent] || data.agent, user: data.user });
+      const v = { agent: { codex: "Codex", claude: "Claude Code" }[data.agent] || data.agent, user: data.user };
+      err.message = data.code === "signed_in_only"
+        ? t("{agent} is signed in to {user}, the only account in magpie it can be signed in to, and magpie doesn't sign it out: add another account first, or sign out in {agent} itself, then remove this one", v)
+        : t("{agent} is signed in to {user} now: sign it in to another of its accounts first (Use on that account), then remove this one", v);
     }
     // a text Import can't add as a routing group (laincatx on X)
     if (data?.code === "share") {
@@ -11690,8 +11693,8 @@ function importSay(agent) {
   if (agent === "claude") {
     // nothing is asked of Anthropic: the sign-in is kept as the file has it
     return {
-      from: t("Bring in accounts from CLIProxyAPI's auth files or {own}", { own: "Claude Code's .credentials.json" }),
-      intro: t("Choose or paste CLIProxyAPI's auth files (JSON) or {own}. Each account is kept as the file has it.", { own: "Claude Code's .credentials.json" }),
+      from: t("Bring in accounts from CLIProxyAPI's auth files or {own}", { own: "Claude Code's .credentials.json or claude-swap's export" }),
+      intro: t("Choose or paste CLIProxyAPI's auth files (JSON) or {own}. Each account is kept as the file has it.", { own: "Claude Code's .credentials.json or claude-swap's export" }),
       spent: t("Claude Code renews the sign-in the first time it uses it, and the file's copy then stops working: the tool it came from has to sign in again."),
       checking: t("Adding the accounts…"),
       checks: t("Each account is kept as the file has it; nothing is asked of Claude."),
@@ -12648,10 +12651,10 @@ function renderAccounts(a, p) {
         out.title = t("Signs Codex out of this account, as codex logout does");
         out.onclick = () => askSignOutLogin(a, l);
         row.append(out);
-      } else if (a.agent === "codex") {
-        // Codex is signed in to another of its accounts first, then this
-        // one goes (ForgetLogin), rather than Codex signed out
-        row.append(forgetOf(t("Codex is signed in to another of its accounts, and magpie forgets this one; the account itself is untouched")));
+      } else if (a.agent === "codex" || a.agent === "claude" && ls.some((o) => o !== l)) {
+        // ForgetLogin switches to another account before removing this one.
+        // Claude Code's only account is kept; magpie never signs it out.
+        row.append(forgetOf(t("{agent} is signed in to another of its accounts, and magpie forgets this one; the account itself is untouched", { agent: a.agentName })));
       }
     } else {
       const forget = forgetOf(true);

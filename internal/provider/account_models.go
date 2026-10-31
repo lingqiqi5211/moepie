@@ -136,7 +136,10 @@ func (a AccountRef) Shown(p Provider) string {
 }
 
 // accountRef is the account or key of p that ref names: a signed-in
-// account by its name, a key by its KeyID or its name, in any case.
+// account by its name, else by the name the user gave it when that is one
+// account's and no other's email (AccountByName; #4532), a key by its
+// KeyID or its name, in any case. An account's own name goes first: the
+// GUI passes it, and a name given to another account never takes it.
 func (p Provider) accountRef(ref string) (string, bool) {
 	ref = strings.TrimSpace(ref)
 	for _, r := range p.AccountRefs() {
@@ -149,6 +152,11 @@ func (p Provider) accountRef(ref string) (string, bool) {
 			if k.Name != "" && strings.EqualFold(k.Name, ref) {
 				return k.ID, true
 			}
+		}
+	}
+	if p.Account != nil {
+		if u, err := AccountByName(p.ID, p.AccountRefs(), ref); err == nil && u != "" {
+			return u, true
 		}
 	}
 	return "", false

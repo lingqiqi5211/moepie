@@ -22,8 +22,13 @@ const codex = (logins) => ({
 const one = [{ user: "me@example.com", plan: "PLUS", active: true, on: true }];
 const two = [...one, { user: "work@example.com", plan: "PRO", on: true }];
 
-function serve(lang, logins, posts, refuse) {
-  const providers = { providers: [codex(logins)], presets: [], excluded: [], gateway: { running: true, window: true } };
+function serve(lang, logins, posts, refuse, agent = "codex") {
+  const p = codex(logins);
+  if (agent === "claude") {
+    p.id = "claude"; p.name = "Claude Code";
+    p.account.agent = "claude"; p.account.agentName = "Claude Code";
+  }
+  const providers = { providers: [p], presets: [], excluded: [], gateway: { running: true, window: true } };
   const state = { agents: [], profiles: [], settings: { lang, theme: "light" } };
   return async (route) => {
     const req = route.request();
@@ -37,7 +42,7 @@ function serve(lang, logins, posts, refuse) {
     if (url.pathname === "/api/plugins") return json({ plugins: [] });
     if (url.pathname === "/api/login/forget") {
       posts.push(req.postDataJSON());
-      if (refuse) return route.fulfill({ status: 400, json: { error: "codex is signed in to me@example.com now", code: "signed_in", agent: "codex", user: "me@example.com" } });
+      if (refuse) return route.fulfill({ status: 400, json: { error: `${agent} is signed in to me@example.com now`, code: agent === "claude" ? "signed_in_only" : "signed_in", agent, user: "me@example.com" } });
       return json({ ...providers, providers: [] });
     }
     if (url.pathname.startsWith("/api/")) return json({});
@@ -55,17 +60,17 @@ const words = {
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
   for (const lang of ["en", "zh"]) {
     const w = words[lang];
-    const open = async (t, logins, refuse = false) => {
+    const open = async (t, logins, refuse = false, agent = "codex", width = 900) => {
       const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
       t.after(() => browser.close());
-      const page = await (await browser.newContext({ viewport: { width: 900, height: 760 }, reducedMotion: "reduce" })).newPage();
+      const page = await (await browser.newContext({ viewport: { width, height: 760 }, reducedMotion: "reduce" })).newPage();
       page.setDefaultTimeout(5000);
       const errors = [];
       const posts = [];
       page.on("pageerror", (e) => errors.push(e.message));
-      await page.route("**/*", serve(lang, logins, posts, refuse));
+      await page.route("**/*", serve(lang, logins, posts, refuse, agent));
       await page.goto("http://magpie.test/?view=providers");
-      await page.locator(".row.provider", { hasText: "Codex" }).first().click();
+      await page.locator(".row.provider", { hasText: agent === "claude" ? "Claude Code" : "Codex" }).first().click();
       await page.locator(".editor .acc").first().waitFor();
       return { page, errors, posts };
     };
@@ -134,9 +139,44 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await confirm.getByRole("button", { name: w.remove, exact: true }).click();
       await page.waitForFunction(() => document.querySelector("#status")?.textContent.includes("me@example.com"));
       assert.deepEqual(posts, [{ agent: "codex", user: "me@example.com" }]);
-      const missing = await page.evaluate(() => ["Codex is signed in to another of its accounts, and magpie forgets this one; the account itself is untouched"]
+      const missing = await page.evaluate(() => ["{agent} is signed in to another of its accounts, and magpie forgets this one; the account itself is untouched"]
         .filter((k) => !I18N.zh[k] || !I18N.ja[k] || !I18N.de[k]));
       assert.deepEqual(missing, [], "every string has its zh, ja and de");
+      assert.deepEqual(errors, []);
+    });
+
+    for (const width of [900, 380]) {
+      test(`${engine} ${lang} ${width}: Claude's current account removal confirms and preserves a last-account refusal`, async (t) => {
+        const { page, posts, errors } = await open(t, two, true, "claude", width);
+        const row = page.locator(".editor .acc", { hasText: "me@example.com" });
+        const remove = row.getByRole("button", { name: w.remove, exact: true });
+        assert.equal(await remove.count(), 1);
+        assert.equal(await row.getByRole("button", { name: w.out, exact: true }).count(), 0);
+        await remove.click();
+        const confirm = page.locator("dialog.action-confirm[open]");
+        await confirm.waitFor();
+        assert.deepEqual(posts, []);
+        await page.keyboard.press("Escape");
+        await confirm.waitFor({ state: "detached" });
+        assert.deepEqual(posts, []);
+        await remove.click();
+        await confirm.getByRole("button", { name: w.remove, exact: true }).click();
+        await page.waitForFunction(() => [...document.querySelectorAll(".editor-error, #status")].some(n => n.textContent.includes("me@example.com")));
+        const said = await page.locator(".editor-error, #status").allTextContents();
+        assert.match(said.join(" "), lang === "zh" ? /唯一能登录的账号/ : /the only account in magpie/);
+        assert.doesNotMatch(said.join(" "), /\{agent\}|\{user\}/);
+        assert.deepEqual(posts, [{ agent: "claude", user: "me@example.com" }]);
+        assert.equal(await row.count(), 1, "a refusal keeps the account visible");
+        assert.deepEqual(errors, []);
+      });
+    }
+
+    test(`${engine} ${lang}: Claude's only account offers neither Remove nor Sign out`, async (t) => {
+      const { page, posts, errors } = await open(t, one, false, "claude");
+      const row = page.locator(".editor .acc", { hasText: "me@example.com" });
+      assert.equal(await row.getByRole("button", { name: w.remove, exact: true }).count(), 0);
+      assert.equal(await row.getByRole("button", { name: w.out, exact: true }).count(), 0);
+      assert.deepEqual(posts, []);
       assert.deepEqual(errors, []);
     });
 

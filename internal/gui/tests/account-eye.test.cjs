@@ -104,6 +104,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await page.locator(".row.provider", { hasText: "ZCode" }).first().click();
         const row = (id) => page.locator(`.editor .accts .acc[data-account-id="${id}"]`);
         await row(TEAM).locator(".acct-who").waitFor();
+        // the pointer off the rows: the click that opened the editor left it
+        // on ME's name at 360px
+        await page.mouse.move(0, 0);
         const eye = (id) => row(id).locator(".acct-eye");
 
         // Hide accounts off: no eye at all

@@ -2880,6 +2880,9 @@ func fail(rw http.ResponseWriter, err error) {
 	var signedIn *provider.SignedInError
 	if errors.As(err, &signedIn) {
 		out["code"], out["agent"], out["user"] = "signed_in", signedIn.Agent, signedIn.User
+		if signedIn.Only {
+			out["code"] = "signed_in_only"
+		}
 	}
 	// a text that isn't a group to import (laincatx on X), said in the
 	// reader's language

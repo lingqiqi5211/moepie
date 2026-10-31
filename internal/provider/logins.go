@@ -1323,11 +1323,13 @@ func putClaudeLogin(l savedLogin) error {
 }
 
 // ForgetLogin drops a remembered account. The one an agent is signed in to
-// now can't be forgotten while it has another to be signed in to; it would
-// only be remembered again (SignedInError). Codex is signed in to another
-// of its accounts first (nextOnForget), and its last one is signed out
-// instead, as `codex logout` does (mamba on Discord: a single Codex account
-// couldn't be removed at all).
+// now would only be remembered again, so Codex and Claude Code are signed
+// in to another of their accounts first (nextOnForget), as its Use would
+// (StringKe, #4532: Claude's was refused while Codex's switched). Codex's
+// last one is signed out instead, as `codex logout` does (mamba on
+// Discord: a single Codex account couldn't be removed at all). Claude
+// Code's last one that it can be signed in to is kept, and the removal
+// refused (SignedInError, Only): magpie never signs Claude Code out.
 func ForgetLogin(agent, user string) error {
 	if settings.AccountDiscoveryOff() {
 		return errAccountDiscoveryOff
@@ -1343,15 +1345,16 @@ func ForgetLogin(agent, user string) error {
 	case "gemini", "antigravity":
 		return forgetGoogleLogin(agent, user)
 	}
-	if agent == "codex" {
-		// the account Codex is signed in to, with another saved: Codex is
-		// signed in to that one first, as its Use would, and this one is
-		// forgotten then, rather than Codex left signed out or the removal
-		// refused (vincentzhang1_55530 on Discord: a Team account removed
-		// beside a Plus one, and Codex was at its sign-in screen)
+	if agent == "codex" || agent == "claude" {
+		// the account the agent is signed in to, with another saved: the
+		// agent is signed in to that one first, as its Use would, and this
+		// one is forgotten then, rather than Codex left signed out or the
+		// removal refused (vincentzhang1_55530 on Discord: a Team account
+		// removed beside a Plus one, and Codex was at its sign-in screen).
+		// A switch that fails removes nothing: the agent is still on user.
 		if next := nextOnForget(agent, user); next != "" {
 			if err := SwitchLogin(agent, next); err != nil {
-				return err
+				return fmt.Errorf("%s is signed in to %s now, and signing it in to %s first failed, so %s is kept: %w", loginAgentName(agent), user, next, user, err)
 			}
 		}
 	}
@@ -1365,13 +1368,14 @@ func ForgetLogin(agent, user string) error {
 
 // nextOnForget is the account an agent is signed in to in place of user,
 // which is being removed: "" when it isn't signed in to user, or has no
-// other saved. The first other in the order that is on, else one whose
-// sign-in still holds, else any other.
+// other saved that it can be signed in to (switchable). The first other in
+// the order that is on, else one whose sign-in still holds, else any other.
 func nextOnForget(agent, user string) string {
 	ls := Logins(agent)
 	if !slices.ContainsFunc(ls, func(l Login) bool { return l.Active && strings.EqualFold(l.User, user) }) {
 		return ""
 	}
+	ls = slices.DeleteFunc(ls, func(l Login) bool { return !switchable(l) })
 	for _, fit := range []func(Login) bool{
 		func(l Login) bool { return l.On && !l.Paused && l.Lapsed == "" },
 		func(l Login) bool { return l.Lapsed == "" },
@@ -1386,12 +1390,33 @@ func nextOnForget(agent, user string) string {
 	return ""
 }
 
+// switchable is an account an agent can be signed in to: not a ChatGPT account Codex
+// keeps in another folder (codexHeldIn).
+func switchable(l Login) bool { return l.home == "" }
+
 func forgetLogin(agent, user string) (signedOut bool, err error) {
 	loginsMu.Lock()
 	defer loginsMu.Unlock()
 	ls := readLogins()
 	if live, ok := liveLogin(agent); ok && strings.EqualFold(live.User, user) {
 		other := slices.ContainsFunc(ls, func(l savedLogin) bool { return l.Agent == agent && !strings.EqualFold(l.User, user) })
+		if agent == "claude" {
+			// Claude Code is never signed out: its sign-in may be in the
+			// keychain, and magpie serves its saved accounts while it is
+			// signed out (claudeStandIn). Still on user, after a switch
+			// to another (ForgetLogin): that one couldn't be signed in to.
+			other = slices.ContainsFunc(ls, func(l savedLogin) bool {
+				return l.Agent == agent && !strings.EqualFold(l.User, user)
+			})
+			return false, &SignedInError{Agent: agent, User: user, Only: !other}
+		}
+		if agent == "codex" {
+			// nor one Codex keeps in another folder, which ~/.codex
+			// can't be signed in to (codexHeldIn)
+			other = slices.ContainsFunc(ls, func(l savedLogin) bool {
+				return l.Agent == agent && !strings.EqualFold(l.User, user) && codexHeldIn(l) == ""
+			})
+		}
 		if agent != "codex" || other {
 			return false, &SignedInError{Agent: agent, User: user}
 		}
@@ -1433,11 +1458,19 @@ func forgetLogin(agent, user string) (signedOut bool, err error) {
 
 // SignedInError is ForgetLogin's refusal of the account an agent is
 // signed in to now while it has another: that one is signed in to first
-// (its Use), and this one removed then. The GUI says it in the reader's
-// language (code signed_in).
-type SignedInError struct{ Agent, User string }
+// (its Use), and this one removed then. Only is Claude Code's last account
+// it can be signed in to, which magpie keeps rather than sign Claude Code
+// out. The GUI says it in the reader's language (codes signed_in and
+// signed_in_only).
+type SignedInError struct {
+	Agent, User string
+	Only        bool
+}
 
 func (e *SignedInError) Error() string {
+	if e.Only {
+		return fmt.Sprintf("%s is signed in to %s, the only account in magpie it can be signed in to, and magpie doesn't sign it out: add another account first, or sign out in %s itself, then remove this one", loginAgentName(e.Agent), e.User, loginAgentName(e.Agent))
+	}
 	return fmt.Sprintf("%s is signed in to %s now: sign it in to another of its accounts first (Use on that account), then remove this one", loginAgentName(e.Agent), e.User)
 }
 
