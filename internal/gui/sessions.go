@@ -435,7 +435,7 @@ func sessionRoutes(mux *http.ServeMux, w Windows) {
 			fail(rw, errors.New("no such session"))
 			return
 		}
-		if err := openTerminal(run, settings.Load().SessionTerminal); err != nil {
+		if err := openTerminal(run, s.Title, settings.Load().SessionTerminal); err != nil {
 			fail(rw, err)
 			return
 		}
@@ -470,7 +470,7 @@ func sessionRoutes(mux *http.ServeMux, w Windows) {
 			return
 		}
 		if in.Open {
-			if err := openTerminal(c.Command, settings.Load().SessionTerminal); err != nil {
+			if err := openTerminal(c.Command, s.Title, settings.Load().SessionTerminal); err != nil {
 				fail(rw, err)
 				return
 			}
@@ -809,13 +809,20 @@ const tightGCPercent = 25
 // openTerminal runs a command in the chosen Mac terminal through a .command
 // file, as it would open from Finder: no Automation consent.
 // The shell is left open when the agent quits.
-func openTerminal(command, choice string) error {
+func openTerminal(command, label, choice string) error {
 	var found terminalDiscovery
 	if choice != terminalBundleID {
 		var err error
 		// the system default falls back to Terminal when nothing is found
 		if found, err = discoverTerminals(); err != nil && choice != "" && choice != "system" {
 			return err
+		}
+	}
+	if choice == rexBundleID {
+		for _, app := range found.Apps {
+			if app.ID == rexBundleID {
+				return openInRex(app.Path, command, label)
+			}
 		}
 	}
 	args, err := terminalOpenArgs(choice, found)
