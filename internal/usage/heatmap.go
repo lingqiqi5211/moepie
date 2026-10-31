@@ -156,7 +156,7 @@ func (ps *pairedRows) heatOf(since, now time.Time, f Filter, cache *partCache, i
 // chunks of ps that only keeps (nil: all).
 func (ps *pairedRows) heatDaysOf(since, now time.Time, f Filter, cache *partCache, identities map[string]sessions.CodexIdentity, only func(*rowChunk) bool) []Day {
 	sigs := ps.sigs(identities)
-	var rows chunkRows
+	rows := lentRows() // days retain dates and numbers, not borrowed row strings
 	defer rows.release()
 	var r Row
 	all := heatDays{}

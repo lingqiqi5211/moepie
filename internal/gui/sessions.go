@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
+	"io"
 	"maps"
 	"net/http"
 	"os"
@@ -26,6 +27,76 @@ import (
 	"github.com/yetone/magpie/internal/settings"
 	"github.com/yetone/magpie/internal/usage"
 )
+
+// statsAnswer encodes a stats snapshot one day at a time, with exactly the
+// bytes of the whole struct's Encoder. This bounds scratch space to a day
+// rather than all history, while preserving the page's response tags.
+func statsAnswer(w io.Writer, st sessions.Stats, agents map[string]string) error {
+	var part bytes.Buffer
+	enc := json.NewEncoder(&part)
+	put := func(v any) error {
+		part.Reset()
+		if err := enc.Encode(v); err != nil {
+			return err
+		}
+		_, err := w.Write(part.Bytes()[:part.Len()-1])
+		return err
+	}
+	text := func(s string) error {
+		_, err := io.WriteString(w, s)
+		return err
+	}
+	if err := text(`{"from":`); err != nil {
+		return err
+	}
+	if err := put(st.From); err != nil {
+		return err
+	}
+	if err := text(`,"to":`); err != nil {
+		return err
+	}
+	if err := put(st.To); err != nil {
+		return err
+	}
+	if err := text(`,"days":`); err != nil {
+		return err
+	}
+	if st.Days == nil {
+		if err := text("null"); err != nil {
+			return err
+		}
+	} else {
+		if err := text("["); err != nil {
+			return err
+		}
+		for i := range st.Days {
+			if i > 0 {
+				if err := text(","); err != nil {
+					return err
+				}
+			}
+			if err := put(&st.Days[i]); err != nil {
+				return err
+			}
+		}
+		if err := text("]"); err != nil {
+			return err
+		}
+	}
+	if err := text(`,"keys":`); err != nil {
+		return err
+	}
+	if err := put(st.Keys); err != nil {
+		return err
+	}
+	if err := text(`,"agents":`); err != nil {
+		return err
+	}
+	if err := put(agents); err != nil {
+		return err
+	}
+	return text("}\n")
+}
 
 // sessionJSON is a session with what the UI needs to draw its agent.
 type sessionJSON struct {
@@ -189,10 +260,7 @@ func sessionRoutes(mux *http.ServeMux, w Windows) {
 			rw.WriteHeader(http.StatusOK)
 			return
 		}
-		tag := writeJSONSame(rw, r, struct {
-			sessions.Stats
-			Agents map[string]string `json:"agents"`
-		}{st, agents})
+		tag := writeSame(rw, r, func(w io.Writer) error { return statsAnswer(w, st, agents) })
 		if tag != "" {
 			statsTags.Lock()
 			if statsTags.m == nil || len(statsTags.m) >= statsMemoMost {

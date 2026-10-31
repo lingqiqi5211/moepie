@@ -13,9 +13,8 @@ type rowsBufRow struct {
 	N    float64 `json:"n"`
 }
 
-// writeJSONRows writes the rows straight into the answer, and the answer is
-// byte for byte what Marshal of each row, joined, gave: the page's delta
-// and its tag both rest on those bytes.
+// writeJSONRows emits exactly the bytes of Marshal on each row, joined:
+// the page's delta and its tag both rest on those bytes.
 func TestWriteJSONRowsWritesWhatMarshalDid(t *testing.T) {
 	rows := []rowsBufRow{
 		{Name: "a<b>&c", Note: "\u2028 línea", N: 1.5},
@@ -47,7 +46,7 @@ func TestWriteJSONRowsWritesWhatMarshalDid(t *testing.T) {
 	}
 	for _, rest := range []any{struct{}{}, map[string]any{"total": 3, "at": "<now>"}} {
 		for n := 0; n <= len(rows); n++ {
-			// twice, so the second is written into a buffer sized from the first
+			// Repeat to exercise the cached row-hash state as well.
 			for range 2 {
 				w := httptest.NewRecorder()
 				writeJSONRows(w, httptest.NewRequest("GET", "/x", nil), "rows", rows[:n], rest)
