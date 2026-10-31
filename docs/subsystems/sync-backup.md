@@ -61,6 +61,28 @@ this computer's values for a provider it has, and brings a new one without
 `KeepLoginAs`, an account signed in on the other computer; `hashes` blanks
 all three (`TestMirrorKeepsKeepLogin`, `TestKeepLoginIsNoChange`).
 
+The agents part keeps a computer's own pick the same way, field by field
+(hayden4608 on Discord: two computers on one GitHub sync, each wanting its own
+Codex model, set each other's on every sync). Each field a sync changes here
+is recorded in sync-state.json (`Brought`), with the value it wrote over when
+that value was picked here, not brought by an earlier sync (`Replaced`). A
+field the user then sets back to that value is this computer's own (`Own`,
+[`noticeOwn`](../../internal/davsync/own.go)). Setting a new value is a pick
+like any other: it goes up, so a change made on either computer still reaches
+the other. For an own field, `hashesOwn` leaves it out, so picking it is no
+change to push and the server's value is no change to bring; `bringAgents`
+brings the agents' other fields and puts an own field back if a provider moved
+it; `keepServersOwn` keeps the server's value of it in what this computer
+pushes. Settings → Sync lists the own fields under Kept on this computer, with
+**Follow the others** (`davsync.Follow`): the next sync brings the server's
+values in and clears `Own`. Failed reads or applies keep Follow pending for a
+later sync. A successful Restore with Agents enabled clears ownership even
+when the agent values already match; with Agents disabled it leaves ownership
+alone. The three maps survive a change of server, and the first upload to an
+empty server excludes fields still owned by this computer
+(`TestOwnModelStaysOnEachComputer`, `TestNewPicksStillGoBothWays`,
+`own_boundaries_test.go`, `sync-own-fields.test.cjs`).
+
 Sharing turned on at one computer never turns it on or off at another
 (Lullaby on Discord). A backup restored onto a new computer leaves sharing as
 that computer has it, off on a fresh one: sharing opens the gateway to the
