@@ -1009,6 +1009,15 @@ over the model chips runs them to the last one and then takes the editor's
 body on to its end, where the chips' held ends stopped it; the page never
 moves. In Chromium and WebKit, English and Chinese.
 
+`editor-quota-quiet.test.cjs` holds a subscription's allowance read
+(/api/login/usage) while its editor opens, then lets it answer, empty and
+with meters, in congee949's fixture (#3492: five accounts, 16 models,
+1960x1015): the editor drawn again for it keeps the dialog at opacity 1
+and its top in every frame, its body's scroll and the focus, where the
+whole dialog played its swap from opacity .5 and 2px down. Codex's only
+account's Sign out, and Cancel back to the editor, still play the swap.
+In Chromium and WebKit, English and Chinese.
+
 `group-from-model-add.test.cjs` opens the Routing page on a new group made
 from a model (?newgroup=, as "Make a routing group of it" does; 悠悠哥 on
 Discord: "Hy4 preview" did nothing on Add in a small window). Each label

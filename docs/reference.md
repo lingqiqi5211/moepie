@@ -1767,7 +1767,17 @@ in to a minute after it starts and every 5 minutes after: once it has used
 98% of a window (100% In order), or reached its usage cap, magpie signs
 the agent in to the next ticked account, in their order, whose allowance
 is known and under that share. A saved Claude account magpie knows
-nothing of yet (see below) is not moved to. Once the account it moved the
+nothing of yet (see below) is not moved to. When every other account is
+past that share too, magpie moves the agent to the one with the most room
+left, if it has more than a point more than the account it is on; else the
+agent stays. `magpie accounts switch claude next` (or `codex next`) does
+the same by hand: the next account after the one the agent is on, in
+their order and wrapping round, that has room, or the one with the most
+room left when none has. It takes accounts that aren't ticked too, as
+*Use* and `switch <email|name>` do, so an account Claude Code or Codex
+signed itself in to (which starts unticked) is in the rotation; the
+ticks still decide where the gateway's requests go and which accounts
+the automatic switch moves to. Once the account it moved the
 agent off has every window under 90% again, it signs the agent back in to
 it. *Keep … signed in to* turns this off: the agent stays on the first
 account, or on the account you picked, whatever it has left. It changes nothing in the gateway's routing.
@@ -1886,7 +1896,7 @@ signed in again: *Import accounts from a file…* under a subscription's
 accounts, or `magpie accounts import <codex|claude|antigravity|factory>
 <file>... [--yes]`. For ChatGPT that takes Codex's `auth.json`, codexbar's
 `~/.codexbar/config.json` (every ChatGPT account it switches between) and
-the exports of Cockpit Tools, CLIProxyAPI and Sub2API, as many files as
+the exports of Cockpit Tools, CLIProxyAPI, Sub2API and claude-swap (Claude), as many files as
 you like. Each ChatGPT sign-in is refreshed before it is added, which
 checks it and makes magpie its only holder: the tool the file came from
 (Codex on another computer, codexbar, Cockpit Tools, CLIProxyAPI) is
@@ -2318,7 +2328,12 @@ name in its provider's editor, or `magpie accounts alias <agent> <email>
 <name>` (`--clear` takes it off). The name is magpie's, kept in
 providers.json; the vendor's or plugin's sign-in is never written to. It
 shows on the account's Usage card, in the menu bar, in `magpie accounts`,
-`magpie quota` and `GET /v1/magpie/quotas` (`alias`). A GLM Coding Plan
+`magpie quota` and `GET /v1/magpie/quotas` (`alias`). The name picks the
+account wherever its email does: `magpie accounts switch claude Work`,
+`forget`, `alias`, `provider pool <id> --accounts` and `provider
+account-cap`. magpie refuses a name two accounts have, or one that is
+another account's email, rather than pick one by guess; `next` after
+`switch` is always the next account (see above). A GLM Coding Plan
 seat added both as a key and as a signed-in ZCode account is shown once, on
 the account's card (two cards would count its allowance twice); that card
 is then named for the key's provider until you name it yourself, and says
@@ -2826,6 +2841,22 @@ default listed once. With no saved choice, magpie follows that default, or
 Terminal when the default is not a terminal. The *Resume* button still copies
 the command.
 
+Rex (superlogical.com/rex) is listed too when its `rex` program is found,
+on `PATH` or inside a `Rex*.app` in `/Applications` or `~/Applications`
+(only a native program counts, so the Perl tool also called `rex` is not
+taken). Rex claims no `.command` files, so magpie opens it through its CLI,
+in a Rex session of its own labelled `magpie`. Outside Rex, `rex run` with no
+`-s` adds a tab only when Rex has exactly one session: with none or several it
+exits 3 (not found or ambiguous), and the CLI can't tell which session the app
+shows. So magpie finds its session with `rex ls --json` and runs
+`rex run -s <its ID> --label=<session or agent> -- /bin/sh -c '<command>; exec $SHELL -l'`,
+then names the new tab with `rex window rename`. With no such session (or one
+that ended since the list) it runs `rex new magpie --window=<session or agent> -- …`,
+whose first tab is so named. When Rex's server can't be reached (exit 4) it
+says to open Rex. The same applies to an agent's *Open in terminal* and a
+carried-over session (StringKe, #4565;
+[`terminal_rex.go`](../internal/gui/terminal_rex.go)).
+
 Keys in the terminal version:
 
 | Key        | Action                                |
@@ -2901,6 +2932,13 @@ The file is sealed on your machine with the passphrase, so the server only
 ever stores ciphertext. Each machine writes only over the version it read (a
 conditional write), so an update that another machine made in between is
 merged rather than lost.
+
+A change to an agent's model (or any of its fields) on one machine reaches
+the others. When sync changes one on a machine and you set it back there,
+that machine keeps its own: the other machines' picks no longer change it
+there, and its picks stay there, while everything else keeps syncing.
+Settings → Sync lists those fields under **Kept on this computer**, and
+**Follow the others** takes the synced value again.
 
 ```sh
 magpie webdav on https://dav.jianguoyun.com/dav/ user=me@example.com

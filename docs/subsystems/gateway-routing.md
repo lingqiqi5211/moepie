@@ -1,6 +1,25 @@
 # Gateway routing and fallback
 
+## Model IDs at provider boundaries
+
+Listed-as IDs name a model in catalogs, key restrictions, routes and Usage.
+The gateway translates them with OwnModelID before invoking a signed-in account
+or plugin; session-affinity and fallback state continue to track the listed ID.
+No account credential or plugin installation is needed to configure that name.
+
 ## Selected upstream behavior updates
+
+Chat usage from a plugin can mark cache accounting unknown with
+`magpie_cache_unknown`. Both streamed and whole replies carry that marker
+to routing and usage records; an explicit zero cache count remains a known
+miss, and any reported cache tokens override the unknown marker. The gateway
+does not add the marker to usage it constructs for clients (`cUsage.usage`,
+`Usage.cacheNotCounted`).
+
+Kimi models with locked sampling on Volcengine Ark omit `temperature` and
+`top_p` through the shared `forwardOnce` path, including the coding preset
+and providers added by hand on an Ark host (`kimiLockedSampling`). Other
+models and providers retain the user's sampling values.
 
 A provider fallback hands the next turn back to the recovered primary
 (`affine` in `affinity.go`, `TestFallbackGivesTheConversationBackOnceTheMainIsReady`).
@@ -52,6 +71,8 @@ precedence is unchanged. Affinity previously kept under an inferred first
 message digest is not migrated to a newly recognised native id, so the first
 request after upgrading can choose an account anew. Historical usage is not
 backfilled; see [Gateway Session Aggregation](gateway-sessions.md).
+
+A malformed UTF-8 byte consumes one byte in the local tokenizer and keeps that byte's original offsets. A panic while the local model reads a request, including one in its parallel CPU or window workers, is returned as that request's model error (`classifySafely`, `guard.carried`, `masking.find`). An explicitly enabled model still holds the request back through `gwmw.Safely`; the next request can use the model again. Warm-up uses the same recovery boundary.
 
 ## Responsibilities and sources of truth
 
@@ -200,6 +221,7 @@ recorded as a prediction failure (`noPrediction`).
    - A model set for Claude Desktop's subagents (`settings.DesktopSubagentModel`, the Agents page's Claude Desktop "subagent model") is put on a subagent's turn in Desktop's Code tab or Cowork after `desktopTurn`, the tiers and the groups, whatever model its lead or its tier asked for (`desktopSubagentPick` in [`desktop_subagent.go`](../../internal/gateway/desktop_subagent.go)). Desktop runs its Claude Code with `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1`, under which Claude Code ignores the `CLAUDE_CODE_SUBAGENT_MODEL` magpie writes into its settings (see [agent wiring](agent-wiring.md)). A subagent's request is one with `x-claude-code-agent-id` (`subagentOf`) from `claude-desktop`, and only one that offers tools is its turn: Claude Code's tool-less helper calls inside a subagent, on the haiku tier's model, stay where they are, and so do the lead's turns, terminal Claude Code's and every other agent's. The model set must be served by its exact id (`provider.DesktopSubagentUnserved`: `Resolve` takes any model name under a provider that is on), enabled, and allowed to a gateway key held to some models (`groupAllowed` for a group); otherwise the subagent goes on the model asked for and the route trace says why (`Route.Subagent`, said on the Routing page by `subagentWhy`, its `Kind` staying empty). `Route.Model` and the ledger's `Requested` keep the model the subagent asked for. `count_tokens` counts on the model set the same way (`countTokens`). The setting is read on each request, so a change needs no restart of Desktop, and a provider renamed since it was set is read by its new id (`RenamedRef`). A Desktop on another computer that reaches magpie with a named gateway key is read as Claude Code (`agentOf`), so none of Desktop's routing, this included, applies to it. A subagent's turn, moved or not, is never kept as the session's model in `claude-desktop.model` (`desktopTurn`'s `bySubagent`): a subagent on the opus tier's model took the session's place until the lead's next turn, and Desktop's titles asked for meanwhile went to it.
    - Desktop's subagent effort (`settings.DesktopSubagentEffort`, `desktopSubagentEffort` in [`desktop_subagent.go`](../../internal/gateway/desktop_subagent.go)) applies to the same subagent tool turns, independently of model replacement. Empty leaves requests unchanged. Set, it takes the place of a request model's effort suffix before the existing attempt-level effort fitting: a member fixed at an effort wins, then this pick fitted within group/model levels, then the turn's or request's effort. `withFixedEffort` can enable reasoning when it was disabled, or disable it with `none` on a model that supports that level; a reasonless model is still sent no reasoning fields. `countTokens` applies the pick after restoring any unmasked body. `Route.Effort` keeps the incoming effort, `Route.SubagentEffort` the configured pick, and each try and usage record the level actually sent; the Routing story explains the configured pick even when no model was replaced. A nonempty model pick already classifies the turn, so the effort check reuses it; empty effort costs only a held-settings read. The next request takes a changed or cleared effort without a Desktop restart.
    - Every Claude Code subagent's turn, Desktop's or a terminal's, moved or not, keeps its `x-claude-code-agent-id` in `Route.SubagentID` (`subagentTurnOf` in [`desktop_subagent.go`](../../internal/gateway/desktop_subagent.go)): a request with the id that offers tools and names no kind, the turn the two settings above take. Claude Code 2.1.295 sends the id from any agent context but the main one; its `x-claude-code-request-class` and `x-claude-code-agent-type` hints go only to a first-party base URL or with `CLAUDE_CODE_GATEWAY_HINT_HEADERS`, so magpie doesn't get them. A Desktop pick or effort that found the turn is trusted, so the body isn't decoded again, and a request without the id isn't decoded at all. The Routing page tags it as Codex's subagents are (`tagKind` in [`routing.js`](../../internal/gui/assets/routing.js)): in the request list, the story, the replay and the tray panel, with the reason `kindWhy` gives Codex's. `Kind` stays empty, so its purpose stays unmarked in the Purpose filter, as in the ledger and on the Usage page. The ledger's `Subagent` keeps the same id, and also marks a subagent's tool-less helper calls, which aren't tagged. A route recorded before this has no id and no tag.
+   - A request a stand-in of magpie's put on another model than the agent named keeps that model and the rule in `Route.Moved` (`ModelMove{To, Why}` in [`trace.go`](../../internal/gateway/trace.go), set by `move` in `serve`): Claude Desktop's moves (`desktopMove` in [`desktop.go`](../../internal/gateway/desktop.go): `desktop-title`, `desktop-check`, `desktop-gone`, each with a `-first` form when it went to the first model listed for want of a chat turn or a menu pick, `desktop-tier`, `desktop-beside`, `desktop-aside`), `classifier`, `claude-tier`, `stand-in` (the agent's config), `codex-turn` (`codexMemoryStandIn`) and `privacy` (`maskRouteFor`). A subagent's move says its own (`Route.Subagent`), and a group or `Resolve` names no move. The Routing page tags such a row Title or Stand-in (`movedTag`, `movedWhy` in the routing plugin's client.js), in the list, the replay and the tray panel, and says why in the row's title and once in the story; a kind's tag wins, and its story still says the move, but for Desktop's connection check (`connection_check`), whose own story says where it went (`movedSays`). Neo on Discord read Desktop's title on `chatflowsai/claude-opus-5-5` (the only Claude-looking id Desktop is shown, so its own pick) served on the chat's `agentrouter/gpt-6.1-sol` as the model swapped unasked (`TestClaudeDesktopMoveSaysWhy`, `routing-moved-why.test.cjs`). Codex backend rewrites done before `serve` (`codexFollowTo`, `codexMaskRoute`) show the moved model as asked and have no `Moved`.
    - A Chat or Responses client's effort spelled `off` (`reasoning_effort`, or `reasoning.effort`, any case) is read at the top of `serve` as magpie's own off level, `none` (`offAsNone`, plugins#334), and a model asked `<model>:off` as `<model>:none` (`askedAt`): every check and route below reads `none`, a model with an off level is sent its own spelling of it, and one without goes at its least level as `none` asked does (`fitEffort`). `off` itself is never sent on. `saysOff` looks for it without parsing the body, which only a body naming it pays for.
    - A level a vendor names in words of its own (`catalog.EffortAliases`: Trae's `light` and `extra_high`, which Our Free Model's plugin lists) is the level it is (`EffortLevel`): `effortOf` reads it as `low` or `xhigh`, and `NearestEffort` places a model's own words by it, so `low` asked of a model listing `light` is sent as `light`, and its `light` as it is (nianshou5 on Discord; `TestNearestEffortTakesVendorWords`, `TestPluginThinkingOff`). dsh and Pi offer such a model's levels as theirs, sent in its words (`modelEffort` in [`agents.go`](../../internal/agent/agents.go); `TestDshOffersTraeNamedLevels`).
    - Rules and image inputs are handled here too.
@@ -1273,3 +1295,14 @@ go test -tags nogui ./internal/provider -run 'TestGroup|TestCodexCreditsSwitch|T
 
 The gateway's `TestMain` gives the package a home of its own, so these tests
 never read real providers or accounts.
+
+## Codex provider moves and active threads
+
+`MoveCodexProvider` leaves a session with an active Codex writer alone
+(`ErrActive`, with an open-thread reason), even when its last write is old.
+It holds every participating home's writer lock until both the rollout
+files and state database rows have moved. Provider rewrites replace the
+file atomically rather than modifying an inode an app-server may still
+have open. The existing trash backup remains the undo. When Codex's
+configured provider is already the requested one, thread migration still
+runs: older threads may name another provider.
