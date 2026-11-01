@@ -7576,7 +7576,8 @@ var otherOffNamed = map[string]*regexp.Regexp{
 var noneQuoted = regexp.MustCompile(`(?i)['"]none\\?['"]`)
 
 // bodyEffort is the reasoning effort a Chat or Responses request asks for,
-// or an Anthropic one in its output_config.
+// or an Anthropic one in its output_config, or a Gemini one in its
+// generationConfig's thinkingConfig.
 func bodyEffort(proto provider.Protocol, body []byte) string {
 	var v struct {
 		ReasoningEffort string `json:"reasoning_effort"`
@@ -7597,6 +7598,8 @@ func bodyEffort(proto provider.Protocol, body []byte) string {
 		return v.Reasoning.Effort
 	case proto == provider.Anthropic && v.OutputConfig != nil:
 		return v.OutputConfig.Effort
+	case proto == provider.Gemini:
+		return geminiBodyEffort(body)
 	}
 	return ""
 }
