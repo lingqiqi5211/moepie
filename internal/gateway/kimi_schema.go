@@ -95,7 +95,10 @@ type typeInsert struct {
 }
 
 // collectUntypedEnums adds, for each schema under node with an enum or a
-// const and no type, where it opens and the type its values have.
+// const and no type, where it opens and the type it is given: properties
+// or items say it before the values do (a string enum beside items is an
+// array, #3867, as geminiSchemaType reads its keywords first), and the
+// values' own type when no keyword does.
 func collectUntypedEnums(body []byte, node gjson.Result, inSchema bool, ins *[]typeInsert) {
 	switch {
 	case node.IsArray():
@@ -112,6 +115,14 @@ func collectUntypedEnums(body []byte, node gjson.Result, inSchema bool, ins *[]t
 				vals = []gjson.Result{c}
 			}
 			if t := enumType(vals); t != "" {
+				if kt := keywordType(node); kt == "object" || kt == "array" {
+					// properties or items say the type before the
+					// values do: a schema with items and a string
+					// enum given "string" went on with items beside
+					// a string, as a Gemini one did before
+					// geminiSchemaType read its keywords first (#3867)
+					t = `"` + kt + `"`
+				}
 				*ins = append(*ins, typeInsert{node.Index, t})
 			}
 		}
@@ -306,7 +317,9 @@ func kimiToolRefTypes(p provider.Provider, to provider.Protocol, body []byte) []
 
 // collectRefTargets adds, for each local $ref under node (a schema of the
 // tool schema root) whose target Kimi would refuse untyped, where the
-// target opens and the type it is given.
+// target opens and the type it is given. The target is the schema the
+// chain of $refs ends at, the one place a type may go (#3205); a chain
+// that ends at a ref to nowhere, or never ends, adds nothing.
 func collectRefTargets(body []byte, root, node gjson.Result, ins *[]typeInsert) {
 	walkSchema(node, func(s gjson.Result) {
 		ref := s.Get(`\$ref`)
@@ -314,7 +327,24 @@ func collectRefTargets(body []byte, root, node gjson.Result, ins *[]typeInsert) 
 			return
 		}
 		t, ok := refTarget(root, ref.String())
-		if !ok || !t.IsObject() || t.Index <= 0 || t.Index >= len(body) || body[t.Index] != '{' || !untypedForKimi(t) {
+		if !ok {
+			return
+		}
+		for i := 0; ; i++ {
+			r := t.Get(`\$ref`)
+			if r.Type != gjson.String {
+				break
+			}
+			if i > 16 {
+				return
+			}
+			n, ok := refTarget(root, r.String())
+			if !ok {
+				return
+			}
+			t = n
+		}
+		if !t.IsObject() || t.Index <= 0 || t.Index >= len(body) || body[t.Index] != '{' || !untypedForKimi(t) {
 			return
 		}
 		if typ := kimiSchemaType(root, t); typ != "" {
@@ -402,6 +432,13 @@ const allKimiTypes = `["string","number","integer","boolean","object","array","n
 // one (or the ones) its keywords and branches say, every type when they
 // say nothing, and "" for an enum no type Kimi takes beside one can hold.
 func kimiSchemaType(root, s gjson.Result) string {
+	if t := keywordType(s); t == "object" || t == "array" {
+		// properties or items say it before its values do: a schema
+		// with items and a string enum given "string" went on with
+		// items beside a string, as a Gemini one did before
+		// geminiSchemaType read its keywords first (#3867)
+		return `"` + t + `"`
+	}
 	if e := s.Get("enum"); e.IsArray() {
 		return enumType(e.Array())
 	}
