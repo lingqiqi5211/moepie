@@ -8230,22 +8230,12 @@ $("#modal").addEventListener("keydown", (e) => {
   e.preventDefault();
   (e.shiftKey ? last : first).focus();
 });
-// A dialog opens centred, and stays centred while what it holds fills in
-// before the reader has done anything in it (a plugin's README loading
-// under a dialog opened short read as a dialog sat low, the owner 10-24).
-// From the reader's first press or key in it, it stays put while what it
-// holds grows or shrinks (a fold opening, an error line, a list filling): it holds the
-// place of whatever the reader last pressed or focused in it, and grows
-// and shrinks round that, down to the window's foot, where it stays and
-// its fields scroll as a full-height dialog's do. Where there is no
-// room left to move, its fields shorten over a pressed button below them,
-// so an error line over Remove doesn't push Remove down; a pressed field
-// goes with what grows above it, as nothing a click does scrolls. Centred all along, a dialog
-// shorter than the window moved by half of every change, the line just
-// clicked sliding from under the pointer. Its place is a relative top and
-// a cap on its height. A change made in the page is held before it is
-// drawn (a mutation's microtask); one that only resizes (an animation, the
-// window) a frame later, as an observer can't resize what it observes.
+// Untouched dialogs stay centred as late content fills in. Once pressed,
+// a dialog holds the last pressed or focused control in place as content
+// grows or shrinks; its fields scroll when it reaches the window's foot.
+// A footer control can shorten the fields over it when no room remains.
+// Provider editors instead keep a fixed frame with scrolling fields.
+// Mutations are held before drawing; resize observers defer writes a frame.
 const modalHold = { off: 0, at: null, y: 0, cap: null, capSet: "", touched: false };
 // how far down the dialog an element sits, to the fraction of a pixel,
 // what moves it in an animation (a row coming in) left out. An element
@@ -8293,7 +8283,8 @@ function holdModal(later) {
   const want = modalHold.off + (y == null ? 0 : modalHold.y - y);
   const c = getComputedStyle(m), h = d.getBoundingClientRect().height;
   const space = m.clientHeight - parseFloat(c.paddingTop) - parseFloat(c.paddingBottom);
-  if (!modalHold.touched) {
+  if (!modalHold.touched || d.classList.contains("provider-edit")) {
+    // Provider editors keep a fixed frame; fields grow and scroll inside it.
     // untouched: centred, as it opened, over what it holds now; measured
     // by its layout, as content that comes while it opens is measured
     // under the open's scale
@@ -8349,6 +8340,7 @@ function openModal(content, quiet) {
   frame(content);
   // an editor that reads long text (a prompt's) takes a wider dialog
   d.classList.toggle("wide", content.classList.contains("wide"));
+  d.classList.toggle("provider-edit", content.classList.contains("provider-edit"));
   // Keep focus through a redraw of an open editor.
   const active = d.contains(document.activeElement) ? document.activeElement : null;
   const focusID = active?.id;
@@ -8680,7 +8672,7 @@ function drawEditor(p, presetID) {
     : pr
       ? { id: pr.id, name: pr.name, preset: pr.id, key: "", chosen: [], extra: [], headers: [] }
       : { id: "", name: "", preset: "", chat: "", responses: "", anthropic: "", decide: "", catalog: "", key: "", api: "openai", chosen: [], extra: [], headers: [], icon: "" });
-  const ed = el("div", "editor" + (isNew ? " new" : ""));
+  const ed = el("div", "editor provider-edit" + (isNew ? " new" : ""));
   ed.onclick = (e) => e.stopPropagation();
 
   {

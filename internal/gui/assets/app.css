@@ -3708,6 +3708,9 @@ html.theming, html.theming *, html.theming *::before, html.theming *::after {
   border-radius: 14px; background: var(--card);
   box-shadow: 0 0 0 1px var(--line), 0 24px 60px rgba(0, 0, 0, .32), 0 2px 8px rgba(0, 0, 0, .12);
 }
+/* Provider fields expand inside a roomy frame instead of moving the dialog. */
+.modal .dialog.provider-edit { width: min(800px, 100%); height: min(760px, 100%); }
+.modal .dialog.provider-edit > .editor { flex: 1; }
 .modal .dialog.swap { animation: content-in .22s var(--ease); }
 /* In a dialog the editor's head and buttons stay put and only the fields
    between them scroll; both bars are the same height, their contents
