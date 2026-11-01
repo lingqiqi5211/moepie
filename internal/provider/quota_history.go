@@ -37,6 +37,7 @@ import (
 
 	"github.com/yetone/magpie/internal/filememo"
 	"github.com/yetone/magpie/internal/lastgood"
+	"github.com/yetone/magpie/internal/steady"
 )
 
 const (
@@ -110,17 +111,71 @@ var readQuotaHist = func() quotaHist {
 func writeQuotaHist(h quotaHist) {
 	b, err := json.Marshal(h)
 	if err != nil {
+		// h may be the owned map, changed before encoding failed.
+		quotaHistOwn = quotaHistMine{}
 		return
 	}
 	path := quotaHistPath()
 	// parseQuotaHist reads a file that doesn't parse as no history: it is
 	// kept aside before it is written over, and not written over when it
-	// can't be
-	if lastgood.KeepUnparsed(path, lastgood.Into[quotaHist]) != nil {
+	// can't be. What this process wrote last parsed, and is still there.
+	if wrote, _ := quotaHistWrote(path); !wrote && lastgood.KeepUnparsed(path, lastgood.Into[quotaHist]) != nil {
 		return
 	}
-	_ = os.MkdirAll(filepath.Dir(path), 0o700)
-	_ = writeFileAtomic(path, b)
+	// nothing is this process's while it is being written: a write that
+	// fails leaves the file's own history to be read again
+	quotaHistOwn = quotaHistMine{}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return
+	}
+	if writeFileAtomic(path, b) != nil {
+		return
+	}
+	if fi, err := steady.Stat(path); err == nil {
+		quotaHistOwn = quotaHistMine{path, fi, h}
+	}
+}
+
+// quotaHistOwn is the history as this process last wrote it, under
+// quotaHistMu. A Codex or Claude account's windows are read a minute apart
+// while something asks, and each new reading read the whole file again,
+// parsed it, parsed it once more to see it could be written over, and
+// wrote it: with a 500 KB history, 1.9 GB of the 33 GB a live magpie
+// allocated in 53 minutes. While the file is the one written, the history
+// written is used instead; another process's write — the usage sync's on
+// another computer reaches this one through MergeQuotaHistory, not the
+// file, but the plugin host and a second magpie do write it — moves its
+// time, size or inode, and the file is read again.
+var quotaHistOwn quotaHistMine
+
+type quotaHistMine struct {
+	path string
+	fi   os.FileInfo
+	h    quotaHist
+}
+
+// quotaHistWrote reports whether path is still the file this process
+// wrote last, and gives what it wrote; called under quotaHistMu.
+func quotaHistWrote(path string) (bool, quotaHist) {
+	o := quotaHistOwn
+	if o.fi == nil || o.path != path {
+		return false, nil
+	}
+	fi, err := steady.Stat(path)
+	if err != nil || !os.SameFile(fi, o.fi) || fi.Size() != o.fi.Size() || !fi.ModTime().Equal(o.fi.ModTime()) {
+		return false, nil
+	}
+	return true, o.h
+}
+
+// heldQuotaHist is the history to change and write back, under
+// quotaHistMu: the one this process wrote while the file is still it,
+// else the file's.
+func heldQuotaHist() quotaHist {
+	if ok, h := quotaHistWrote(quotaHistPath()); ok {
+		return h
+	}
+	return readQuotaHist()
 }
 
 var spanWords = regexp.MustCompile(`(?i)(\d+)\s*-?\s*(h|hr|hour|d|day|w|wk|week|month)s?\b`)
@@ -293,7 +348,7 @@ func noteQuotaHistory(qs []SubscriptionQuota, now time.Time) {
 				continue
 			}
 			if h == nil {
-				h = readQuotaHist()
+				h = heldQuotaHist()
 			}
 			key := quotaHistKey(q.Provider, q.User)
 			if h[key] == nil {
@@ -370,7 +425,7 @@ func MergeQuotaHistory(data []byte, now time.Time) error {
 	}
 	quotaHistMu.Lock()
 	defer quotaHistMu.Unlock()
-	h := readQuotaHist()
+	h := heldQuotaHist()
 	if !mergeQuotaHist(h, b) {
 		return nil
 	}
