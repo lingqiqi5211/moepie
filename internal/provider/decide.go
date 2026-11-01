@@ -95,9 +95,18 @@ func (p Provider) DecidesModel(model string) bool {
 	if p.bailianApart() {
 		return model == BailianDecision
 	}
-	if p.IsRemoteMagpie() || p.listsDecisions() {
+	if p.IsRemoteMagpie() {
+		// decideListed's answer, without its list copied for each model
+		// asked about: a provider's every model was asked, a copy of the whole
+		// list each time (0.4 GB of a real config's 4 GB over 20 polls)
+		return slices.ContainsFunc(catalog.LiveByID(p.ID, model), func(m catalog.Model) bool { return m.Decides })
+	}
+	if p.listsDecisions() {
 		// OpenRouter's Jev Router (typesafe/jev-router) is a chat model
-		return slices.ContainsFunc(p.decideListed(), func(m catalog.Model) bool { return m.ID == model })
+		if id := decisionsID(p.ID); catalog.LiveListed(id) {
+			return len(catalog.LiveByID(id, model)) > 0
+		}
+		return !p.serverMarksDecisions() && model == OpenRouterJev
 	}
 	return jevID(model) || p.DecideVia() == ViaCloudflare && CloudflareClef(model)
 }

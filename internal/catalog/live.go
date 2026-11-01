@@ -70,6 +70,12 @@ func LiveByID(provider, model string) []Model {
 	return slices.Clone(f.byID[model])
 }
 
+// LiveListed is whether Live lists any model, without the list copied.
+func LiveListed(provider string) bool {
+	f, err := readLive(provider)
+	return err == nil && len(f.byID) > 0
+}
+
 // Live returns the model list last fetched from the provider, if any: the
 // models to talk to, without the ones that draw (LiveDrawers).
 func Live(provider string) (models []Model, fetched time.Time, ok bool) {
