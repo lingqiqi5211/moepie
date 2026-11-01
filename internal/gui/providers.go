@@ -609,7 +609,7 @@ func providerInfoWith(p provider.Provider, agents []agentUse, desktop map[string
 		Chat: p.Chat, Responses: p.Responses, Anthropic: p.Anthropic, Gemini: p.Gemini, Decide: p.Decide, BaseAPI: p.BaseAPI, ModelTest: p.ModelTest(), TestsAs: p.TestClients(), DecideTest: p.AsksDecideModels(), MarksKinds: p.MarksKinds(),
 		Catalog: p.Catalog, Website: p.Website, KeysURL: p.KeysURL,
 		Proxy: p.Proxy, AccountProxies: p.AccountProxies, AccountModels: p.AccountModels, AccountCaps: p.AccountCaps, AccountWindowCaps: p.AccountWindowCaps, AccountNames: p.AccountNames, Headers: p.Headers, ExtraBody: p.ExtraBody, Searches: p.Searches, Cline: p.ClinePinnable(), PinUpstream: p.PinUpstream, Unredacted: p.Unredacted, InsecureTLS: p.InsecureTLS, TakesInsecureTLS: p.TakesInsecureTLS(), LimitRestOff: p.LimitRestOff, NativeCompaction: p.NativeCompaction, CarriesCompaction: p.CarriesCompaction(), PassUserAgent: p.PassUserAgent, OwnClient: p.OwnClient(), AuthHeader: p.AuthHeader, BothAuth: p.BothAuth(), BalanceURL: p.BalanceURL, BalancePath: p.BalancePath, BalanceMethod: p.BalanceMethod, ModelsURL: p.ModelsURL,
-		Ready: p.Ready(), Chosen: p.Picks(), Models: []modelJSON{}, ModelListLimit: p.ModelListLimit(), Agents: make([]providerAgent, 0, len(agents)),
+		Ready: p.Ready(), Chosen: p.Picks(), ModelListLimit: p.ModelListLimit(), Agents: make([]providerAgent, 0, len(agents)),
 		Fallback: p.Fallback, Routing: p.Routing, Sink: p.Sink, Affinity: p.Affinity, KeepLogin: p.KeepLogin, KeepLoginAs: p.KeepLoginAs, SwitchOnly: p.SwitchOnly, CapStop: p.CapStop, CapCareful: p.CapCareful, Unlisted: p.Unlisted, NoModels: p.ServesNone(), BestInFamily: p.BestInFamily && len(p.Models) == 0 && !p.NoModels, Off: p.Off, Contexts: p.Contexts,
 		MaxConcurrency: p.MaxConcurrency, PluginConcurrency: p.PluginConcurrency(), PriceRate: p.PriceRate,
 		AccountConcurrency: p.AccountConcurrency, QueueLimit: p.QueueLimit, QueueWait: p.QueueWait, MaxRPM: p.MaxRPM,
@@ -728,12 +728,10 @@ func providerInfoWith(p provider.Provider, agents []agentUse, desktop map[string
 		exposed[m.ID] = true
 	}
 	avail := p.Available()
-	out.Models = make([]modelJSON, 0, len(avail))
 	newest := map[string]bool{}
 	for _, m := range p.NewestInFamily(avail) {
 		newest[m.ID] = true
 	}
-	seen := map[string]bool{}
 	names, kept := p.ModelNames(), p.ModelEfforts()
 	held := settings.Load()
 	sames := held.ModelSameAs
@@ -812,9 +810,13 @@ func providerInfoWith(p provider.Provider, agents []agentUse, desktop map[string
 		}
 		return j
 	}
+	// the rows counted before any is made, so the list is made once at its
+	// size: grown by append for the decision models and the picks it
+	// lacked, and again to put those picks in front, it was 8 MB of what
+	// twenty polls of the Providers page allocated with real accounts
+	seen := make(map[string]bool, len(avail))
 	for _, m := range avail {
 		seen[m.ID] = true
-		out.Models = append(out.Models, named(m, exposed[m.ID]))
 	}
 	// Keep an explicit empty list for remote magpie: the editor must not
 	// guess that a Jev Router chat model answers System One.
@@ -822,28 +824,34 @@ func providerInfoWith(p provider.Provider, agents []agentUse, desktop map[string
 	if p.IsRemoteMagpie() {
 		deciders = []string{}
 	}
+	var unlisted []catalog.Model // decision models the vendor list lacks
 	for _, m := range p.DecisionModels() {
 		deciders = append(deciders, m.ID)
 		if !seen[m.ID] {
 			seen[m.ID] = true
-			out.Models = append(out.Models, named(m, exposed[m.ID]))
+			unlisted = append(unlisted, m)
 		}
 	}
 	if deciders != nil {
 		out.Deciders = &deciders
 	}
 	// picks the vendor list does not know go first, so they are visible,
-	// the last one picked foremost; put in front all at once: a fresh list
-	// for each pick copied every row after it
-	var front []modelJSON
+	// the last one picked foremost
+	var front []catalog.Model
 	for _, m := range p.Exposed() {
 		if !seen[m.ID] {
-			front = append(front, named(m, true))
+			front = append(front, m)
 		}
 	}
-	if len(front) > 0 {
-		slices.Reverse(front)
-		out.Models = slices.Insert(out.Models, 0, front...)
+	out.Models = make([]modelJSON, 0, len(front)+len(avail)+len(unlisted))
+	for i := len(front) - 1; i >= 0; i-- {
+		out.Models = append(out.Models, named(front[i], true))
+	}
+	for _, m := range avail {
+		out.Models = append(out.Models, named(m, exposed[m.ID]))
+	}
+	for _, m := range unlisted {
+		out.Models = append(out.Models, named(m, exposed[m.ID]))
 	}
 	out.Exposed = len(exposed)
 	// its image models aren't among those agents chat with; the editor
