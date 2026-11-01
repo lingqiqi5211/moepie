@@ -49,16 +49,31 @@ function serve() {
 // what shows of the dialog, on screen: its transformed box less its clip,
 // with every animation on it and the backdrop held at time `at` (a fraction
 // of each one)
-const shown = (page, at) => page.evaluate((at) => {
+// The clip reads inset(top right bottom left), CSS filling in the rest of 1
+// to 4 lengths, and each one is read as a number rather than as digits and
+// dots: a dialog shrunk to its row has an inch of clip top and bottom and
+// next to none on the sides, and Chromium writes that hair — 2.8e-14, what
+// a width taken back out of a scale leaves — as 2.84217e-14px where WebKit
+// writes 0px. A pattern stopping at the `e` read the one length it did get
+// as all four edges, so a strip starting on the row's left (17px) measured
+// 164.59px at 420 wide. A clip that can't be read whole is an error, not the
+// dialog's whole box, which would pass the test by measuring nothing.
+const LENGTH = `[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:e[+-]?\\d+)?px`;
+const shown = (page, at) => page.evaluate(({ at, LENGTH }) => {
   const d = document.querySelector("#modal > .dialog");
   for (const a of [...d.parentElement.getAnimations(), ...d.getAnimations()]) { a.pause(); a.currentTime = at * a.effect.getTiming().duration; }
   const box = d.getBoundingClientRect(), s = box.width / d.offsetWidth;
   const clip = getComputedStyle(d).clipPath;
-  const m = clip.match(/^inset\(([-\d.]+)px(?: ([-\d.]+)px)?(?: ([-\d.]+)px)?(?: ([-\d.]+)px)?/);
-  if (!m) return { clip, top: box.top, bottom: box.bottom, left: box.left, right: box.right };
-  const [t, r = t, b = t, l = r] = m.slice(1).map((v) => v === undefined ? undefined : +v);
+  const m = clip.match(/^inset\((.*?)(?: round [^)]*)?\)$/);
+  if (!m) {
+    if (clip.startsWith("inset(")) throw new Error(`unreadable clip: ${clip}`);
+    return { clip, top: box.top, bottom: box.bottom, left: box.left, right: box.right };
+  }
+  const edges = m[1].trim().split(/\s+/).map((v) => v.match(new RegExp(`^(${LENGTH})$`)));
+  if (edges.length > 4 || !edges.every(Boolean)) throw new Error(`unreadable clip: ${clip}`);
+  const [t, r = t, b = t, l = r] = edges.map((edge) => Number.parseFloat(edge[1]));
   return { clip, top: box.top + Math.max(0, t) * s, bottom: box.bottom - Math.max(0, b) * s, left: box.left + Math.max(0, l) * s, right: box.right - Math.max(0, r) * s };
-}, at);
+}, { at, LENGTH });
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
   for (const width of [1240, 420]) {

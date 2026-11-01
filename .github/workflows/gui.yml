@@ -23,7 +23,8 @@ permissions:
 
 jobs:
   # A few of the browser tests, on Chromium only: motion, languages, the
-  # plugin pages, session lists, archive previews and hidden-page polling.
+  # plugin pages, session lists, archive previews, hidden-page polling and the
+  # provider editor's frame through folds, resize and reopen.
   # The rest still run by hand (internal/gui/tests/README.md).
   gui-critical:
     runs-on: ubuntu-latest
@@ -59,7 +60,7 @@ jobs:
             sessions-manage-paging.test.cjs sessions-talk.test.cjs \
             request-archive.test.cjs request-archive-usage.test.cjs \
             routing-hidden-stage.test.cjs panel-routing-hidden.test.cjs \
-            routing-hidden-down.test.cjs
+            routing-hidden-down.test.cjs provider-editor-frame.test.cjs
 
       - if: failure()
         uses: actions/upload-artifact@v4
