@@ -283,6 +283,79 @@ func TestRunServerAsks(t *testing.T) {
 	}
 }
 
+// runInputProbe observes the real pipe write without changing the server's
+// messages, so the stream's registration can be checked without timing.
+type runInputProbe struct {
+	io.WriteCloser
+	before func([]byte)
+}
+
+func (p *runInputProbe) Write(b []byte) (int, error) {
+	p.before(b)
+	return p.WriteCloser.Write(b)
+}
+
+func TestRunStreamRegisteredBeforeSend(t *testing.T) {
+	srv, _, _ := runFixture(t)
+	_, sid := call(t, srv, "", fmt.Sprintf(runInit, "stream-order"))
+	runs.Lock()
+	s := runs.sessions[sid]
+	runs.Unlock()
+	c := s.running()
+	if c == nil {
+		t.Fatal("no initialized server")
+	}
+	observed := make(chan bool, 1)
+	c.wmu.Lock()
+	c.in = &runInputProbe{c.in, func(b []byte) {
+		var m rpcIn
+		if json.Unmarshal(b, &m) != nil || m.Method != "tools/call" {
+			return
+		}
+		s.mu.Lock()
+		open := len(s.streams) > 0
+		s.mu.Unlock()
+		observed <- open
+	}}
+	c.wmu.Unlock()
+	for _, tc := range []struct {
+		name, accept string
+		stream       bool
+	}{
+		{"stream", "application/json, text/event-stream", true},
+		{"json", "application/json", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s.mu.Lock()
+			streams := len(s.streams)
+			s.mu.Unlock()
+			if streams != 0 {
+				t.Fatalf("fixture already has %d open streams", streams)
+			}
+			req, _ := http.NewRequest("POST", srv.URL+RunPath+"fake", strings.NewReader(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"echo"}}`))
+			req.Header.Set("Accept", tc.accept)
+			req.Header.Set("Mcp-Session-Id", sid)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if err != nil || resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"id":9`) || !strings.Contains(string(body), `"text"`) {
+				t.Fatalf("echo: status %d, body %s, error %v", resp.StatusCode, body, err)
+			}
+			select {
+			case open := <-observed:
+				if open != tc.stream {
+					t.Errorf("stream registered when the request reaches the server = %v, want %v", open, tc.stream)
+				}
+			default:
+				t.Fatal("the server was never asked")
+			}
+		})
+	}
+}
+
 // A server saying its tools changed has the next session's tools/list go
 // to a server again.
 func TestRunListChanged(t *testing.T) {
