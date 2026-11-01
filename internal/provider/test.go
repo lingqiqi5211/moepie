@@ -295,7 +295,7 @@ func (p Provider) testOne(ctx context.Context, model string) Result {
 	if p.isClaudeAccount() {
 		return p.testClaude(ctx, model)
 	}
-	if p.testsTranslated() {
+	if p.testsTranslated() || client == "" && p.pluginTranslated(model) {
 		return p.testTranslated(ctx, model)
 	}
 	var protos []Protocol
