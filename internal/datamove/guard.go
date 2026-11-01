@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -48,7 +49,8 @@ func strictLock(ctx context.Context, path string) (func(), error) {
 }
 
 // roots are the folders of dirs that exist, links followed, one for each
-// that isn't inside another.
+// that isn't inside another. A Windows junction is used as given (Go 1.23's
+// EvalSymlinks doesn't follow it); the lease files are the same physical files.
 func roots(dirs []string) ([]string, error) {
 	var list []string
 	for _, d := range dirs {
@@ -64,7 +66,14 @@ func roots(dirs []string) ([]string, error) {
 		}
 		path, err := filepath.EvalSymlinks(d)
 		if err != nil {
-			return nil, err
+			if runtime.GOOS != "windows" {
+				return nil, err
+			}
+			// Go 1.23 reports a junction as ModeIrregular, so EvalSymlinks fails
+			// through one (ENOTDIR/ERROR_PATH_NOT_FOUND). Scoop's current is a
+			// junction; Stat above found the folder, and MkdirAll/OpenFile follow
+			// it, so the lease files are the same physical files.
+			path = d
 		}
 		list = append(list, filepath.Clean(path))
 	}
