@@ -609,7 +609,7 @@ func providerInfoWith(p provider.Provider, agents []agentUse, desktop map[string
 		Chat: p.Chat, Responses: p.Responses, Anthropic: p.Anthropic, Gemini: p.Gemini, Decide: p.Decide, BaseAPI: p.BaseAPI, ModelTest: p.ModelTest(), TestsAs: p.TestClients(), DecideTest: p.AsksDecideModels(), MarksKinds: p.MarksKinds(),
 		Catalog: p.Catalog, Website: p.Website, KeysURL: p.KeysURL,
 		Proxy: p.Proxy, AccountProxies: p.AccountProxies, AccountModels: p.AccountModels, AccountCaps: p.AccountCaps, AccountWindowCaps: p.AccountWindowCaps, AccountNames: p.AccountNames, Headers: p.Headers, ExtraBody: p.ExtraBody, Searches: p.Searches, Cline: p.ClinePinnable(), PinUpstream: p.PinUpstream, Unredacted: p.Unredacted, InsecureTLS: p.InsecureTLS, TakesInsecureTLS: p.TakesInsecureTLS(), LimitRestOff: p.LimitRestOff, NativeCompaction: p.NativeCompaction, CarriesCompaction: p.CarriesCompaction(), PassUserAgent: p.PassUserAgent, OwnClient: p.OwnClient(), AuthHeader: p.AuthHeader, BothAuth: p.BothAuth(), BalanceURL: p.BalanceURL, BalancePath: p.BalancePath, BalanceMethod: p.BalanceMethod, ModelsURL: p.ModelsURL,
-		Ready: p.Ready(), Chosen: p.Picks(), Models: []modelJSON{}, ModelListLimit: p.ModelListLimit(), Agents: []providerAgent{},
+		Ready: p.Ready(), Chosen: p.Picks(), Models: []modelJSON{}, ModelListLimit: p.ModelListLimit(), Agents: make([]providerAgent, 0, len(agents)),
 		Fallback: p.Fallback, Routing: p.Routing, Sink: p.Sink, Affinity: p.Affinity, KeepLogin: p.KeepLogin, KeepLoginAs: p.KeepLoginAs, SwitchOnly: p.SwitchOnly, CapStop: p.CapStop, CapCareful: p.CapCareful, Unlisted: p.Unlisted, NoModels: p.ServesNone(), BestInFamily: p.BestInFamily && len(p.Models) == 0 && !p.NoModels, Off: p.Off, Contexts: p.Contexts,
 		MaxConcurrency: p.MaxConcurrency, PluginConcurrency: p.PluginConcurrency(), PriceRate: p.PriceRate,
 		AccountConcurrency: p.AccountConcurrency, QueueLimit: p.QueueLimit, QueueWait: p.QueueWait, MaxRPM: p.MaxRPM,
@@ -728,6 +728,7 @@ func providerInfoWith(p provider.Provider, agents []agentUse, desktop map[string
 		exposed[m.ID] = true
 	}
 	avail := p.Available()
+	out.Models = make([]modelJSON, 0, len(avail))
 	newest := map[string]bool{}
 	for _, m := range p.NewestInFamily(avail) {
 		newest[m.ID] = true
@@ -747,6 +748,9 @@ func providerInfoWith(p provider.Provider, agents []agentUse, desktop map[string
 	// Discord, Windows)
 	set := settings.Load()
 	named := func(m catalog.Model, on bool) modelJSON {
+		// each model's provider/model ref, made once: the settings' maps are
+		// looked up by it three times over
+		ref := p.ID + "/" + m.ID
 		images := m.Images || catalog.SeesImages(m.ID)
 		if m.ImageInput != nil {
 			images = *m.ImageInput
@@ -776,15 +780,15 @@ func providerInfoWith(p provider.Provider, agents []agentUse, desktop map[string
 			}
 		}
 		j.NoAPI = p.NoAPIFor(m.ID)
-		j.Same = sames[p.ID+"/"+m.ID]
+		j.Same = sames[ref]
 		if own := p.OwnModelID(m.ID); own != m.ID {
 			j.Vendor = own
 		}
 		j.IDs = p.TakesModelIDs()
 		j.Kind = p.ModelKind(m.ID)
 		j.Merge = provider.MergeName(m.ID)
-		j.Desktop = desktop[p.ID+"/"+m.ID]
-		if mp, ok := held.ModelPrices[p.ID+"/"+m.ID]; ok {
+		j.Desktop = desktop[ref]
+		if mp, ok := held.ModelPrices[ref]; ok {
 			if pr, bad := mp.Price(); bad == "" {
 				j.Price = &pr
 			}
@@ -828,11 +832,18 @@ func providerInfoWith(p provider.Provider, agents []agentUse, desktop map[string
 	if deciders != nil {
 		out.Deciders = &deciders
 	}
-	// picks the vendor list does not know go first, so they are visible
+	// picks the vendor list does not know go first, so they are visible,
+	// the last one picked foremost; put in front all at once: a fresh list
+	// for each pick copied every row after it
+	var front []modelJSON
 	for _, m := range p.Exposed() {
 		if !seen[m.ID] {
-			out.Models = append([]modelJSON{named(m, true)}, out.Models...)
+			front = append(front, named(m, true))
 		}
+	}
+	if len(front) > 0 {
+		slices.Reverse(front)
+		out.Models = slices.Insert(out.Models, 0, front...)
 	}
 	out.Exposed = len(exposed)
 	// its image models aren't among those agents chat with; the editor

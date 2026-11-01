@@ -8521,21 +8521,19 @@ function thumbNow(th) {
 const thumbPick = (box, on) => [...box.children].filter((c) => !c.classList.contains("thumb")).indexOf(on);
 const thumbSame = (a, b) => Math.abs(a.x - b.x) < 0.5 && Math.abs((a.y || 0) - (b.y || 0)) < 0.5 && Math.abs(a.w - b.w) < 0.5;
 // a control shown, or sized again (the fonts come in, the language changes,
-// the window narrows): its thumb is put under its option, still
+// the window narrows, on its resize first): its thumb is put under its option
+function thumbRefit(box) {
+  const th = box.querySelector(":scope > .thumb"), on = box.querySelector(":scope > .on"), to = th && on && thumbTo(box, on);
+  if (!to) return;
+  const control = thumbKey(box, thumbKeys.get(box)), last = control && thumbs.get(control), pick = thumbPick(box, on);
+  if (last?.th === th && last.pick === pick && thumbSame(last.to, to) && th.style.width) return;
+  thumbPut(th, to);
+  if (control) thumbs.set(control, { th, pick, to });
+}
 const thumbFit = new ResizeObserver((es) => {
-  for (const { target: box } of es) {
-    if (!box.isConnected) { thumbFit.unobserve(box); continue; }
-    const th = box.querySelector(":scope > .thumb"), on = box.querySelector(":scope > .on");
-    const to = th && on && thumbTo(box, on);
-    if (!to) continue;
-    const control = thumbKey(box, thumbKeys.get(box));
-    const last = control && thumbs.get(control);
-    const pick = thumbPick(box, on);
-    if (last?.th === th && last.pick === pick && thumbSame(last.to, to) && th.style.width) continue;
-    thumbPut(th, to);
-    if (control) thumbs.set(control, { th, pick, to });
-  }
+  for (const { target: box } of es) box.isConnected ? thumbRefit(box) : thumbFit.unobserve(box);
 });
+addEventListener("resize", () => document.querySelectorAll(".segs").forEach(thumbRefit));
 function slide(box, key) {
   const control = thumbKey(box, key);
   const last = control && thumbs.get(control);

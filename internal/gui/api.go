@@ -2743,10 +2743,12 @@ func writeJSONRows[T any](rw http.ResponseWriter, r *http.Request, key string, r
 	end = append(end, '\n')
 	var row bytes.Buffer
 	enc := json.NewEncoder(&row)
-	// encode is row i as Marshal gives it: Encode ends it with a newline
+	// encode is row i as Marshal gives it: Encode ends it with a newline.
+	// It is handed a pointer: rows[i] as an any was a copy of the row
+	// allocated for each row of each poll, ~2.7 MB a Sessions poll.
 	encode := func(i int) ([]byte, error) {
 		row.Reset()
-		if err := enc.Encode(rows[i]); err != nil {
+		if err := enc.Encode(&rows[i]); err != nil {
 			return nil, err
 		}
 		return row.Bytes()[:row.Len()-1], nil
