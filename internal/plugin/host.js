@@ -1705,6 +1705,11 @@ function kinds(c) {
   return out.length ? out : undefined
 }
 
+// kindsSaid is whether a capabilities.input or .output says yes or no to a kind
+// at all: one that says no to each (an embedding's {"text": false}, #3279)
+// gives no kinds, and is not one that said nothing.
+const kindsSaid = (c) => !!c && typeof c === "object" && MODALITIES.some((k) => typeof c[k] === "boolean")
+
 // fromModelsDev is a models.dev model as OpenCode's provider list has it.
 function fromModelsDev(p, m) {
   return {
@@ -2035,6 +2040,7 @@ async function providers({ proxies } = {}) {
           // every kind it takes and gives, not image alone (#1595)
           inputs: kinds(m.capabilities?.input),
           outputs: kinds(m.capabilities?.output),
+          outputsSaid: kindsSaid(m.capabilities?.output),
           released: m.release_date ?? "",
           cost: m.cost,
           variants: Object.keys(m.variants ?? {}),

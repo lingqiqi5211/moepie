@@ -349,6 +349,20 @@ export const FakePlugin = async ({ client }) => ({
         p.models["mimo-v2.6-flash-free"] = { ...p.models["fake-1"], id: "mimo-v2.6-flash-free", name: "MiMo V2.6 Flash Free", api: { ...p.models["fake-1"].api, id: "mimo-v2.6-flash-free" }, free: true, variants: {},
           capabilities: {"temperature":true,"reasoning":true,"attachment":true,"toolcall":true,"input":{"text":true,"image":true,"audio":true,"video":true,"pdf":false},"output":{"text":true,"image":false,"audio":false,"video":false,"pdf":false},"interleaved":{"field":"reasoning_content"}} }
       }
+      // $FAKE_KINDS: models as XYenon's magpie-google-ai-studio lists them
+      // (#3279): the embedding as the report gives it (output text false,
+      // nothing else said), one not named an embedding, a TTS with its
+      // parseModels' outputs (audio alone), a model that talks and speaks,
+      // one that talks and draws
+      if (process.env.FAKE_KINDS) {
+        const as = (id, output) => ({ ...p.models["fake-1"], id, name: id, api: { ...p.models["fake-1"].api, id }, free: false,
+          capabilities: { ...p.models["fake-1"].capabilities, input: { text: true }, output } })
+        p.models["gemini-embedding-001"] = as("gemini-embedding-001", { text: false })
+        p.models["bge-m3"] = as("bge-m3", { text: false })
+        p.models["gemini-2.5-flash-preview-tts"] = as("gemini-2.5-flash-preview-tts", { text: false, image: false, audio: true, video: false, pdf: false })
+        p.models["gemini-2.5-flash-native-audio"] = as("gemini-2.5-flash-native-audio", { text: true, image: false, audio: true, video: false, pdf: false })
+        p.models["gemini-2.5-flash-image"] = as("gemini-2.5-flash-image", { text: true, image: true, audio: false, video: false, pdf: false })
+      }
       // $FAKE_SEARCHER: one more model, that searches the web by itself
       // when asked in plain words, marked on the list the hook gives, as
       // Trae CN's search_agent ("Search") is listed beside its chat models
