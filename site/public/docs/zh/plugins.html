@@ -347,8 +347,8 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
         最省事的做法是展开 <code>provider.models</code> 里的模型，再改几个字段。<code>status</code> 为 <code>"deprecated"</code> 的模型不会显示。</li>
       <li>magpie 还会读取模型上的这些字段，OpenCode 会忽略它们：
         <ul>
-          <li><code>free: true</code>：套餐免费提供，不占额度。</li>
-          <li><code>rate</code>：一次请求消耗的点数倍率，可以是数字（<code>0.5</code>），也可以照厂商的写法（<code>"x0.5"</code>）。</li>
+          <li><code>free: true</code>：套餐免费提供，不占额度。只有这个字段会让模型算作免费，magpie 不会从 <code>rate</code> 推断：请按厂商自己的说法设置（它的列表标明免费，或标价 $0），不要用自己算出的倍率。</li>
+          <li><code>rate</code>：一次请求消耗的点数倍率，可以是数字（<code>0.5</code>），也可以照厂商的写法（<code>"x0.5"</code>）。<code>0</code> 视为没有给出倍率，而不是免费。</li>
           <li><code>rateWas</code>：当前优惠之前的倍率。</li>
         </ul>
         模型选择器会显示它们。</li>
@@ -485,7 +485,7 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
     <p>返回一个 <code>Response</code>。它的状态码、头和正文原样传回，正文逐块流式传输。如果你改写了流式正文，要去掉头里的 <code>content-length</code> 和 <code>content-encoding</code>。</p>
     <h3>失败与故障切换</h3>
     <ul>
-      <li>非 2xx 的响应就是厂商的回答，网关会像对待其他供应商一样处理：限流或服务端错误会把请求转到下一个账号或模型，401 会标记账号（见<a href="#signin-state">登录状态</a>）。</li>
+      <li>非 2xx 的响应就是厂商的回答，网关会像对待其他供应商一样处理：限流或服务端错误会把请求转到下一个账号或模型，401 会标记账号（见<a href="#signin-state">登录状态</a>）。账号不能用某个模型时，请用 403 或 404 加上厂商的原话回答，不要用 401：网关会把它当作模型被拒，而不是登录失效。</li>
       <li>抛出异常会让请求失败，然后故障切换继续。</li>
       <li>尽量用该 API 自己的错误格式回答，这样 agent 会显示厂商的原话。</li>
     </ul>
@@ -506,6 +506,7 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
       <tr><td><code>kept</code></td><td>账号保持原样（这个 401 说的是别的问题）。</td></tr>
       <tr><td><code>renewed</code></td><td>登录已续期：清除标记，无论请求接下来遇到什么。</td></tr>
     </table></div>
+    <p>没有这个头的 401，如果正文只说模型不可用（“model … not available”、<code>model_not_found</code>、“模型不支持”），而没有提到 token、key、session 或登录，就按 <code>kept</code> 处理。以前它会把请求转移经过的每个账号都标记为需要重新登录。既提到模型、又说 token 无效的 401 仍然会标记账号。</p>
     <p>在 <code>fetch</code> 或 <code>provider.models</code> 里，抛出带 <code>signIn: "expired"</code> 的错误效果相同：</p>
     <div class="code">
       <span class="lang">index.mjs</span>
@@ -541,6 +542,7 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
 }</pre>
     </div>
     <p>时间可以是 ISO 字符串，也可以是以秒或毫秒为单位的时间戳。没有 <code>signIn</code> 时，提示要重新登录的 <code>error</code> 会标记账号，一次正常读取会清除标记。</p>
+    <p>厂商没有给出 <code>used</code> 时就不要传，不要用 0 表示“不知道”。没传 <code>used</code> 但给了 <code>amount</code> 和 <code>limit</code> 时，用量就按它们算（1000 用了 370 就是 37）。没传也没有计数时，窗口只显示它的 <code>display</code>：路由不读它，所有窗口都没给用量的账号，按从未读到用量来权衡，而不是当作剩得最多的那个。<code>aside: true</code> 的窗口会连同用量和计数显示在账号卡片上，也会出现在 <code>GET /v1/magpie/quotas</code> 里，但路由从不读它：不管 <code>amount</code> 和 <code>limit</code> 是多少，用完它不会让账号停用，也不会让账号在比较中靠后。账号真正会被它卡住的窗口，不要设 <code>aside</code>。</p>
 
     <h2 id="checkin"><a class="anchor" href="#checkin">签到</a></h2>
     <p>每日签到送额度的供应商，可以让插件用 <code>auth.checkin</code> 去签，这是 magpie 自己的 hook（OpenCode 会忽略）。用户为这个供应商开着签到时，magpie 每个北京日为每个已登录账号调用一次，结果显示在账号的用量卡片和设置里。</p>
@@ -631,7 +633,7 @@ m plugin logout acme</pre>
   <span class="s">"summary"</span>: { <span class="s">"en"</span>: <span class="s">"Your Acme Coding Plan."</span>, <span class="s">"zh"</span>: <span class="s">"使用你的 Acme Coding Plan。"</span> } }</pre>
         </div>
         中间件的条目写 <code>"kind": "middleware"</code>，不写 <code>providers</code>，列在<span class="ui">网关中间件</span>下。其他类型也一样：<code>"kind": "tools"</code> 列在<span class="ui">给 Agent 的工具</span>下，<code>"kind": "page"</code> 列在<span class="ui">页面</span>下，<code>"kind": "agent"</code> 列在 <span class="ui">Agent</span> 下。<code>MAGPIE_PLUGIN_MARKET=&lt;url&gt;</code> 让 magpie 改用另一份列表，可以用来检查你的条目；设为 <code>off</code> 则只用内置副本。</li>
-      <li><b>GitHub 标签。</b>在 GitHub 上打了 <code>magpie-plugin</code> topic 的仓库，会显示在 <span class="ui">插件 → 发现 → 非官方插件 · GitHub</span> 里，Star 多的在前，并标明没有人审阅过。<code>package.json</code> 要放在仓库根目录。发布到 npm 且 <code>repository</code> 指向这个仓库的，从 npm 安装；否则按仓库当前的代码安装，所以它加载的文件必须提交进仓库：<code>dist</code> 只在发布时才构建的仓库不会显示。fork、已归档的仓库和 magpie-community 自己的仓库也不显示。magpie 最多每十分钟问一次 GitHub，仓库打上标签后几分钟内就会出现。卡片显示 <code>package.json</code> 里 <code>"magpie": { "icon": "…" }</code> 给的图标，没有就显示拼图图标。</li>
+      <li><b>GitHub 标签。</b>在 GitHub 上打了 <code>magpie-plugin</code> topic 的仓库，会显示在 <span class="ui">插件 → 发现 → 非官方插件 · GitHub</span> 里，Star 多的在前，并标明没有人审阅过。<code>package.json</code> 要放在仓库根目录。发布到 npm 且 <code>repository</code> 指向这个仓库的，从 npm 安装；否则按仓库当前的代码安装，所以它加载的文件必须提交进仓库：<code>dist</code> 只在发布时才构建的仓库不会显示。fork、已归档的仓库和 magpie-community 自己的仓库也不显示。magpie 最多每十分钟问一次 GitHub，仓库打上标签后几分钟内就会出现。卡片显示 <code>package.json</code> 里 <code>"magpie": { "icon": "…" }</code> 给的图标，没有就显示拼图图标。许可证取 GitHub 从仓库 <code>LICENSE</code> 文件识别出的那个；GitHub 认不出是哪种许可证（显示 <code>NOASSERTION</code>，比如 MIT 正文多加了一行）或者没有这个文件时，卡片显示 <code>package.json</code> 的 <code>license</code>。从 npm 安装的插件显示 <code>package.json</code> 里的。</li>
       <li><b>社区包。</b>想把插件贡献到 <a href="https://github.com/magpie-community/plugins">magpie-community/plugins</a>：
         <ul>
           <li>放在 <code>packages/&lt;name&gt;</code> 下，包名为 <code>@magpie-community/opencode-&lt;name&gt;-auth</code>（供应商）、<code>@magpie-community/middleware-&lt;name&gt;</code>（中间件或路由策略）、<code>@magpie-community/tools-&lt;name&gt;</code>（工具）、<code>@magpie-community/page-&lt;name&gt;</code>（页面）或 <code>@magpie-community/agent-&lt;name&gt;</code>（Agent），除非确实需要，不要有运行时依赖。</li>

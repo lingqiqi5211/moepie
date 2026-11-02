@@ -248,6 +248,26 @@ nor the vendor's limits.**
   ban risk, so a prompt change gets the same care as a header change.
 - Seen 1× (2026-10-12).
 
+**A new reader of a live object reads each field the way its writer
+writes it.**
+- 7f827b3b0 (10-27) added /v1/magpie/claude-runs, which lists every
+  run and calls pid() on each. pid() read cmd.Process without a lock
+  while a run's launch was still in cmd.Start writing it. It was red
+  under -race on ubuntu CI at 6104e88aa only (run 40698575099), since
+  most runs were cancelled by the next push. 983fff23d reads the run's
+  tree under mu first; it was red with a 50ms sleep injected at launch,
+  and not in 30 runs without it.
+- Before adding a list or status route, find who writes each field it
+  reads and under which lock. Run its test under -race with a delay
+  injected into the writer.
+- The fix moved when the pid shows, and the test waiting on it wasn't
+  re-read: TestClaudeRunsNamesEachProcess took a listing, then read the
+  fake's hang.pid, and could end on a list made before the tree was set
+  (PID 0), red on CI at 5bfd76cd8. 3dd59428e waits for a run listed
+  with that pid; red 3 of 3 with a sleep injected in the listing before.
+  A change to when a value appears re-reads every wait on it.
+- Seen 1× (2026-10-28).
+
 **A bit or enum value has one owner.**
 - d4c2512d2 (#1874) gave a usage row's Flags bit 256 to rowOwnCost while
   a rebase of #1463 gave it to rowReasoningHidden, so every reported cost

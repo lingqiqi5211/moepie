@@ -347,8 +347,8 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
         Spreading a model from <code>provider.models</code> and changing a few fields is the easy way. A model whose <code>status</code> is <code>"deprecated"</code> isn’t shown.</li>
       <li>magpie also reads these fields on a model, which OpenCode ignores:
         <ul>
-          <li><code>free: true</code>: the plan serves it at no cost to its allowance.</li>
-          <li><code>rate</code>: the credits a request costs, as a multiple, given as a number (<code>0.5</code>) or as the vendor writes it (<code>"x0.5"</code>).</li>
+          <li><code>free: true</code>: the plan serves it at no cost to its allowance. Only this flag makes a model free, and magpie never reads it from <code>rate</code>: set it from the vendor’s own word (its list marks the model free, or prices it at $0), not from a rate you worked out.</li>
+          <li><code>rate</code>: the credits a request costs, as a multiple, given as a number (<code>0.5</code>) or as the vendor writes it (<code>"x0.5"</code>). <code>0</code> reads as no rate given, not as free.</li>
           <li><code>rateWas</code>: the rate before a discount that is running now.</li>
         </ul>
         Model pickers show them.</li>
@@ -485,7 +485,7 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
     <p>Return a <code>Response</code>. Its status, headers and body go back as they come, streamed chunk by chunk. If you rewrite a streaming body, drop <code>content-length</code> and <code>content-encoding</code> from the headers.</p>
     <h3>Failures and failover</h3>
     <ul>
-      <li>A non-2xx response is the vendor’s answer. The gateway handles it as it would any provider’s: a rate limit or a server error moves the request to the next account or model, and a 401 marks the account (see <a href="#signin-state">Sign-in state</a>).</li>
+      <li>A non-2xx response is the vendor’s answer. The gateway handles it as it would any provider’s: a rate limit or a server error moves the request to the next account or model, and a 401 marks the account (see <a href="#signin-state">Sign-in state</a>). Answer a model the account may not use with 403 or 404 and the vendor’s words, not 401: the gateway reads that as the model refused, not the sign-in.</li>
       <li>A thrown error fails the request, and failover moves on.</li>
       <li>Answer in the API’s own error shape where you can, so the agent shows the vendor’s message.</li>
     </ul>
@@ -506,6 +506,7 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
       <tr><td><code>kept</code></td><td>Leave the account as it is (a 401 that is about something else).</td></tr>
       <tr><td><code>renewed</code></td><td>The sign-in renewed: clear the mark, whatever the request then met.</td></tr>
     </table></div>
+    <p>A 401 without the header whose body says only that the model isn’t served (“model … not available”, <code>model_not_found</code>, “模型不支持”) and nothing of a token, key, session or sign-in is read as <code>kept</code>. Before, it marked every account the request failed over to as needing a new sign-in. A 401 that names the model and also says the token is invalid still marks the account.</p>
     <p>From <code>fetch</code> or <code>provider.models</code>, throw an error with <code>signIn: "expired"</code> on it for the same effect:</p>
     <div class="code">
       <span class="lang">index.mjs</span>
@@ -541,6 +542,7 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
 }</pre>
     </div>
     <p>Times are ISO strings or epoch numbers, in seconds or in milliseconds. Without <code>signIn</code>, an <code>error</code> that says to sign in again marks the account, and a clean read clears the mark.</p>
+    <p>Leave <code>used</code> out when the vendor doesn’t tell it, never send 0 for “not known”. Left out with <code>amount</code> and <code>limit</code>, the share is theirs (370 of 1000 is 37 used). Left out with no count, the window is its <code>display</code> alone: routing doesn’t read it, and an account whose windows all say nothing is weighed as one never read, not as the one with the most left. A window with <code>aside: true</code> is shown on the account’s card, with its share and count, and in <code>GET /v1/magpie/quotas</code>, but routing never reads it: using it up doesn’t stop the account or weigh it against the others, whatever <code>amount</code> and <code>limit</code> say. Leave <code>aside</code> off a window the account really stops at.</p>
 
     <h2 id="checkin"><a class="anchor" href="#checkin">Check-in</a></h2>
     <p>A vendor that gives credits for a daily check-in can have the plugin press it with <code>auth.checkin</code>, magpie’s own hook (OpenCode ignores it). magpie runs it for each signed-in account once a Beijing day while the user has check-in on for the provider, and shows what came of it on the account’s Usage card and in Settings.</p>
@@ -631,7 +633,7 @@ m plugin logout acme</pre>
   <span class="s">"summary"</span>: { <span class="s">"en"</span>: <span class="s">"Your Acme Coding Plan."</span>, <span class="s">"zh"</span>: <span class="s">"使用你的 Acme Coding Plan。"</span> } }</pre>
         </div>
         A middleware’s entry has <code>"kind": "middleware"</code> and no <code>providers</code>; it is listed under <span class="ui">Gateway middleware</span>. The other kinds are listed the same way: <code>"kind": "tools"</code> under <span class="ui">Tools for agents</span>, <code>"kind": "page"</code> under <span class="ui">Pages</span> and <code>"kind": "agent"</code> under <span class="ui">Agents</span>. <code>MAGPIE_PLUGIN_MARKET=&lt;url&gt;</code> points magpie at another list, which is useful to check yours, and <code>off</code> keeps to the built-in copy.</li>
-      <li><b>A GitHub topic.</b> A repository tagged <code>magpie-plugin</code> on GitHub is shown under <span class="ui">Plugins → Discover → Unofficial, on GitHub</span>, the most starred first, marked as reviewed by no one. Keep <code>package.json</code> at the repository’s root. Published to npm with <code>repository</code> naming the repository, it is installed from npm; otherwise from the repository as it stands, so the file it loads must be committed: one whose <code>dist</code> is built only to publish is left out. Forks, archived repositories and magpie-community’s own are left out too. magpie asks GitHub at most every ten minutes, so a repository shows within minutes of being tagged. Its card shows the icon <code>"magpie": { "icon": "…" }</code> in its <code>package.json</code> gives, else a puzzle piece.</li>
+      <li><b>A GitHub topic.</b> A repository tagged <code>magpie-plugin</code> on GitHub is shown under <span class="ui">Plugins → Discover → Unofficial, on GitHub</span>, the most starred first, marked as reviewed by no one. Keep <code>package.json</code> at the repository’s root. Published to npm with <code>repository</code> naming the repository, it is installed from npm; otherwise from the repository as it stands, so the file it loads must be committed: one whose <code>dist</code> is built only to publish is left out. Forks, archived repositories and magpie-community’s own are left out too. magpie asks GitHub at most every ten minutes, so a repository shows within minutes of being tagged. Its card shows the icon <code>"magpie": { "icon": "…" }</code> in its <code>package.json</code> gives, else a puzzle piece. Its licence is the one GitHub reads from the repository’s <code>LICENSE</code> file; when GitHub can’t match the file to a licence (it says <code>NOASSERTION</code>, as for MIT’s text with a line added) or there is none, the card shows <code>package.json</code>’s <code>license</code>. A plugin installed from npm shows <code>package.json</code>’s.</li>
       <li><b>The community packages.</b> To contribute one to <a href="https://github.com/magpie-community/plugins">magpie-community/plugins</a>:
         <ul>
           <li>Put it under <code>packages/&lt;name&gt;</code>, named <code>@magpie-community/opencode-&lt;name&gt;-auth</code> (a provider) , <code>@magpie-community/middleware-&lt;name&gt;</code> (middleware or a routing strategy), <code>@magpie-community/tools-&lt;name&gt;</code> (tools), <code>@magpie-community/page-&lt;name&gt;</code> (a page) or <code>@magpie-community/agent-&lt;name&gt;</code> (an agent), with no runtime dependencies unless one is really needed.</li>

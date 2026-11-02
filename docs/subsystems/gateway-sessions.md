@@ -55,11 +55,47 @@ user's own llm-deepseek row pointed at magpie relies on (#3298,
 `TestDshMarksOnEveryRoute`).
 
 When the same identity is present in a native session, the native session wins
-and the gateway projection is omitted. On `/api/sessions/manage`, in its
+and the gateway projection is omitted. A native session can stand for more
+than its own key (`sessions.GatewayKeys`): Raft's (slock's raft-computer)
+agents run Pi in their folders under `$SLOCK_HOME` (else `~/.slock`,
+`%USERPROFILE%\.slock` on Windows), `agents/<id>/.pi-sessions/` and
+`.builtin-sessions/`, Pi's SDK files read as agent `raft`
+([`raft.go`](../../internal/sessions/raft.go)). Raft's Pi reads the user's
+own Pi folder, so through magpie it says it is Pi, and a Raft session is
+the gateway's `pi|<id>` too: in `MergeExternal`, the stats' native keys,
+the GUI's list and Via, and `NativeIDs` for `pi`. Raft's sessions are
+listed, read and deleted as Pi's (one file to the trash, nothing beside
+it; Raft starts afresh without it), with no resume command, no carry and
+no trace export (the gateway's Pi identity has those calls). Verification:
+`TestRaftSessions`, `TestRaftIsPiToTheGateway`, `TestRaftDeleteRestore`,
+`TestRaftSlockHome`. An omp session stands for its subagents and advisor
+too (`Session.Subs`, `subIDs` in
+[`sessions.go`](../../internal/sessions/sessions.go)): each one's file in
+the session's artifacts folder (`Kid.jsonl`, `__advisor.jsonl`) has a
+header id of its own, and omp sends that id, not the main session's, in
+`x-session-affinity`. The file's calls are counted in the main session, so
+the gateway's `omp|<sub id>` is its own in the same places as Raft's `pi|`
+key, and is never a second session counted again (Jumy, Discord 10-30:
+`TestOmpSubagentsAreTheSessionsToTheGateway`,
+`TestOmpSubagentCountedOnceWithTheGateway`). A Claude Code session's
+copies (`Copies`) are among its keys the same way. On `/api/sessions/manage`, in its
 counts as in its list, and on `/api/sessions/delete`, a native session is any
 session file the agent keeps, one nothing was said in too, with no limit
 (`sessions.NativeIDs`); one pass over the agents' files (`sessions.Manage`)
 reads only the agent shown and the agents with gateway sessions (#2776).
+It answers before a first read of a long history (hey_boyce on X: the page
+stood on its placeholder rows on its first open). A file it would read whole
+(no parse kept, an older index, a file written over, or a Claude Code or
+Codex parse that can't be read on after a restart) is read behind the
+answer once more than `quickBytes` (32 MB) of them is waiting; until then its
+row stands on the parse kept, or on a glance at its first 256 KB (id,
+folder, first prompt, start) and, for Claude Code, the titles in its last
+64 KB, with its last activity the file's time. Such a row has `pending:
+true` and no counts, the page asks again every 1.5 s until none is, and a
+glance is never saved in the index (`savable`) nor taken by a refresh as a
+parse (`parsed`). See
+[`internal/sessions/manage_quick.go`](../../internal/sessions/manage_quick.go),
+`TestManageAnswersBeforeFirstReads` and `sessions-pending-fill.test.cjs`.
 Gateway projections have no path,
 resume command or terminal action: the agent's own files of them are not on
 this computer. Their rows carry `gateway: true`; the Sessions page groups them
@@ -153,6 +189,24 @@ list the session), and `HasGatewayConversations` counts it.
 Implementation: [`internal/sessions/gateway_delete.go`](../../internal/sessions/gateway_delete.go),
 `Restore` in [`internal/sessions/manage.go`](../../internal/sessions/manage.go), and
 [`internal/gui/sessions_manage.go`](../../internal/gui/sessions_manage.go).
+A deleted Codex session also leaves the Codex app's list (zhuddan on Discord).
+The app (ChatGPT.app's Codex, 26.x) lists threads from its own catalog,
+`<CODEX_HOME>/sqlite/codex.db` (`codex-dev.db` for a non-prod build), table
+`local_thread_catalog`, and drops a row only on the app-server's
+`thread/deleted` or `thread/archived`; after its first full sweep it takes in
+only threads newer than its watermark. Delete removes the local host's rows of
+threads whose rollout is gone from that Codex folder's `sessions` and
+`archived_sessions` (named by Codex's state database, neither the file nor its
+packed twin there; a file that can't be looked at counts as there) and raises
+`catalog_revision`, in one `BEGIN IMMEDIATE` transaction that waits for the
+app's own. The removed rows go into the trash note (`codex_catalog`), and
+Restore puts them back. `/api/sessions/manage` does the same once a run
+(`TidyCodexCatalog`) for threads deleted before this. Implementation:
+[`internal/sessions/codex_catalog.go`](../../internal/sessions/codex_catalog.go);
+verification: `TestDeleteForgetsCodexAppCatalog`,
+`TestTidyCodexCatalogForgetsEarlierDeletes`,
+`TestTidyCodexCatalogKeepsWhatItCantJudge`, with schemas from Codex 26.1023 in
+`internal/sessions/testdata/codex-app/`.
 All-time statistics include gateway history older than native files. Calendar
 activity and output totals use each session's actual request dates, including
 intermediate dates; extending the range rebases existing native calendar indices.
@@ -484,8 +538,8 @@ Code's (#1779; its sessions are on the Sessions page too, from the same
 `projects/<cwd>/<id>.jsonl` files read as WorkBuddy's, resumed with
 `codebuddy --resume <id>` and deletable, #2657: `TestCodeBuddy`,
 `TestCodeBuddySessionsListedUnderTheirName`), MiniMax Code's (#1605), Kimi Code's (#1607,
-[`calls_kimi.go`](../../internal/sessions/calls_kimi.go)) and Pi's and
-omp's, here and in WSL (#1951,
+[`calls_kimi.go`](../../internal/sessions/calls_kimi.go)) and Pi's,
+Raft's Pi agents' and omp's, here and in WSL (#1951,
 [`calls_pi.go`](../../internal/sessions/calls_pi.go)). Each skips the
 calls the agent made through magpie's own entry, which the gateway logged
 with the account that answered: Kimi Code's are the ones whose
@@ -730,7 +784,35 @@ establishes them, `parent_session` and `root_session`. A child whose root is not
 known keeps an empty `root_session`; Codex entries without explicit identity
 metadata, gateway-only entries and conflicting identities set `role` to
 `unknown` and do not acquire a guessed parent or root. These fields are omitted
-for other agents. This is Codex-specific (#1591).
+for other agents, except a Claude-format branch (below). This is Codex-specific
+(#1591).
+
+Claude Code copies a conversation into a new session file when it forks one
+(`--resume <id> --fork-session`, the Agent SDK's `forkSession`, `/branch`):
+every message again, under the same uuids, with the new session id; after a
+compaction the copy starts at the compaction's summary
+([`cc_copies.go`](../../internal/sessions/cc_copies.go), `ccFamily`). Files
+are grouped by their first message and their compactions' summaries. A file
+whose last message and first message another file of the group holds is a
+copy: not listed, its id in `Copies`, counted in the stats only for what the
+keeper doesn't hold (`ccRest`). A file that holds what came before the
+other's start (the compaction the fork started after) is never that one's
+copy. What is left of the group went on apart and is one conversation: the
+head is the file that holds the others' first message as they don't hold
+its, else the one a `/branch` names in `forkedFrom`, else the earliest, then
+the lowest key. Each other one is a branch: listed with `role` `branch` and
+`parent_session` the head's id, its transcript (`TranscriptOf`, Markdown
+export) is the head's from its start up to the last message the two share,
+then the branch's own lines (`branchTranscript`), and the stats count only
+its own lines. A search reads the branch's own file. Neo (#feedback, after
+v0.1.1809): a client that ran each task in a fork of a compacted session
+showed a row per task, each opening on the summary and that one task, while
+the session itself was hidden as a fork's copy. See
+`TestClaudeForksAfterCompactAreBranches`,
+`TestClaudeSlashBranchAfterCompactIsABranch`,
+`TestClaudeBranchNamesItsSession` and
+`TestClaudeCopyBeforeACompactionIsCounted`; the fixtures in
+`testdata/claude-forks` are Claude Code 2.1.312's own files.
 
 A session whose agent keeps its subagents' conversations beside its own
 lists them in `subagents` on the sessions API (`/api/sessions`, `one`, `manage`; #2261,
@@ -787,7 +869,9 @@ kind, set in under the subagent that started it, and a click shows its
 conversation (`sub=`). A Codex thread whose `parent_session` chain reaches a
 listed session is drawn, as a session with its own details, Resume and
 Delete, under its parent in the same fold; a loop of parents, a chain deeper
-than eight or a parent not listed leaves it on top. The folder's count and
+than eight or a parent not listed leaves it on top. A Claude branch is drawn
+under its session the same way, and the fold names them apart ("2
+branches · 1 subagent"). The folder's count and
 checkbox cover the sessions under others. See `sessions-subagents.test.cjs`.
 
 Codex keeps the existing session-title precedence. Only when that leaves the

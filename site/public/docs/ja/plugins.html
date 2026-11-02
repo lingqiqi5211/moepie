@@ -347,8 +347,8 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
         <code>provider.models</code> のモデルを展開していくつかのフィールドを変えるのが簡単です。<code>status</code> が <code>"deprecated"</code> のモデルは表示されません。</li>
       <li>magpie は、OpenCode が無視する次のフィールドもモデルから読み取ります：
         <ul>
-          <li><code>free: true</code>：プランの枠を消費せずに使えます。</li>
-          <li><code>rate</code>：1 リクエストが消費するクレジットの倍率。数値（<code>0.5</code>）でも、ベンダーの表記（<code>"x0.5"</code>）でも構いません。</li>
+          <li><code>free: true</code>：プランの枠を消費せずに使えます。モデルを無料とするのはこのフィールドだけで、magpie は <code>rate</code> から推測しません。自分で計算した倍率ではなく、ベンダー自身の表示（一覧で無料と示している、または $0 の価格）に従って設定してください。</li>
+          <li><code>rate</code>：1 リクエストが消費するクレジットの倍率。数値（<code>0.5</code>）でも、ベンダーの表記（<code>"x0.5"</code>）でも構いません。<code>0</code> は倍率の指定なしとして扱われ、無料にはなりません。</li>
           <li><code>rateWas</code>：現在実施中の割引の前の倍率。</li>
         </ul>
         モデル選択画面に表示されます。</li>
@@ -485,7 +485,7 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
     <p><code>Response</code> を返してください。そのステータス、ヘッダー、本文はそのまま、チャンクごとにストリームで返されます。ストリーミングの本文を書き換える場合は、ヘッダーから <code>content-length</code> と <code>content-encoding</code> を取り除いてください。</p>
     <h3>失敗とフェイルオーバー</h3>
     <ul>
-      <li>2xx 以外の応答はベンダーの応答です。ゲートウェイはほかのプロバイダと同じように扱います：レート制限やサーバーエラーならリクエストを次のアカウントやモデルに移し、401 ならアカウントに記録を付けます（<a href="#signin-state">サインイン状態</a>を参照）。</li>
+      <li>2xx 以外の応答はベンダーの応答です。ゲートウェイはほかのプロバイダと同じように扱います：レート制限やサーバーエラーならリクエストを次のアカウントやモデルに移し、401 ならアカウントに記録を付けます（<a href="#signin-state">サインイン状態</a>を参照）。アカウントが使えないモデルには、401 ではなく 403 か 404 とベンダーの文言で応答してください。ゲートウェイはそれをサインインではなくモデルの拒否として扱います。</li>
       <li>例外を投げるとリクエストは失敗し、フェイルオーバーが次に進みます。</li>
       <li>可能なら API 自身のエラー形式で応答してください。エージェントがベンダーのメッセージを表示できます。</li>
     </ul>
@@ -506,6 +506,7 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
       <tr><td><code>kept</code></td><td>アカウントをそのままにする（別の理由による 401）。</td></tr>
       <tr><td><code>renewed</code></td><td>サインインが更新された：リクエストがその後どうなっても記録を消す。</td></tr>
     </table></div>
+    <p>ヘッダーのない 401 で、本文がモデルが提供されていないこと（「model … not available」、<code>model_not_found</code>、「模型不支持」）だけを述べ、トークン、キー、セッション、サインインに触れていないものは <code>kept</code> として扱います。以前は、リクエストがフェイルオーバーした先のすべてのアカウントに再サインインが必要という記録が付いていました。モデル名とともにトークンが無効だと述べる 401 は、引き続きアカウントに記録を付けます。</p>
     <p><code>fetch</code> や <code>provider.models</code> から <code>signIn: "expired"</code> を付けたエラーを投げても同じ効果があります：</p>
     <div class="code">
       <span class="lang">index.mjs</span>
@@ -541,6 +542,7 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
 }</pre>
     </div>
     <p>時刻は ISO 文字列か、秒またはミリ秒のエポック数値です。<code>signIn</code> がない場合、再サインインを求める <code>error</code> はアカウントに記録を付け、問題なく読み取れれば記録は消えます。</p>
+    <p>ベンダーが <code>used</code> を示さないときは省略し、「不明」の意味で 0 を送らないでください。<code>used</code> を省略して <code>amount</code> と <code>limit</code> を送ると、使用率はそこから計算されます（1000 のうち 370 なら 37）。数値もない場合、ウィンドウは <code>display</code> の表示だけになり、ルーティングは読みません。すべてのウィンドウが何も示さないアカウントは、残りが最も多いものではなく、まだ読み取っていないものとして扱われます。<code>aside: true</code> のウィンドウは、使用率と数値とともにアカウントのカードと <code>GET /v1/magpie/quotas</code> に表示されますが、ルーティングは読みません。<code>amount</code> や <code>limit</code> が何であっても、使い切ってもアカウントは止まらず、ほかのアカウントとの比較で不利にもなりません。アカウントが実際に止まるウィンドウには <code>aside</code> を付けないでください。</p>
 
     <h2 id="checkin"><a class="anchor" href="#checkin">チェックイン</a></h2>
     <p>毎日のチェックインでクレジットをくれるベンダーなら、プラグインが <code>auth.checkin</code> で押せます。magpie 独自の hook です（OpenCode は無視します）。ユーザーがそのプロバイダーのチェックインをオンにしている間、magpie はサインイン済みの各アカウントについて北京時間の 1 日に 1 回呼び、結果をアカウントの使用量カードと設定に表示します。</p>
@@ -631,7 +633,7 @@ m plugin logout acme</pre>
   <span class="s">"summary"</span>: { <span class="s">"en"</span>: <span class="s">"Your Acme Coding Plan."</span>, <span class="s">"zh"</span>: <span class="s">"使用你的 Acme Coding Plan。"</span> } }</pre>
         </div>
         ミドルウェアのエントリには <code>"kind": "middleware"</code> を書き、<code>providers</code> は書きません。<span class="ui">ゲートウェイミドルウェア</span> の下に表示されます。ほかの種類も同じで、<code>"kind": "tools"</code> は <span class="ui">エージェント向けツール</span>、<code>"kind": "page"</code> は <span class="ui">ページ</span>、<code>"kind": "agent"</code> は <span class="ui">エージェント</span> の下に表示されます。<code>MAGPIE_PLUGIN_MARKET=&lt;url&gt;</code> は magpie に別の一覧を参照させます（自分の一覧の確認に便利です）。<code>off</code> にすると内蔵のコピーだけを使います。</li>
-      <li><b>GitHub のトピック。</b>GitHub で <code>magpie-plugin</code> トピックを付けたリポジトリは、<span class="ui">プラグイン → 発見 → 非公式 · GitHub</span> に、スターの多い順に、誰もレビューしていないものとして表示されます。<code>package.json</code> はリポジトリのルートに置いてください。<code>repository</code> がそのリポジトリを指す形で npm に公開されていれば npm からインストールされ、そうでなければリポジトリの現在のコードがインストールされます。そのため読み込むファイルはコミットしておく必要があり、<code>dist</code> を公開時にしかビルドしないリポジトリは表示されません。フォーク、アーカイブ済みのリポジトリ、magpie-community 自身のものも表示されません。magpie が GitHub に問い合わせるのは最大で 10 分に 1 回なので、トピックを付けたリポジトリは数分で表示されます。カードには <code>package.json</code> の <code>"magpie": { "icon": "…" }</code> で指定したアイコンが表示され、ない場合はパズルのアイコンになります。</li>
+      <li><b>GitHub のトピック。</b>GitHub で <code>magpie-plugin</code> トピックを付けたリポジトリは、<span class="ui">プラグイン → 発見 → 非公式 · GitHub</span> に、スターの多い順に、誰もレビューしていないものとして表示されます。<code>package.json</code> はリポジトリのルートに置いてください。<code>repository</code> がそのリポジトリを指す形で npm に公開されていれば npm からインストールされ、そうでなければリポジトリの現在のコードがインストールされます。そのため読み込むファイルはコミットしておく必要があり、<code>dist</code> を公開時にしかビルドしないリポジトリは表示されません。フォーク、アーカイブ済みのリポジトリ、magpie-community 自身のものも表示されません。magpie が GitHub に問い合わせるのは最大で 10 分に 1 回なので、トピックを付けたリポジトリは数分で表示されます。カードには <code>package.json</code> の <code>"magpie": { "icon": "…" }</code> で指定したアイコンが表示され、ない場合はパズルのアイコンになります。ライセンスは GitHub がリポジトリの <code>LICENSE</code> ファイルから読み取ったものです。GitHub がどのライセンスか判定できない場合（<code>NOASSERTION</code>。MIT の本文に 1 行加えた場合など）やファイルがない場合は、<code>package.json</code> の <code>license</code> を表示します。npm からインストールされるプラグインは <code>package.json</code> のものを表示します。</li>
       <li><b>コミュニティのパッケージ。</b><a href="https://github.com/magpie-community/plugins">magpie-community/plugins</a> に貢献するには：
         <ul>
           <li><code>packages/&lt;name&gt;</code> に置き、名前はプロバイダなら <code>@magpie-community/opencode-&lt;name&gt;-auth</code>、ミドルウェアやルーティング戦略なら <code>@magpie-community/middleware-&lt;name&gt;</code>、ツールなら <code>@magpie-community/tools-&lt;name&gt;</code>、ページなら <code>@magpie-community/page-&lt;name&gt;</code>、エージェントなら <code>@magpie-community/agent-&lt;name&gt;</code> とします。本当に必要でない限り、ランタイムの依存は持たせないでください。</li>

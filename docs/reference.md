@@ -141,7 +141,7 @@ line; agents connected to magpie lose it when it quits.
 | ZCode        | `~/.zcode/v2/provider_config.json` and `config.json`, under the data folder moved in ZCode's settings (`dataBaseDir`); `~` is `$HOME` when set, on Windows too, as ZCode reads it before `%USERPROFILE%` | provider (magpie's models in ZCode's picker) |
 | WorkBuddy    | `~/.workbuddy/models.json` (`$WORKBUDDY_CONFIG_DIR`) | provider (magpie's models in WorkBuddy's picker) |
 | WorkBuddy AI | `~/.workbuddy-ai/models.json` (the international build) | provider (magpie's models in WorkBuddy AI's picker) |
-| CodeBuddy Code | `~/.codebuddy/models.json` (`$CODEBUDDY_CONFIG_DIR`), `settings.json` | model (magpie's models in its list; the session model) |
+| CodeBuddy (CodeBuddy Code CLI, CodeBuddy IDE) | `~/.codebuddy/models.json` (`$CODEBUDDY_CONFIG_DIR` for the CLI), `settings.json` | model (magpie's models in its list; the CLI session's model; the IDE picks from the list) |
 | Raycast      | `~/.config/raycast/ai/providers.yaml` in the user's folder, on Mac and Windows | provider (a `magpie` entry in Raycast AI's Custom Providers, magpie's models in its model picker; Raycast Pro; the user's providers, `tools` and comments kept) |
 | Kiro Crew    | `~/.kiro/crew/config.json` (`$KIROCREW_HOME`; `config.local.json` over it is left alone) | provider, harness (`agent.acp_backend`, and `agent.member_acp_backend` for a harness that can dispatch: an agent connected to magpie, so its models are magpie's: the one Crew is set to is connected along with it when it isn't yet, and disconnected with it again; the user's value is put back on Disconnect) |
 | OpenPencil   | `openpencil/settings.json` in the config folder: `~/Library/Application Support` (macOS), `$XDG_CONFIG_HOME` or `~/.config` (Linux), `%APPDATA%` (Windows) | provider (a `magpie` entry in its `builtin_agents`, magpie's models in its chat's model picker; the user's entries and settings kept; refused while OpenPencil runs, as it writes the file back when it quits) |
@@ -704,7 +704,11 @@ fingerprint — or with
 `magpie gateway-key accounts <id> codex/me@example.com openai/<key id>`
 (`all` takes the restriction off). The list holds a key to some accounts
 **of the providers it names**: a provider it names no account of, the key
-uses as it always did. The list keeps an account by its stable id, kept
+uses as its models allow. A key that lists accounts and **no model** may use
+only the models of those accounts' providers (`access.HeldModels`, each
+`<provider>/*`): ticking only an account narrows the key to it, where it
+used to leave the key every model of every other provider (Linka on
+Discord). The list keeps an account by its stable id, kept
 through renames, shown by who is signed in; one gone later — a key
 rotated, an account signed out, an account of an agent that keeps no
 logins renamed — is kept as it is, matching nothing, so the key is held
