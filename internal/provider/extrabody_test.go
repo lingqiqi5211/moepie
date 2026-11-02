@@ -108,8 +108,9 @@ func TestWithExtraBody(t *testing.T) {
 		"!service_tier":    json.RawMessage(`"flex"`),
 		"model":            json.RawMessage(`"never"`),
 		"big":              json.RawMessage(`12345678901234567890`),
+		"sub_key":          json.RawMessage(`"s:${subagentId}"`),
 	}}
-	out := p.WithExtraBody([]byte(`{"model":"m","service_tier":"auto","input":"a<b>&c","prompt_cache_key":"mine"}`), Conversation{Session: "S1"})
+	out := p.WithExtraBody([]byte(`{"model":"m","service_tier":"auto","input":"a<b>&c","prompt_cache_key":"mine"}`), Conversation{Session: "S1", Subagent: "worker-a"})
 	var m map[string]any
 	if err := json.Unmarshal(out, &m); err != nil {
 		t.Fatalf("%s: %v", out, err)
@@ -120,12 +121,15 @@ func TestWithExtraBody(t *testing.T) {
 	if !strings.Contains(string(out), `"tags":["s-S1"]`) || !strings.Contains(string(out), `"big":12345678901234567890`) {
 		t.Errorf("values %s", out)
 	}
+	if !strings.Contains(string(out), `"sub_key":"s:worker-a"`) {
+		t.Errorf("subagent %s", out)
+	}
 	if !strings.Contains(string(out), `"a<b>&c"`) {
 		t.Errorf("escaped %s", out)
 	}
 
 	out = p.WithExtraBody([]byte(`{"model":"m"}`), Conversation{Session: "S2"})
-	if !strings.Contains(string(out), `"prompt_cache_key":"S2"`) {
+	if !strings.Contains(string(out), `"prompt_cache_key":"S2"`) || !strings.Contains(string(out), `"sub_key":"s:"`) {
 		t.Errorf("filled %s", out)
 	}
 

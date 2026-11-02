@@ -174,8 +174,14 @@ var presets = []PresetDef{
 		Website: "https://aistudio.google.com", KeysURL: "https://aistudio.google.com/apikey"},
 	// Google's Gemini models in the user's own Google Cloud project
 	// (vertex.go): generateContent, signed with their Google credentials
-	// rather than a key. It has no list to ask that says which models a
-	// location serves, so they are given: these, every one global serves;
+	// rather than a key; and its partner models (publisher/model ids,
+	// VertexPartner) on Google's OpenAI-compatible chat completions there,
+	// the live ones Google's docs list at global on 2026-10-28 (Gemma 4,
+	// Experimental, is left to be typed in); and Anthropic's Claude
+	// (VertexClaude) on its Messages API there, the current ones under the
+	// ids Claude Code asks Vertex AI for (an older one, claude-…@date, is
+	// typed in). It has no list to ask that says which models a location
+	// serves, so they are given: these, every one global serves;
 	// vertexModels has the others'. Its Priority PayGo and Flex PayGo are
 	// asked for with the two headers.
 	{ID: VertexPreset, Name: "Google Vertex AI", Short: "Vertex AI", Icon: "vertexai-color", Kind: KindVendor,
@@ -184,7 +190,9 @@ var presets = []PresetDef{
 		NoList:  true,
 		Models: []string{"gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite",
 			"gemini-4-argon", "gemini-3.1-pro-preview", "gemini-3.1-pro-preview-customtools", "gemini-3.1-flash-lite", "gemini-3-flash-preview",
-			"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"},
+			"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
+			"deepseek-ai/deepseek-v4.1-flash-maas", "zai-org/glm-5.2-maas", "openai/gpt-oss-120b-maas",
+			"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"},
 		HeaderHints: []string{"X-Vertex-AI-LLM-Request-Type", "X-Vertex-AI-LLM-Shared-Request-Type"}},
 	{ID: "deepseek", Name: "DeepSeek", Icon: "deepseek-color", Kind: KindVendor, Catalog: "deepseek",
 		Chat: "https://api.deepseek.com/v1", Responses: "https://api.deepseek.com/v1", Anthropic: "https://api.deepseek.com/anthropic",
@@ -404,6 +412,26 @@ var presets = []PresetDef{
 		Note:    "Alibaba Cloud Bailian · subscription",
 		Website: "https://help.aliyun.com/zh/model-studio/token-plan-overview", KeysURL: "https://bailian.console.aliyun.com/cn-beijing/subscription/token-plan/personal",
 		Models: alibabaPlanModels},
+	// Qwen Cloud (qwencloud.com) is Alibaba's international Qwen platform,
+	// on keys of its own made at home.qwencloud.com, at
+	// {region}.maas.qwencloudapi.com (docs.qwencloud.com, "Regions and
+	// endpoints"): pay as you go (sk-ws- keys, each kept to its region) in
+	// six regions, Singapore the default, and the Token Plan (sk-sp- keys)
+	// at token-plan.maas.qwencloudapi.com, Singapore only. Each key gets 401
+	// at the other's host, so the plan is a preset of its own as Alibaba's
+	// other two are. The plan's models are its overview's text models.
+	{ID: "qwencloud-token-plan", Name: "Qwen Cloud Token Plan", Short: "Qwen Cloud Plan", Icon: "qwen-color", Kind: KindVendor,
+		Chat: "https://token-plan.maas.qwencloudapi.com/compatible-mode/v1", Anthropic: "https://token-plan.maas.qwencloudapi.com/apps/anthropic",
+		Note:    "Qwen Cloud · subscription",
+		Website: "https://docs.qwencloud.com/token-plan/overview", KeysURL: "https://home.qwencloud.com/analytics/token-plan/individual",
+		Models: []string{"auto", "qwen3.8-max", "qwen3.8-flash", "qwen3.7-max", "qwen3.7-plus", "qwen3.6-flash",
+			"deepseek-v4.1-flash", "deepseek-v4.1-flash-1017", "deepseek-v4-pro", "deepseek-v4-pro-0813", "deepseek-v4-flash-0731",
+			"glm-5.3", "glm-5.2"}},
+	{ID: "qwencloud", Name: "Qwen Cloud", Icon: "qwen-color", Kind: KindVendor, Catalog: "alibaba",
+		Chat: qwenCloudChat("ap-southeast-1"), Anthropic: qwenCloudAnthropic("ap-southeast-1"),
+		Note:    "Qwen Cloud · pay as you go",
+		Website: "https://docs.qwencloud.com/developer-guides/getting-started/regions", KeysURL: "https://home.qwencloud.com/api-keys",
+		Regions: qwenCloudRegions("ap-southeast-1", "us-east-1", "eu-central-1", "ap-northeast-1", "cn-hongkong", "cn-beijing")},
 	{ID: "mistral", Name: "Mistral", Icon: "mistral-color", Kind: KindVendor, Catalog: "mistral",
 		Chat:    "https://api.mistral.ai/v1",
 		Website: "https://console.mistral.ai", KeysURL: "https://console.mistral.ai/api-keys"},
@@ -658,6 +686,24 @@ func bedrockChat(region string) string {
 // …/anthropic/v1/messages is where the runtime serves Anthropic's API.
 func bedrockAnthropic(region string) string {
 	return "https://bedrock-runtime." + region + ".amazonaws.com/anthropic"
+}
+
+// qwenCloudRegions are Qwen Cloud's pay-as-you-go regions, each at its own
+// host and named by its id, as Alibaba's docs name them.
+func qwenCloudRegions(ids ...string) []Region {
+	out := make([]Region, len(ids))
+	for i, id := range ids {
+		out[i] = Region{ID: id, Name: id, Chat: qwenCloudChat(id), Anthropic: qwenCloudAnthropic(id)}
+	}
+	return out
+}
+
+func qwenCloudChat(region string) string {
+	return "https://" + region + ".maas.qwencloudapi.com/compatible-mode/v1"
+}
+
+func qwenCloudAnthropic(region string) string {
+	return "https://" + region + ".maas.qwencloudapi.com/apps/anthropic"
 }
 
 // bedrockRegions are the regions picked between, named by their codes, the

@@ -757,12 +757,52 @@ func codexListed(shown []Entry, members func(id string) []Member, own bool) []ca
 		if !listed(e) {
 			continue
 		}
-		m := catalog.Model{ID: e.ID, Name: labels[i], Efforts: e.Efforts, Images: e.Images || seen, Context: e.Context, AgentsV2: e.AgentsV2, Codex: e.Codex, Apart: apart[i]}
+		m := catalog.Model{ID: e.ID, Name: labels[i], Efforts: CodexEfforts(e), Images: e.Images || seen, Context: e.Context, AgentsV2: e.AgentsV2, Codex: e.Codex, Apart: apart[i]}
 		m.Compact = CompactFor(s, e, find)
 		CodexTiers(&m, e, members)
 		ms = append(ms, m)
 	}
 	return ms
+}
+
+// codexUnknownLevels are the levels Codex is offered on a model magpie
+// has no word on (CodexEfforts): the three every API that takes a
+// reasoning effort reads, OpenAI's Chat and Responses and the relays
+// copying them.
+var codexUnknownLevels = []string{"low", "medium", "high"}
+
+// CodexEfforts are the levels Codex's picker offers for e: its own, or,
+// for a model nothing magpie reads says anything about — a custom
+// provider's model-code, a relay's alias — low, medium and high. Codex
+// sends such a model an effort whatever its entry lists (medium, or the
+// one config.toml starts sessions at), and the gateway passes an effort
+// on as asked where the model's levels aren't known (fitEffort), so with
+// no levels in its entry the effort was sent and couldn't be changed
+// (ccdcn on X: no effort choice for a custom provider's models). A model
+// known to have no levels keeps none: one its vendor's catalog or
+// models.dev lists without them, one the user said takes no reasoning
+// ask, and a routing group, whose levels are its members'.
+func CodexEfforts(e Entry) []string {
+	if len(e.Efforts) > 0 || !e.levelsUnknown() {
+		return e.Efforts
+	}
+	return slices.Clone(codexUnknownLevels)
+}
+
+// levelsUnknown reports whether nothing magpie reads says which reasoning
+// levels e's model has, or that it has none: not its vendor's own list
+// (levels, or an entry in Codex's shape), not the vendor's catalog, not
+// models.dev under any provider, not the user.
+func (e Entry) levelsUnknown() bool {
+	if e.Group != "" || len(e.Efforts) > 0 || e.Reasonless || len(e.Codex) > 0 || e.Model == "" {
+		return false
+	}
+	if _, ok := catalog.ListedBy(e.Provider.Catalogs(), e.Model); ok {
+		return false
+	}
+	// models.dev lists it (glm-4.5-air, with no reasoning) or knows it
+	// under another spelling: what it says stands
+	return !catalog.Lists(e.Model) && !catalog.Knows(e.Model)
 }
 
 // codexApart is, for each of shown that is listed, what tells it from

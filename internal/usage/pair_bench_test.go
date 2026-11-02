@@ -12,10 +12,12 @@ import (
 // session and tokens.
 func pairFixture(files, calls int) (gateways, locals []*rowChunk) {
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	g := &rowChunk{serial: 1}
+	// serials of their own: two fixtures' chunks under one serial read each
+	// other's kept message keys (msgKeysOf), whichever test ran first
+	g := &rowChunk{serial: nextChunkSerial()}
 	n := 0
 	for f := 0; f < files; f++ {
-		c := &rowChunk{serial: uint64(100 + f)}
+		c := &rowChunk{serial: nextChunkSerial()}
 		for i := 0; i < calls; i++ {
 			at := now.Add(-time.Duration(n) * 20 * time.Second)
 			n++
@@ -40,8 +42,8 @@ func BenchmarkPairRows(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ps := pairRows(All, now, gateways, locals, nil, nil)
-		if len(ps.matched) != 200000 {
-			b.Fatal(len(ps.matched))
+		if ps.matched.count() != 200000 {
+			b.Fatal(ps.matched.count())
 		}
 	}
 }

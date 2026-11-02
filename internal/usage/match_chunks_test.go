@@ -53,7 +53,7 @@ func TestMatchOpensOnlyNamedChunks(t *testing.T) {
 		for _, since := range []time.Time{{}, now.Add(5 * time.Second)} {
 			var opened []*rowChunk
 			matchOpening = func(c *rowChunk) { opened = append(opened, c) }
-			got := matchedBlocks([]*rowChunk{gateway}, locals, nil, nil, since, false)
+			got := refMap(matchedBlocks([]*rowChunk{gateway}, locals, nil, nil, since, false))
 			matchOpening = nil
 			want := matchedLocalLegacy(gateway, locals, nil, since)
 			if !reflect.DeepEqual(got, want) {
@@ -84,7 +84,7 @@ func TestMatchOpensAgyChunks(t *testing.T) {
 	var opened []*rowChunk
 	matchOpening = func(c *rowChunk) { opened = append(opened, c) }
 	t.Cleanup(func() { matchOpening = nil })
-	got := matchedBlocks([]*rowChunk{gateway}, []*rowChunk{agy, other}, nil, nil, time.Time{}, false)
+	got := refMap(matchedBlocks([]*rowChunk{gateway}, []*rowChunk{agy, other}, nil, nil, time.Time{}, false))
 	if !got[rowRef{agy, 0}] || len(got) != 1 {
 		t.Fatalf("matched %v; want the agy step alone", got)
 	}
@@ -110,7 +110,7 @@ func TestMatchByIDAllocatesNoSliceAnID(t *testing.T) {
 		local.add(Row{Record: r, Source: "log"}, "", int64(i), false)
 	}
 	local.serial = nextChunkSerial()
-	got := matchedBlocks([]*rowChunk{gateway}, []*rowChunk{local}, nil, nil, time.Time{}, false)
+	got := refMap(matchedBlocks([]*rowChunk{gateway}, []*rowChunk{local}, nil, nil, time.Time{}, false))
 	if want := matchedLocalLegacy(gateway, []*rowChunk{local}, nil, time.Time{}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("%d matches, want %d", len(got), len(want))
 	}

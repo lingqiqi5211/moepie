@@ -97,8 +97,11 @@ func slot(keyID string) string { return usage.Path() + "\x00" + keyID }
 
 // counts reports whether r is a call a key's budget counts.
 // A call an app reported itself (#1874) never counts: it didn't go through
-// magpie, and may be a backfill of calls long past.
-func counts(r usage.Record) bool { return !r.IsRejected() && !r.IsReported() && r.Computer == "" }
+// magpie, and may be a backfill of calls long past. Nor does an MCP tool
+// call (usage.SourceMCP): the model requests it made are calls of their own.
+func counts(r usage.Record) bool {
+	return !r.IsRejected() && !r.IsReported() && !r.IsProbe() && r.Computer == ""
+}
 
 // sumsFor is keyID's sums for each window starting at starts, read from
 // usage.jsonl the first time; those of windows no limit counts in now
@@ -133,7 +136,8 @@ func read(keyID string, start time.Time) *sums {
 	s := &sums{start: start}
 	cost := usage.NewCoster()
 	usage.Visit(start, func(r usage.Record) {
-		if r.CallerKeyID == keyID && counts(r) && !r.Time.Before(start) {
+		// a key issued under keyID spends from its limits too
+		if (r.CallerKeyID == keyID || r.CallerIssuerID == keyID) && counts(r) && !r.Time.Before(start) {
 			c, ok := cost(r)
 			s.add(r, c, ok)
 		}
@@ -163,14 +167,24 @@ func Append(rec usage.Record) {
 		rec.Time = time.Now()
 	}
 	usage.Append(rec)
-	kept := state.sums[slot(rec.CallerKeyID)]
-	if len(kept) == 0 || !counts(rec) {
+	if !counts(rec) {
 		return
 	}
-	c, ok := usage.NewCoster()(rec)
-	for _, s := range kept {
-		if !rec.Time.Before(s.start) {
-			s.add(rec, c, ok)
+	var cost func(usage.Record) (float64, bool)
+	// the call counts for its key, and for the key that one was issued under
+	for _, id := range []string{rec.CallerKeyID, rec.CallerIssuerID} {
+		kept := state.sums[slot(id)]
+		if id == "" || len(kept) == 0 {
+			continue
+		}
+		if cost == nil {
+			cost = usage.NewCoster()
+		}
+		c, ok := cost(rec)
+		for _, s := range kept {
+			if !rec.Time.Before(s.start) {
+				s.add(rec, c, ok)
+			}
 		}
 	}
 }
@@ -339,6 +353,24 @@ func (Limiter) Reserve(who access.Identity, body int64, model string, now time.T
 // size in bytes (-1 unknown) and model the model it named, for a cost cap
 // before the key has a price of its own this window.
 func Reserve(who access.Identity, body int64, model string, now time.Time) (release func(), refused *Refusal) {
+	if who.Issuer == nil {
+		return reserve(who, body, model, now)
+	}
+	// an issued key's request is held to its own limits and to its
+	// issuer's, which count what every key issued under it spends
+	own, refused := reserve(who, body, model, now)
+	if refused != nil {
+		return nil, refused
+	}
+	up, refused := reserve(*who.Issuer, body, model, now)
+	if refused != nil {
+		own()
+		return nil, refused
+	}
+	return func() { own(); up() }, nil
+}
+
+func reserve(who access.Identity, body int64, model string, now time.Time) (release func(), refused *Refusal) {
 	ls := who.Limits()
 	if who.KeyID == "" || len(ls) == 0 {
 		return func() {}, nil
@@ -440,7 +472,8 @@ func priceOf(model string) (float64, bool) {
 	if !ok {
 		return 0, false
 	}
-	return pr.Input / 1e6, true
+	// the call is made now, at this hour's price (Price.In)
+	return pr.In(time.Now()).Input / 1e6, true
 }
 
 // ModelOf is the model a JSON request body names, "" for none.

@@ -111,6 +111,10 @@ type QuotaWindow struct {
 	// (WithWindowStarts): with ResetsAt it places an even pace through the
 	// window, which the card's Pace number is measured from (fflake33).
 	StartsAt *time.Time `json:"startsAt,omitempty"`
+	// TrayKind is, for the GUI only, how Settings names the window among
+	// those the menu bar can show (gui.withTrayKinds): "5h", "7d",
+	// "month"; empty on one the menu bar leaves out.
+	TrayKind string `json:"trayKind,omitempty"`
 	// matches further scopes pools whose membership isn't one model word.
 	matches func(string) bool
 	// partial is set on the windows of a reading that may leave some out:
@@ -779,8 +783,10 @@ func AskUsage() {
 
 // claudeWindows is the allowance of the Claude account user, read by
 // Claude Code's own /usage. The account Claude Code is signed in to
-// (active) is read when the user asked since it last was, or when the last
-// reading's claudeUsageWait is up and Claude Code was used since. A saved
+// (active) is read when the user asked since it last was, when the last
+// reading's claudeUsageWait (claudeNearOutWait near out) is up and Claude
+// Code was used since, or when Claude Code was refused for its limit
+// since. A saved
 // account is read only when its card is refreshed (savedRefresh), or when
 // the switch off a spent account has no reading of it (spareRead), by
 // Claude Code run in the account's own config directory
@@ -795,8 +801,12 @@ func claudeWindows(ctx context.Context, user string, active bool) ([]QuotaWindow
 	c.Lock()
 	e, ok := c.m[key]
 	c.Unlock()
+	// the account Claude Code is on is read sooner near out
+	// (claudeWaitOf), and at once once Claude Code was refused for its
+	// limit since (claudeLimitHitAfter, #4443)
 	due := e.tried.IsZero() || claudeAsked.Load() != 0 && asked > e.asked ||
-		active && now.Sub(e.tried) >= e.wait && (e.heard.After(e.tried) || claudeUsedSince(e.tried))
+		active && now.Sub(e.tried) >= claudeWaitOf(e, now) && (e.heard.After(e.tried) || claudeUsedSince(e.tried)) ||
+		active && claudeLimitHitAfter(e.tried)
 	// a saved account the switch off a spent one has no reading of
 	// (spareRead): read once, and again only after a wait while its read
 	// keeps failing, never every look

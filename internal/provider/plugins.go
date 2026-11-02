@@ -619,11 +619,10 @@ func pluginFetch(pp plugin.Provider, account string, req *http.Request) (*http.R
 	if err != nil {
 		return nil, err
 	}
-	base := firstOf(o.BaseURL, m.URL, pp.API, npmBase[m.NPM])
+	base := pluginRequestBase(pp, m, o.BaseURL)
 	if base == "" {
 		return nil, errors.New(pp.Name + "'s plugin says nowhere to send its requests")
 	}
-	base = strings.TrimRight(base, "/")
 	var url string
 	switch {
 	case codeAssist:
@@ -657,6 +656,29 @@ func pluginFetch(pp plugin.Provider, account string, req *http.Request) (*http.R
 		notePluginSignIn(pp, account, resp)
 	}
 	return resp, err
+}
+
+// pluginRequestBase is the base URL a plugin provider's request for m goes
+// under: the loader's (else the model's, the provider's, the AI SDK
+// package's), with no slash at its end.
+//
+// A loader's base is the provider's, said once for all its models, and an
+// Anthropic model may be served under /v1 of it: Copilot's loader says
+// https://api.githubcopilot.com, while its Claude models are on
+// /v1/messages (models.dev's api.url .../v1; OpenCode's own Copilot
+// provider sends them to the loader's base + "/v1"). Sent to the bare base
+// they went to /messages and Copilot answered 404 (cyoking1 on X). So an
+// Anthropic model whose own URL ends in /v1 is sent under the loader's
+// base + /v1, when that base doesn't end in it already.
+func pluginRequestBase(pp plugin.Provider, m plugin.Model, loader string) string {
+	base := strings.TrimRight(firstOf(loader, m.URL, pp.API, npmBase[m.NPM]), "/")
+	if base == "" || loader == "" || pluginProtocol(pp.ID, m) != Anthropic {
+		return base
+	}
+	if strings.HasSuffix(strings.TrimRight(m.URL, "/"), "/v1") && !strings.HasSuffix(base, "/v1") {
+		base += "/v1"
+	}
+	return base
 }
 
 // SignInHeader is how a plugin says what its answer means for the

@@ -19,6 +19,9 @@ type pricedAs struct {
 	provider string
 	flags    uint16
 	price    *catalog.Price
+	// windows are the provider's rate windows (#2463): price is asked
+	// without a time, so each row's own time is read against them
+	windows []provider.RateWindow
 }
 
 // blockPricer prices the gateway's raw blocks as a query reads them. What a
@@ -171,6 +174,7 @@ func (b *blockPricer) as(prov, model, served, effort string) pricedAs {
 		a.flags |= 32
 	}
 	a.price = b.price(Record{Provider: prov, Model: model, Served: served, Effort: effort})
+	a.windows = provider.RateWindowsOf(prov)
 	b.by[k] = a
 	return a
 }
@@ -223,8 +227,14 @@ func (b *blockPricer) block(packed *rowChunk) *rowChunk {
 	return e.c
 }
 
+// blockPricing, in tests, is told of each block priced.
+var blockPricing func()
+
 // priceBlock is the priced copy of a raw block, and the pooled rows it is in.
 func (b *blockPricer) priceBlock(packed *rowChunk) (*rowChunk, *[]packedRow) {
+	if blockPricing != nil {
+		blockPricing()
+	}
 	buf := pricedRows.Get().(*[]packedRow)
 	raw := packed.unpackInto(*buf)
 	// unpackInto decodes into the buffer whenever it is large enough
@@ -241,6 +251,7 @@ func (b *blockPricer) priceBlock(packed *rowChunk) (*rowChunk, *[]packedRow) {
 	if raw == packed {
 		c.Rows = slices.Clone(raw.Rows) // a block too small to compress is shared
 	}
+	c.raw = packed
 	c.Strings = slices.Clip(c.Strings)
 	added := map[string]uint32{}
 	intern := func(s string, was uint32) uint32 {
@@ -259,9 +270,10 @@ func (b *blockPricer) priceBlock(packed *rowChunk) (*rowChunk, *[]packedRow) {
 	// make: the agent, the client and the provider are all a shape's
 	c.Shapes, c.shapeIDs = slices.Clip(c.Shapes), nil
 	type ids struct {
-		id    uint32 // the provider's string, or the row's shape
-		flags uint16
-		price *catalog.Price
+		id      uint32 // the provider's string, or the row's shape
+		flags   uint16
+		price   *catalog.Price
+		windows []provider.RateWindow
 	}
 	names := map[[6]uint32]ids{}
 	agents := map[uint32][2]uint32{}
@@ -282,13 +294,13 @@ func (b *blockPricer) priceBlock(packed *rowChunk) (*rowChunk, *[]packedRow) {
 			id := c.Strings[raw]
 			to = renamedTo{timed: b.renames.Timed(id)}
 			if !to.timed {
-				shown, own := b.renames.Both(id, p.Time)
+				shown, own := b.renames.Both(id, p.Time())
 				to.to, to.own = intern(shown, raw), intern(own, raw)
 			}
 			provs[raw] = to
 		}
 		if to.timed {
-			shown, own := b.renames.Both(c.Strings[raw], p.Time)
+			shown, own := b.renames.Both(c.Strings[raw], p.Time())
 			to.to, to.own = intern(shown, raw), intern(own, raw)
 		}
 		sk := [3]uint32{p.Shape, to.to, to.own}
@@ -299,7 +311,7 @@ func (b *blockPricer) priceBlock(packed *rowChunk) (*rowChunk, *[]packedRow) {
 			named, ok := names[k]
 			if !ok {
 				a := b.as(c.Strings[k[5]], c.Strings[k[1]], c.Strings[k[2]], c.Strings[k[3]])
-				named = ids{k[4], a.flags, a.price}
+				named = ids{k[4], a.flags, a.price, a.windows}
 				names[k] = named
 			}
 			agent, ok := agents[t[0]]
@@ -309,7 +321,7 @@ func (b *blockPricer) priceBlock(packed *rowChunk) (*rowChunk, *[]packedRow) {
 				agents[t[0]] = agent
 			}
 			t[0], t[1], t[rowClient] = agent[0], named.id, agent[1]
-			got = ids{c.shape(t), named.flags, named.price}
+			got = ids{c.shape(t), named.flags, named.price, named.windows}
 			shapes[sk] = got
 		}
 		p.Shape = got.id
@@ -324,7 +336,7 @@ func (b *blockPricer) priceBlock(packed *rowChunk) (*rowChunk, *[]packedRow) {
 		p.Cost = 0
 		if got.price != nil && p.Tokens[0]+p.Tokens[1] > 0 {
 			p.Flags |= 1
-			p.Cost = got.price.CostSplit(int(p.Tokens[0]), int(p.Tokens[1]), int(p.Tokens[2]), int(p.Tokens[3]), int(p.Tokens[5]))
+			p.Cost = atWindow(got.price, got.windows, p.Time()).In(p.Time()).CostSplit(int(p.Tokens[0]), int(p.Tokens[1]), int(p.Tokens[2]), int(p.Tokens[3]), int(p.Tokens[5]))
 		}
 	}
 	return &c, pooled

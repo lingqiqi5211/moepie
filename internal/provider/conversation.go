@@ -32,9 +32,15 @@ import (
 // thread's id.
 const ThreadPlaceholder = "${threadId}"
 
-// Conversation is what ${sessionId} and ${threadId} stand for in a
-// request: Thread "" is the session's own thread.
-type Conversation struct{ Session, Thread string }
+// SubagentPlaceholder is what a header or an extraBody string writes for
+// the Claude Code subagent a request is of (yetone/magpie#2937).
+const SubagentPlaceholder = "${subagentId}"
+
+// Conversation is what ${sessionId}, ${threadId} and ${subagentId} stand
+// for in a request: Thread "" is the session's own thread; Subagent is
+// the Claude Code subagent the request is of (x-claude-code-agent-id), ""
+// on the conversation's own turns, which never send it.
+type Conversation struct{ Session, Thread, Subagent string }
 
 type conversationCtxKey struct{}
 
@@ -68,7 +74,7 @@ func (c Conversation) expand(s string) string {
 	if thread == "" {
 		thread = c.Session
 	}
-	return strings.NewReplacer(SessionPlaceholder, c.Session, ThreadPlaceholder, thread).Replace(s)
+	return strings.NewReplacer(SessionPlaceholder, c.Session, ThreadPlaceholder, thread, SubagentPlaceholder, c.Subagent).Replace(s)
 }
 
 // headerSafe is id without the bytes a header value can't carry: control
@@ -84,7 +90,7 @@ func headerSafe(id string) string {
 
 // placeheld says s names the conversation.
 func placeheld(s string) bool {
-	return strings.Contains(s, SessionPlaceholder) || strings.Contains(s, ThreadPlaceholder)
+	return strings.Contains(s, SessionPlaceholder) || strings.Contains(s, ThreadPlaceholder) || strings.Contains(s, SubagentPlaceholder)
 }
 
 // AsksThread says p's headers or extraBody name ${threadId}, which the
@@ -123,7 +129,7 @@ func expandHeaders(h map[string]string, conv func() Conversation) map[string]str
 		if out == nil {
 			out = maps.Clone(h)
 			c = conv()
-			c = Conversation{Session: headerSafe(c.Session), Thread: headerSafe(c.Thread)}
+			c = Conversation{Session: headerSafe(c.Session), Thread: headerSafe(c.Thread), Subagent: headerSafe(c.Subagent)}
 		}
 		out[k] = c.expand(v)
 	}

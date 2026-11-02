@@ -198,6 +198,7 @@ func TestHeatmapAfterACallAddsUpOnlyWhatChanged(t *testing.T) {
 // session file of old and new calls, and the pairing kept no longer than
 // heatOldFresh, or once a settled file changes.
 func TestHeatmapAfterACallPairsOnlyTheLastDays(t *testing.T) {
+	pairAtOnce(t)
 	pageHome(t)
 	now := holdClock(t, time.Date(2026, 9, 30, 12, 0, 0, 0, time.Local))
 	cut := time.Date(2026, 9, 28, 0, 0, 0, 0, time.Local)
@@ -237,6 +238,7 @@ func TestHeatmapAfterACallPairsOnlyTheLastDays(t *testing.T) {
 		requestCache.Lock()
 		requestCache.heatParts, requestCache.heatOld, requestCache.heats, requestCache.pages = nil, nil, nil, map[pageKey]RequestPage{}
 		requestCache.Unlock()
+		os.Remove(heatDiskPath())
 		return HeatmapOf(Filter{})
 	}
 	first := HeatmapOf(Filter{})
@@ -309,13 +311,98 @@ func TestHeatmapAfterACallPairsOnlyTheLastDays(t *testing.T) {
 	if !reflect.DeepEqual(warm, cold()) {
 		t.Fatalf("a settled file changed: %+v, cold %+v", warm, cold())
 	}
-	// past heatOldFresh every chunk is paired again
+	// past heatOldFresh the days are named again, and paired again only
+	// when what they were counted of changed: a thread's identity learnt
 	old := heatOldFresh
 	heatOldFresh = 0
 	t.Cleanup(func() { heatOldFresh = old })
 	before = len(paired)
 	next()
-	if paired[before] < all {
-		t.Fatalf("past heatOldFresh, paired %d of %d", paired[before], all)
+	if paired[before] >= all {
+		t.Fatalf("past heatOldFresh with nothing changed, paired %d of %d", paired[before], all)
+	}
+	write("forked-id", now.AddDate(0, 0, -15), 8)
+	before = len(paired)
+	if warm := next(); paired[before] < all || !reflect.DeepEqual(warm, cold()) {
+		t.Fatalf("past heatOldFresh with a settled file new, paired %d of %d", paired[before], all)
+	}
+}
+
+// A started magpie takes the heatmap's settled days from the last run's
+// pairing of every chunk, and pairs only the last days' chunks (#2278):
+// the whole history's pairing was the cold start's peak. A settled file
+// changed since, or another filter, pairs every chunk again.
+func TestHeatmapSettledDaysFromDisk(t *testing.T) {
+	pairAtOnce(t)
+	pageHome(t)
+	now := holdClock(t, time.Date(2026, 9, 30, 12, 0, 0, 0, time.Local))
+	write := func(id string, at time.Time, input int) string {
+		path := filepath.Join(sessions.CodexDir(), "sessions", at.Format("2006/01/02"), "rollout-"+at.Format("2006-01-02T15-04-05")+"-"+id+".jsonl")
+		writeCodexCall(t, path, id, "s"+id, `"vscode"`, "resp-"+id, "m", "low", at, input, 10)
+		return path
+	}
+	var settled string
+	for i, days := range []int{40, 20, 10, 5, 0} {
+		id := string(rune('a' + i))
+		at := now.AddDate(0, 0, -days).Add(-time.Hour)
+		path := write(id, at, 100+i)
+		if days == 20 {
+			settled = path
+		}
+		Append(Record{Time: at.Add(time.Minute), Agent: "codex", Provider: "openai", Model: "m", Input: 100 + i, Output: 10, Status: 200, ResponseID: "resp-" + id, Session: "s" + id})
+	}
+	paired := []int{}
+	heatPairing = func(n int) { paired = append(paired, n) }
+	t.Cleanup(func() { heatPairing = nil })
+	restart := func() {
+		requestCache.Lock()
+		requestCache.heatParts, requestCache.heatOld, requestCache.heats, requestCache.pages = nil, nil, nil, map[pageKey]RequestPage{}
+		requestCache.Unlock()
+	}
+	first := HeatmapOf(Filter{})
+	all := paired[0]
+	if _, err := os.Stat(heatDiskPath()); err != nil {
+		t.Fatal(err)
+	}
+	restart()
+	if again := HeatmapOf(Filter{}); paired[len(paired)-1] >= all || !reflect.DeepEqual(again, first) {
+		t.Fatalf("started again, paired %d of %d: %+v, was %+v", paired[len(paired)-1], all, again, first)
+	}
+	restart()
+	if HeatmapOf(Filter{Model: "m"}); paired[len(paired)-1] < all {
+		t.Fatalf("another filter paired %d of %d", paired[len(paired)-1], all)
+	}
+	writeCodexCall(t, settled, "b", "sb", `"vscode"`, "resp-b", "m", "low", now.AddDate(0, 0, -20).Add(-time.Hour), 1001, 10)
+	restart()
+	changed := HeatmapOf(Filter{})
+	if paired[len(paired)-1] < all {
+		t.Fatalf("a settled file changed, paired %d of %d", paired[len(paired)-1], all)
+	}
+	restart()
+	os.Remove(heatDiskPath())
+	if cold := HeatmapOf(Filter{}); !reflect.DeepEqual(cold, changed) {
+		t.Fatalf("after a settled file changed %+v, cold %+v", changed, cold)
+	}
+}
+
+// The settled days' key names a filter's zone by its name: written with
+// %#v it named the zone's pointer, another in each run, and every start
+// paired the whole history again for the heatmap.
+func TestHeatSettledKeyNamesTheZone(t *testing.T) {
+	cut := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
+	d := heatDiskRef{root: "r", meta: "m"}
+	key := func(f Filter) string {
+		k, ok := heatSettledKey(d, cut, time.Time{}, f, nil, [3][]*rowChunk{}, heatSum{})
+		if !ok {
+			t.Fatal("not named")
+		}
+		return k
+	}
+	a, b := key(Filter{Zone: time.FixedZone("Z", 3600)}), key(Filter{Zone: time.FixedZone("Z", 3600)})
+	if a != b {
+		t.Fatalf("one zone, two keys: %s, %s", a, b)
+	}
+	if key(Filter{}) == a || key(Filter{Zone: time.FixedZone("Y", 7200)}) == a {
+		t.Fatal("another zone, the same key")
 	}
 }

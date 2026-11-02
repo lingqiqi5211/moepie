@@ -511,6 +511,9 @@ func SwitchWhenSpent(ctx context.Context, agent string) (string, error) {
 		setLoginReturn(agent, r)
 		share, _ := loginSwitching(agent)
 		log.Printf("%s: %s has used %g%% or more of its allowance; signed it in to %s", agent, from, share, to)
+		if agent == "codex" {
+			codexAppSpentSwitch()
+		}
 	}
 	if agent == "codex" {
 		if was := CodexAppStale(); was != "" {
@@ -599,11 +602,14 @@ func noteCodexUsedUp(now bool) {
 }
 
 // KeepOnAnAccountWithRoom runs SwitchWhenSpent for Codex and Claude Code a
-// minute after it starts and every loginSwitchEvery after that, until ctx
-// ends, and keeps Claude Code's proxy that of its account
-// (SyncClaudeProxyEnv).
+// minute after it starts and every loginSwitchEvery after that (Codex's
+// codexLookEvery), until ctx ends, and keeps Claude Code's proxy that of
+// its account (SyncClaudeProxyEnv). Between those looks Claude's sign-in is
+// looked at every claudeLookEvery when claudeLookDue: Claude Code asks
+// Anthropic itself, and an account burnt fast was out minutes before the
+// next look (#4443).
 func KeepOnAnAccountWithRoom(ctx context.Context) {
-	t := time.NewTimer(time.Minute)
+	t := time.NewTimer(firstSignInLook)
 	defer t.Stop()
 	live := false
 	defer func() {
@@ -611,6 +617,7 @@ func KeepOnAnAccountWithRoom(ctx context.Context) {
 			codexLiveChecks.Add(-1)
 		}
 	}()
+	var full time.Time // when the next full look is due; zero: now
 	for {
 		select {
 		case <-ctx.Done():
@@ -624,12 +631,17 @@ func KeepOnAnAccountWithRoom(ctx context.Context) {
 			live = true
 			codexLiveChecks.Add(1)
 		}
-		for _, agent := range switchedAgents {
-			c, cancel := context.WithTimeout(ctx, time.Minute)
-			if _, err := SwitchWhenSpent(c, agent); err != nil {
-				log.Printf("%s: switching to an account with room: %v", agent, err)
+		claudeDue := claudeLookDue()
+		if time.Now().Before(full) {
+			if claudeDue {
+				lookAtSignIn(ctx, "claude")
 			}
-			cancel()
+			signInsLooked(false)
+			t.Reset(min(time.Until(full), claudeLookEvery))
+			continue
+		}
+		for _, agent := range switchedAgents {
+			lookAtSignIn(ctx, agent)
 		}
 		// a sign-in made in Claude Code itself, or a proxy picked since,
 		// takes its account's proxy too (#1807)
@@ -639,6 +651,26 @@ func KeepOnAnAccountWithRoom(ctx context.Context) {
 		cancel()
 		// Codex's own sign-in refused for good, or signed in again since
 		noteCodexGoneNow()
-		t.Reset(codexLookEvery(knownLoginUsage("codex")))
+		every := codexLookEvery(knownLoginUsage("codex"))
+		full = time.Now().Add(every)
+		signInsLooked(true)
+		t.Reset(min(every, claudeLookEvery))
+	}
+}
+
+// firstSignInLook is when KeepOnAnAccountWithRoom first looks. A var so
+// tests can say.
+var firstSignInLook = time.Minute
+
+// signInsLooked is told after each of KeepOnAnAccountWithRoom's looks,
+// whether it was a full one. A var so tests can wait on it.
+var signInsLooked = func(full bool) {}
+
+// lookAtSignIn is one look of KeepOnAnAccountWithRoom at agent's sign-in.
+func lookAtSignIn(ctx context.Context, agent string) {
+	c, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	if _, err := SwitchWhenSpent(c, agent); err != nil {
+		log.Printf("%s: switching to an account with room: %v", agent, err)
 	}
 }

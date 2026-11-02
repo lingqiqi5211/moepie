@@ -55,6 +55,78 @@ import (
 // itself (its model or effort pick), nor the model list, is in route.
 var CodexAppRoute func() (route string, out, known bool)
 
+// CodexNoAccount is set by the agent package: whether the provider Codex's
+// config names takes no ChatGPT account at all (a [model_providers] table
+// without requires_openai_auth = true, such as magpie's with the user's
+// own requires_openai_auth = false; danzi002 on Discord). Such a provider
+// sends its own key, and the app-server answers account/read with no
+// account for it (codex-rs ModelProviderInfo::account_state and
+// resolve_provider_auth), so which ChatGPT account auth.json holds is
+// nothing the app-server, the Codex app or the daemon goes by: an account
+// switch restarts none of them. false when it can't be told.
+var CodexNoAccount func() bool
+
+// codexNoAccount is CodexNoAccount, false while it isn't set.
+func codexNoAccount() bool {
+	return CodexNoAccount != nil && CodexNoAccount()
+}
+
+// An app-server ended is not yet one started in its place. The app starts
+// another only once it has read the end of the old one's stdout and seen
+// it exit (its StdioConnection closes on both, ChatGPT.exe 26.1021's
+// app.asar). On Windows every process the app-server started inherits
+// that stdout (Rust's Command creates children with bInheritHandles), so
+// an MCP server or tool command left running after it holds the pipe
+// open: the app never sees it close, starts no other, and every send says
+// "Codex app-server process is not available" until Codex is quit and
+// opened again (蛋仔 on Discord, 10-30; reproduced on the Windows box
+// with codex 0.164's app-server and an MCP server that outlived it: its
+// stdout ended only when the MCP server did). So once the ones ended are
+// gone, magpie waits codexAppBackWait for a new one; when none comes
+// while the app still runs, it has the agent package reopen the app
+// (CodexAppReopen), and says it is stuck when that can't be done.
+//
+// CodexAppOpen, set by the agent package, says whether the Codex desktop
+// app runs here; known false when that can't be told. CodexAppReopen
+// quits it and opens it again, erring where magpie doesn't (macOS, where
+// a reopen opens a new window: the user does it).
+var (
+	CodexAppOpen   func(ctx context.Context) (open, known bool)
+	CodexAppReopen func(ctx context.Context) error
+	// codexAppBackWait is how long after the ended app-servers are gone a
+	// new one has to start: the app starts one within ~1.5s of the old
+	// one's end, hidden in the tray too (its own logs on the Windows box,
+	// 10-27 to 10-29)
+	codexAppBackWait = 30 * time.Second
+)
+
+// codexAppGotNone is what codexAppStep does when no app-server started in
+// place of the ones it ended: nothing when the app was quit meanwhile (it
+// starts one as it opens), else reopen it. stuck says it runs with none
+// and wasn't reopened: the user quits it and opens it again.
+func codexAppGotNone(ctx context.Context) (stuck bool) {
+	if open, known := codexAppOpenNow(ctx); known && !open {
+		return false
+	}
+	if CodexAppReopen == nil {
+		return true
+	}
+	if err := CodexAppReopen(ctx); err != nil {
+		log.Printf("codex: the Codex app started no app-server in place of the one magpie ended; reopening it: %v", err)
+		return true
+	}
+	log.Printf("codex: the Codex app started no app-server in place of the one magpie ended; reopened it")
+	return false
+}
+
+// codexAppOpenNow is CodexAppOpen, unknown while it isn't set.
+func codexAppOpenNow(ctx context.Context) (open, known bool) {
+	if CodexAppOpen == nil {
+		return false, false
+	}
+	return CodexAppOpen(ctx)
+}
+
 // codexAppEvery is how often KeepCodexAppOnItsProvider looks; codexAppIdle
 // how long after Codex's last request through magpie a turn counts ended
 // (a tool runs between two of a turn's requests); codexAppTries how often
@@ -69,6 +141,16 @@ var (
 // turn maybe still running when it has one started and not ended: a turn
 // whose app-server died leaves one open for good.
 const codexTurnWindow = 30 * time.Minute
+
+// codexTurnStuckAfter is how long a turn left open on an app-server whose
+// account was used up has to have written nothing to Codex's sessions,
+// with no Codex request through magpie either, before it counts stuck and
+// the app-server is restarted past it. Such a turn can't go on: its next
+// request is refused on that account, and when quota ran out mid-turn
+// the app sat on it and greyed every thread until restarted (蛋仔 on
+// Discord). A tool still running in it loses only a reply that account
+// would refuse.
+var codexTurnStuckAfter = 2 * time.Minute
 
 // codexTurnSlack is how much earlier than the app-servers' start a turn's
 // timestamp may be and still count as theirs: the two clocks are read by
@@ -96,9 +178,10 @@ var (
 		}
 		return out, nil
 	}
-	endCodexAppServer = proc.End
-	codexTurnRunning  = func(home string, now, since time.Time) bool { return codexTurnOpen(home, now, since) }
-	codexServerStart  = proc.Started
+	endCodexAppServer  = proc.End
+	codexTurnRunning   = func(home string, now, since time.Time) bool { return codexTurnOpen(home, now, since) }
+	codexSessionsQuiet = func(home string, now time.Time, d time.Duration) bool { return codexSessionsQuietFor(home, now, d) }
+	codexServerStart   = proc.Started
 )
 
 // codexServersSince is when the oldest of the app-servers pids started: a
@@ -180,6 +263,13 @@ var codexApp struct {
 	// switched: Codex's ChatGPT account changed since the app-servers were
 	// last listed (codexAppAccountSwitched)
 	switched bool
+	// spent: the switch was off an account used up (SwitchWhenSpent), so a
+	// turn the app-servers left open can't be served by them any more
+	spent bool
+	// ended: the app-servers ended and no new one seen since, and by when
+	// one has to start (codexAppBackWait after the last end)
+	ended  map[int]bool
+	backBy time.Time
 }
 
 // CodexAppStuck is whether a Codex app is left on the provider it started
@@ -215,6 +305,16 @@ func codexAppAccountSwitched() {
 	c.switched = true
 }
 
+// codexAppSpentSwitch is codexAppAccountSwitched for a switch off an
+// account that was used up: a turn the app-server left open is restarted
+// past too once it has gone quiet (codexTurnStuckAfter).
+func codexAppSpentSwitch() {
+	c := &codexApp
+	c.Lock()
+	defer c.Unlock()
+	c.switched, c.spent = true, true
+}
+
 // KeepCodexAppOnItsProvider runs codexAppStep every codexAppEvery till
 // ctx ends. busy says how many of Codex's requests are in flight through
 // magpie and when the last ended.
@@ -248,6 +348,18 @@ func codexAppStep(ctx context.Context, now time.Time, busy func() (int, time.Tim
 	home := codexHome()
 	c := &codexApp
 	c.Lock()
+	switched := c.switched
+	c.Unlock()
+	// an account switch is nothing to an app-server on a provider that
+	// takes no ChatGPT account (CodexNoAccount): it is forgotten, and a
+	// route change later restarts it all the same
+	if switched && codexNoAccount() {
+		log.Printf("codex: Codex's account was switched while its provider takes no ChatGPT account; the Codex app's app-server is left running")
+		c.Lock()
+		c.switched, c.spent = false, false
+		c.Unlock()
+	}
+	c.Lock()
 	// at the first look only a used-up account's app-servers are ended:
 	// what the others read before magpie started isn't known
 	changed := !c.seen && out || c.seen && c.route != route || c.switched
@@ -280,7 +392,7 @@ func codexAppStep(ctx context.Context, now time.Time, busy func() (int, time.Tim
 		c.Unlock()
 	}
 	c.Lock()
-	n := len(c.stale)
+	n := len(c.stale) + len(c.ended)
 	c.Unlock()
 	if n == 0 {
 		return nil
@@ -298,16 +410,50 @@ func codexAppStep(ctx context.Context, now time.Time, busy func() (int, time.Tim
 	c.Lock()
 	for p := range c.stale {
 		if !running[p] {
-			delete(c.stale, p) // it read the provider afresh as it started
+			// gone: the one the app starts in its place reads the
+			// provider afresh, once it starts (c.ended)
+			delete(c.stale, p)
 			delete(c.why, p)
+		}
+	}
+	none := false
+	if len(c.ended) > 0 {
+		// any other app-server running serves the app; one ended and
+		// still running is waited for, and the wait counts from its end
+		back, left := false, false
+		for _, p := range pids {
+			back = back || !c.ended[p]
+			left = left || c.ended[p]
+		}
+		switch {
+		case back:
+			c.ended = nil
+		case left:
+			c.backBy = now.Add(codexAppBackWait)
+		case !now.Before(c.backBy):
+			c.ended, none = nil, true
 		}
 	}
 	n = len(c.stale)
 	c.Unlock()
-	if n == 0 {
+	if none {
+		if codexAppGotNone(ctx) {
+			c.Lock()
+			c.stuck = true
+			c.Unlock()
+		}
 		return nil
 	}
-	if inFlight, last := busy(); inFlight > 0 || now.Sub(last) < codexAppIdle {
+	if n == 0 {
+		c.Lock()
+		if len(c.ended) == 0 {
+			c.spent = false
+		}
+		c.Unlock()
+		return nil
+	}
+	inFlight, last := busy()
+	if inFlight > 0 || now.Sub(last) < codexAppIdle {
 		return nil
 	}
 	c.Lock()
@@ -315,9 +461,13 @@ func codexAppStep(ctx context.Context, now time.Time, busy func() (int, time.Tim
 	for p := range c.stale {
 		stale = append(stale, p)
 	}
+	spent := c.spent
 	c.Unlock()
 	if codexTurnRunning(home, now, codexServersSince(stale)) {
-		return nil
+		if !spent || now.Sub(last) < codexTurnStuckAfter || !codexSessionsQuiet(home, now, codexTurnStuckAfter) {
+			return nil
+		}
+		log.Printf("codex: a Codex turn left open on the used-up account has done nothing for %s; restarting the Codex app's app-server past it", codexTurnStuckAfter)
 	}
 	var ended []int
 	c.Lock()
@@ -337,6 +487,10 @@ func codexAppStep(ctx context.Context, now time.Time, busy func() (int, time.Tim
 		}
 		ended = append(ended, p)
 		log.Printf("codex: ended the Codex app's app-server %v for the app to start another: %s", []int{p}, c.why[p])
+		if c.ended == nil {
+			c.ended = map[int]bool{}
+		}
+		c.ended[p], c.backBy = true, now.Add(codexAppBackWait)
 	}
 	return ended
 }
@@ -372,6 +526,34 @@ func codexTurnOpen(home string, now, since time.Time) bool {
 		return nil
 	})
 	return open
+}
+
+// codexSessionsQuietFor is whether no Codex session file under home was
+// written in the last d. A sessions folder that can't be read counts as
+// written: a turn cut short costs more than a restart a little later.
+func codexSessionsQuietFor(home string, now time.Time, d time.Duration) bool {
+	quiet := true
+	err := filepath.WalkDir(filepath.Join(home, "sessions"), func(path string, e fs.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+			return nil
+		}
+		info, err := e.Info()
+		if err != nil {
+			return err
+		}
+		if now.Sub(info.ModTime()) < d {
+			quiet = false
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return quiet && err == nil
 }
 
 // sessionTurnTail is how much of a session file's end sessionTurnOpen reads.
@@ -435,7 +617,8 @@ var codexAppGoneWait = 10 * time.Second
 // stay as they are. The Agents row's Restart quit the app and opened it
 // again, which opened a new window (yoshi037070 on Discord, 10-27). An
 // app-server another program runs from the bundle (--listen) is left
-// alone. It waits until the ones ended are gone, and errs when none ran.
+// alone. It waits until the ones ended are gone and the app has started
+// another (codexAppBackWait), and errs when none ran or none started.
 func RestartCodexApp(ctx context.Context, bundle string) error {
 	ps, err := listProcesses(ctx)
 	if err != nil {
@@ -455,26 +638,111 @@ func RestartCodexApp(ctx context.Context, bundle string) error {
 	if len(ended) == 0 {
 		return errors.New("the Codex app's app-server isn't running")
 	}
+	gone, back, err := codexAppBack(ctx, func(ctx context.Context) ([]int, error) {
+		ps, err := listProcesses(ctx)
+		var pids []int
+		for _, p := range ps {
+			if strings.HasPrefix(strings.TrimSpace(p.Args), in) && isCodexAppOwnServer(p.Args) {
+				pids = append(pids, p.PID)
+			}
+		}
+		return pids, err
+	}, ended)
+	switch {
+	case err != nil:
+		return err
+	case !gone:
+		return errors.New("the Codex app's app-server didn't end")
+	case !back:
+		return errors.New("the Codex app started no new app-server: quit it and open it again")
+	}
+	return nil
+}
+
+// codexAppPoll is how often codexAppBack lists the app-servers.
+var codexAppPoll = 200 * time.Millisecond
+
+// codexAppBack waits for the app-servers ended to be gone, for
+// codexAppGoneWait, and then for another of list's to run, for
+// codexAppBackWait: gone and back say which came. A listing that fails
+// is tried again.
+func codexAppBack(ctx context.Context, list func(context.Context) ([]int, error), ended []int) (gone, back bool, err error) {
 	end := time.Now().Add(codexAppGoneWait)
 	for {
-		ps, err := listProcesses(ctx)
-		if err == nil && !slices.ContainsFunc(ps, func(p proc.Process) bool { return slices.Contains(ended, p.PID) }) {
-			return nil
+		pids, err := list(ctx)
+		if err == nil {
+			left := slices.ContainsFunc(pids, func(p int) bool { return slices.Contains(ended, p) })
+			if !gone && !left {
+				gone, end = true, time.Now().Add(codexAppBackWait)
+			}
+			if slices.ContainsFunc(pids, func(p int) bool { return !slices.Contains(ended, p) }) && !left {
+				return true, true, nil
+			}
 		}
 		if time.Now().After(end) {
-			return errors.New("the Codex app's app-server didn't end")
+			return gone, false, nil
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(200 * time.Millisecond):
+			return gone, false, ctx.Err()
+		case <-time.After(codexAppPoll):
 		}
 	}
 }
 
-// codexAppBackWait is how long RestartSwitchedCodexApp waits for the Codex
-// app to start a new app-server after the old one ended; a var for tests.
-var codexAppBackWait = 20 * time.Second
+// RestartCodexAppWhenIdle ends the Codex app's own app-servers once, for a magpie
+// that won't be running to watch them (magpie uninstall): the app starts
+// a new one, which reads Codex's config as it is now. It waits up to wait
+// for a running Codex turn to end, and cuts none short: left says an
+// app-server was still on the old config when it gave up, or couldn't be
+// ended, or that the app started none in its place and couldn't be
+// reopened (codexAppGotNone), so the user quits and opens the app.
+func RestartCodexAppWhenIdle(ctx context.Context, wait time.Duration) (ended int, left bool, err error) {
+	home := codexHome()
+	lctx, cancel := context.WithTimeout(ctx, codexAppListWait)
+	pids, err := codexAppServersOn(lctx, home)
+	cancel()
+	if err != nil || len(pids) == 0 {
+		return 0, false, err
+	}
+	until := time.Now().Add(wait)
+	since := codexServersSince(pids)
+	for codexTurnRunning(home, time.Now(), since) {
+		if time.Now().After(until) {
+			return 0, true, nil
+		}
+		select {
+		case <-ctx.Done():
+			return 0, true, ctx.Err()
+		case <-time.After(codexAppEvery):
+		}
+	}
+	var gone []int
+	for _, p := range pids {
+		if err := endCodexAppServer(p); err != nil {
+			log.Printf("codex: restarting the Codex app's app-server %d: %v", p, err)
+			left = true
+			continue
+		}
+		gone = append(gone, p)
+	}
+	if len(gone) > 0 {
+		went, back, err := codexAppBack(ctx, func(ctx context.Context) ([]int, error) {
+			lctx, cancel := context.WithTimeout(ctx, codexAppListWait)
+			defer cancel()
+			return codexAppServersOn(lctx, home)
+		}, gone)
+		switch {
+		case err != nil:
+			return len(gone), true, err
+		case !went:
+			left = true
+		case !back:
+			left = left || codexAppGotNone(ctx)
+		}
+	}
+	return len(gone), left, nil
+}
 
 // What RestartSwitchedCodexApp found when it couldn't restart the app's
 // app-server; the agent package says each in the reader's language.
@@ -553,45 +821,15 @@ func RestartSwitchedCodexApp(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		return ErrCodexAppNotBack
+		// the Windows app whose old app-server's stdout is held open
+		// starts none till it is quit and opened again (codexAppGotNone)
+		if open, known := codexAppOpenNow(ctx); known && !open {
+			return ErrCodexAppGone
+		}
+		if codexAppGotNone(ctx) {
+			return ErrCodexAppNotBack
+		}
 	}
 	DismissCodexApp()
 	return nil
-}
-
-// RestartCodexAppWhenIdle ends the Codex app's own app-servers once, for a magpie
-// that won't be running to watch them (magpie uninstall): the app starts
-// a new one, which reads Codex's config as it is now. It waits up to wait
-// for a running Codex turn to end, and cuts none short: left says an
-// app-server was still on the old config when it gave up, or couldn't be
-// ended, so the user quits and opens the app.
-func RestartCodexAppWhenIdle(ctx context.Context, wait time.Duration) (ended int, left bool, err error) {
-	home := codexHome()
-	lctx, cancel := context.WithTimeout(ctx, codexAppListWait)
-	pids, err := codexAppServersOn(lctx, home)
-	cancel()
-	if err != nil || len(pids) == 0 {
-		return 0, false, err
-	}
-	until := time.Now().Add(wait)
-	since := codexServersSince(pids)
-	for codexTurnRunning(home, time.Now(), since) {
-		if time.Now().After(until) {
-			return 0, true, nil
-		}
-		select {
-		case <-ctx.Done():
-			return 0, true, ctx.Err()
-		case <-time.After(codexAppEvery):
-		}
-	}
-	for _, p := range pids {
-		if err := endCodexAppServer(p); err != nil {
-			log.Printf("codex: restarting the Codex app's app-server %d: %v", p, err)
-			left = true
-			continue
-		}
-		ended++
-	}
-	return ended, left, nil
 }

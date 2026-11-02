@@ -81,6 +81,12 @@ func Rename(from, to string) error {
 			f.Order[j] = to
 		}
 	}
+	// kept out of found groups under its new id too
+	for j, id := range f.AutoGroupSkip {
+		if id == from {
+			f.AutoGroupSkip[j] = to
+		}
+	}
 	// a deleted provider merged into it stays merged (MergeDeleted)
 	for j := range f.Deleted {
 		if f.Deleted[j].Into == from {
@@ -136,6 +142,9 @@ func mapModelRefs(f *file, to func(string) string) {
 		}
 		for k, m := range g.Off {
 			g.Off[k] = to(m)
+		}
+		for k, m := range g.Placed {
+			g.Placed[k] = to(m)
 		}
 		g.Weights = renamedWeights(g.Weights, to)
 		g.Classifier = to(g.Classifier)

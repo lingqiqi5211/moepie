@@ -77,3 +77,22 @@ func TestDiskEntryAllocatesOnce(t *testing.T) {
 		t.Errorf("reading an entry's archive allocated %v times", n)
 	}
 }
+
+// A chunk without calls reads back without a Latest, as it was built: read
+// as a call long ago, it was settled after a read and not after a build,
+// and the heatmap's and effort's kept days were counted again (#2278).
+func TestDiskEntryKeepsNoLatest(t *testing.T) {
+	for _, latest := range []time.Time{{}, time.Unix(1790000100, 5)} {
+		chunk := &rowChunk{
+			Source: sessions.CallSource{Path: "/s/rollout.jsonl", Key: "k", Agent: "codex", Size: 1, Modified: time.Unix(1790000000, 0)},
+			Latest: latest, Archive: []byte{1},
+		}
+		got, err := readDiskEntry(diskEntry(nil, chunk))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Latest.IsZero() != latest.IsZero() || !got.Latest.Equal(latest) {
+			t.Errorf("Latest %v read back as %v", latest, got.Latest)
+		}
+	}
+}

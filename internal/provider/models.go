@@ -1772,8 +1772,12 @@ func (p Provider) PaidBesideFree(model string) bool {
 //
 // A model neither listed free nor priced is not free: nothing says it costs
 // nothing, and the routes that go by this put it with the paid ones, so a
-// pool without free models behaves as In order.
+// pool without free models behaves as In order. The user's word is
+// something: every model of a provider they count free is (CountFree).
 func (p Provider) FreeModel(model string) bool {
+	if p.CountFree {
+		return true
+	}
 	for _, m := range p.Available() {
 		if strings.EqualFold(m.ID, model) {
 			if m.Free {
@@ -1897,7 +1901,9 @@ var makerCatalogs = sync.OnceValue(func() []string {
 // at gpt-6-astra's or gemini-3.8-flash's maker's price, as a Claude
 // account is at Anthropic's. A remote magpie's is what that magpie counts
 // the model at, as its list says (remotePrice). A model no catalog prices
-// is at the price its plugin lists it at (pluginListPrice), else, when the
+// is at its vendor's own list price where a moved built-in's plugin serves
+// it (vendorListPrice), else at the price its plugin lists it at
+// (pluginListPrice), else, when the
 // plugin says the plan serves it free, costs nothing (pluginFree). Codex's
 // auto-review through the Codex subscription costs nothing too, as OpenAI
 // serves it a ChatGPT sign-in (codexReviewFree).
@@ -1955,6 +1961,9 @@ func (p Provider) listPrice(model string) (catalog.Price, bool) {
 			return pr, true
 		}
 	}
+	if pr, ok := p.vendorListPrice(model); ok {
+		return pr, true
+	}
 	if pr, ok := p.pluginListPrice(model); ok {
 		return pr, true
 	}
@@ -1962,6 +1971,26 @@ func (p Provider) listPrice(model string) (catalog.Price, bool) {
 		return catalog.Price{}, true
 	}
 	return catalog.Price{}, false
+}
+
+// vendorCatalogs are the models.dev catalogs of the vendors a moved
+// built-in's plugin sends its calls to, by the subscription's id: what
+// the vendor's own API lists a model at, as its preset is priced
+// (EndpointCatalog). A plugin's provider has no such catalog of its own.
+var vendorCatalogs = map[string]string{CommandCodePlanID: "commandcode"}
+
+// vendorListPrice is model's price in its vendor's own catalog
+// (vendorCatalogs), for a model no maker's price is found for: Command
+// Code's deepseek/deepseek-v4.1-flash, which models.dev's DeepSeek lists
+// only as deepseek-flash, a canonical of deepseek-v4.1-flash-1017, so its
+// calls on the plan were counted at no price at all (treeman on Discord).
+// Only after the maker's, so a model its maker prices keeps that price.
+func (p Provider) vendorListPrice(model string) (catalog.Price, bool) {
+	c, ok := vendorCatalogs[p.ID]
+	if !ok {
+		return catalog.Price{}, false
+	}
+	return catalog.PricedBy([]string{c}, model)
 }
 
 // pluginListPrice is the price the plugin serving p lists model at
@@ -2255,7 +2284,11 @@ func SamePriceIn(s settings.Settings, providerID, model string) (catalog.Price, 
 // price they set for that model, or for every model of that provider, or for
 // that model from any provider (settings' ModelPrices), else the provider's own list price, else its
 // maker's, else the maker's of the model the user said it is the same as
-// (SamePriceIn), each at the provider's price rate (PriceRate). The second return is false only when no price is known at all,
+// (SamePriceIn), each at the provider's price rate (PriceRate), and again
+// at the rate of the time-of-day window the call falls in (RateWindows,
+// #2463) — the window's rate on a price the user set as well, the price
+// rate alone leaving it as set. The second return is false only when no
+// price is known at all,
 // which is not the same as a price of zero: that one is set, deliberately.
 //
 // A price here is the provider's tariff, not the model's: the same model
@@ -2270,31 +2303,83 @@ func EffectivePrice(providerID, model string) (catalog.Price, bool) {
 // the list is one snapshot of the prices rather than a reading per row, and
 // a price changed while it is read takes effect in the next call.
 func EffectivePriceIn(s settings.Settings, providerID, model string) (catalog.Price, bool) {
+	return EffectivePriceAt(s, providerID, model, time.Now())
+}
+
+// EffectivePriceAt is EffectivePriceIn at the time given: a record's own
+// time when one is priced, now for a price shown before a call. A caller
+// pricing many records takes BasePriceIn once per model and multiplies
+// each record's window rate on itself, so one read of the prices serves
+// every time of day.
+func EffectivePriceAt(s settings.Settings, providerID, model string, at time.Time) (catalog.Price, bool) {
 	// A price is keyed by the id the provider has now, so one written before
 	// a rename is read under the id it has. Only an id, or one the provider
 	// was renamed from, resolves; anything else is looked up as given, so a
 	// key under a display name counts only for a caller naming that name
 	// too. Nothing writes such a key — SetModelPrice re-keys the way
 	// SetModelName does — which is what keeps the two from drifting.
-	return priceIn(s, All(), providerID, model)
+	return priceIn(s, All(), providerID, model, at)
 }
 
 // priceIn is EffectivePriceIn with the providers read already, for a
 // caller pricing many models at once: All() copies every provider each
 // time it is read, so a list read it once a model, 30 providers' copies
 // for each of hundreds of models (EntryPricer).
-func priceIn(s settings.Settings, all []Provider, providerID, model string) (catalog.Price, bool) {
+func priceIn(s settings.Settings, all []Provider, providerID, model string, at time.Time) (catalog.Price, bool) {
 	p, known := byIDOrWasIn(all, providerID)
 	if !known {
 		p = Provider{ID: providerID}
 	}
-	return priceOf(s, p, known, model)
+	return priceOf(s, p, known, model, at)
 }
 
-// priceOf is EffectivePriceIn for a provider already looked up, for a
+// BasePriceIn is EffectivePriceAt without a rate window's rate: what the
+// provider bills outside every window, and the third return is its
+// windows, for RateAt to read each record's time against. A caller
+// pricing many records holds both and multiplies the rates itself, as
+// the usage ledger's Pricer does, so one read serves every time of day.
+func BasePriceIn(s settings.Settings, providerID, model string) (catalog.Price, bool, []RateWindow) {
+	p, known := byIDOrWas(providerID)
+	if !known {
+		p = Provider{ID: providerID}
+	}
+	pr, ok := priceOf(s, p, known, model, time.Time{})
+	return pr, ok, p.RateWindows
+}
+
+// priceOf is EffectivePriceAt for a provider already looked up, for a
 // caller pricing many models at once: byIDOrWas reads every provider's
-// accounts each time.
-func priceOf(s settings.Settings, p Provider, known bool, model string) (catalog.Price, bool) {
+// accounts each time. The window's rate scales every price the call is
+// counted at, a price the user set for the model included (#2463); the
+// price rate alone leaves that price as set. A zero at prices without a
+// rate window's rate, as BasePriceIn asks for.
+func priceOf(s settings.Settings, p Provider, known bool, model string, at time.Time) (catalog.Price, bool) {
+	pr, ok := tariffOf(s, p, known, model)
+	if ok && !at.IsZero() {
+		if w := p.RateAt(at); w > 0 && w != 1 {
+			pr = pr.Times(w)
+		}
+	}
+	return pr, ok
+}
+
+// PriceAt is what a call to model at p costs when made at at, as Usage
+// counts one made then: EffectivePriceAt for p as the caller holds it (a
+// routing group's member), its Peak still set, for the caller to apply
+// with Price.In and tell whether it did. A model served at no cost there
+// (FreeModel) costs nothing.
+func (p Provider) PriceAt(s settings.Settings, model string, at time.Time) (catalog.Price, bool) {
+	if p.FreeModel(model) {
+		return catalog.Price{}, true
+	}
+	return priceOf(s, p, true, model, at)
+}
+
+// tariffOf is a price without a rate window's rate: what the user set
+// for the model as they set it, else the provider's list price, else its
+// maker's, each at the price rate. Either is doubled in the peak hours of
+// a vendor that bills by the hour (PeakOf).
+func tariffOf(s settings.Settings, p Provider, known bool, model string) (catalog.Price, bool) {
 	id := p.ID
 	// then what they said the model costs from any provider (*/model):
 	// still the user's word, so before any list price
@@ -2303,6 +2388,11 @@ func priceOf(s settings.Settings, p Provider, known bool, model string) (catalog
 			if pr, bad := m.Price(); bad == "" {
 				// a Claude model's 1-hour cache write left out: 2× input
 				catalog.OneHourFor(model, &pr)
+				// a vendor that bills by the hour doubles any price in its
+				// peak hours: the user's is the off-peak one, as its list
+				// price is, so setting one keeps the split (treeman on
+				// Discord)
+				pr.Peak = p.PeakOf(model)
 				return pr, true
 			}
 		}
@@ -2312,6 +2402,9 @@ func priceOf(s settings.Settings, p Provider, known bool, model string) (catalog
 			return catalog.Price{}, true
 		}
 		if pr, ok := MakerPrice(model); ok {
+			if k := p.PeakOf(model); k != "" {
+				pr.Peak = k
+			}
 			return pr, true
 		}
 		return SamePriceIn(s, id, model)
@@ -2322,6 +2415,10 @@ func priceOf(s settings.Settings, p Provider, known bool, model string) (catalog
 	}
 	if !ok {
 		pr, ok = SamePriceIn(s, id, model)
+	} else if k := p.PeakOf(model); k != "" {
+		// billed by the hour it is made at (PeakOf), as a price the user
+		// set above is, never the one of the model they said it is
+		pr.Peak = k
 	}
 	// what the provider bills against it (#819)
 	if ok && p.PriceRate > 0 {
@@ -2342,10 +2439,18 @@ func EntryPriceIn(st settings.Settings, find func(string) (Group, []Member, bool
 // read of the providers it makes: what a /v1/models or an agent's model
 // file prices row by row.
 func EntryPricer(st settings.Settings, find func(string) (Group, []Member, bool)) func(Entry) (catalog.Price, bool) {
+	// one time for the whole list, as the providers are one read too:
+	// a rate window (#2463) holds or not for every row alike
+	return entryPricerAt(st, find, time.Now())
+}
+
+// entryPricerAt is EntryPricer with a provider's rate window taken at
+// now, or left out for a zero now.
+func entryPricerAt(st settings.Settings, find func(string) (Group, []Member, bool), now time.Time) func(Entry) (catalog.Price, bool) {
 	all := All()
 	return func(e Entry) (catalog.Price, bool) {
 		if e.Group == "" {
-			return priceIn(st, all, e.Provider.ID, e.Model)
+			return priceIn(st, all, e.Provider.ID, e.Model, now)
 		}
 		_, ms, ok := find(e.ID)
 		if !ok || len(ms) == 0 {
@@ -2353,13 +2458,44 @@ func EntryPricer(st settings.Settings, find func(string) (Group, []Member, bool)
 		}
 		var first catalog.Price
 		for i, m := range ms {
-			pr, ok := priceIn(st, all, m.Provider.ID, m.Model)
+			pr, ok := priceIn(st, all, m.Provider.ID, m.Model, now)
 			if !ok || m.Fast || i > 0 && !pr.Same(first) {
 				return catalog.Price{}, false
 			}
 			first = pr
 		}
 		return first, true
+	}
+}
+
+// AgentPricer is EntryPricer for the model list magpie writes into an
+// agent's own config (Pi's, omp's, OpenCode's cost): a group whose
+// members cost the same is priced as EntryPricer prices it, and one whose
+// members differ at the member it sends to first — a manual group's pick,
+// else its first member not switched off — since that is the member a
+// request goes to while it answers, and an agent that prices calls by its
+// config (omp's custom provider, taotao7 on Discord) otherwise counts
+// every call to the group at 0. A first member in a fast mode, or with no
+// known price, leaves the group unpriced, as before. The list is read
+// afresh at each Sync, so the price follows the group's members.
+//
+// A provider's rate window (#2463) is left out: the file holds whatever
+// was written at the last Sync, which nothing rewrites when a window
+// opens or closes, so a window's price taken then would stay on through
+// the hours outside it. magpie's own count (Usage, a key's budget) takes
+// each call's window.
+func AgentPricer(st settings.Settings, find func(string) (Group, []Member, bool)) func(Entry) (catalog.Price, bool) {
+	var base time.Time
+	same, all := entryPricerAt(st, find, base), All()
+	return func(e Entry) (catalog.Price, bool) {
+		if pr, ok := same(e); ok || e.Group == "" {
+			return pr, ok
+		}
+		_, ms, ok := find(e.ID)
+		if !ok || len(ms) == 0 || ms[0].Fast {
+			return catalog.Price{}, false
+		}
+		return priceIn(st, all, ms[0].Provider.ID, ms[0].Model, base)
 	}
 }
 
@@ -2552,27 +2688,57 @@ type Entry struct {
 	// Codex is the entry the provider's own list gives the model in
 	// Codex's shape (catalog.Model's), handed to Codex as it is
 	Codex json.RawMessage `json:"-"`
+	// AlwaysThinks, DynamicTools and DefaultEffort are what the provider's
+	// own list says of the model (catalog.Model's): it always thinks, it
+	// loads tools mid-conversation, it thinks at this effort unasked.
+	// Kimi Code's list says them, and Kimi Code is told them. A group
+	// has each one its members all share (groupSharedKimi)
+	AlwaysThinks  bool   `json:"-"`
+	DynamicTools  bool   `json:"-"`
+	DefaultEffort string `json:"-"`
 }
 
 // Catalog lists the routing groups, then every exposed model of every ready
 // provider not kept unlisted. A provider switched off has none in it.
 func Catalog() []Entry { return catalogKeeping(nil) }
 
-// catalogOf is the catalog agent's lists start from: Catalog, and for
-// Codex the ChatGPT accounts' own models as well when they are kept out
-// of the lists, the codex provider used only through routing groups
-// (Provider.Unlisted) or a group listing alone (Group.Unlists). Codex
-// reaches those on its own sign-in, its app lists them from the ChatGPT
-// backend, and keeping them for routing groups is about magpie's offer to
-// the other agents and /v1/models: Codex's list kept no Codex section, so
-// the app lost GPT while Codex's picker still offered it (士奇 on
-// Discord). The user takes them out of Codex's list there (HiddenModels,
-// PickedModels), which the gateway follows (CodexNativeHidden).
+// catalogOf is the catalog agent's lists start from: Catalog, with the
+// models of the user's signed-in subscriptions (SubscriptionKept) that a
+// group listing alone (Group.Unlists) keeps out of it. A group is added
+// on top of what the agents had: switching one on that names a ChatGPT
+// account's GPT models took its Codex section out of every agent's list,
+// Hermes Agent's and WorkBuddy's among them, and switched off they were
+// back (士奇 on Discord, a third time: a3ee00c05 kept them in Codex's list
+// alone). The gateway's /v1/models for a client that is no agent ("")
+// still lists the group alone, as #1783 asked.
+//
+// For Codex, the ChatGPT accounts' own models are kept too when the
+// codex provider is used only through routing groups (Provider.Unlisted):
+// Codex reaches those on its own sign-in, its app lists them from the
+// ChatGPT backend, and the codex provider's switch is about magpie's
+// offer to the other agents and /v1/models. The user takes them out of
+// Codex's list there (HiddenModels, PickedModels), which the gateway
+// follows (CodexNativeHidden).
 func catalogOf(agent string) []Entry {
-	if !strings.EqualFold(agent, "codex") {
+	if agent == "" {
 		return Catalog()
 	}
-	return catalogKeeping(CodexOwn)
+	codex := strings.EqualFold(agent, "codex")
+	return catalogKeeping(func(e Entry) bool { return SubscriptionKept(e) || codex && CodexOwn(e) })
+}
+
+// CatalogOf is the catalog agent's lists start from, before its
+// visibility and picks narrow it (CatalogFor): every model that agent may
+// be given by name.
+func CatalogOf(agent string) []Entry { return catalogOf(agent) }
+
+// SubscriptionKept reports whether e is one of a signed-in subscription's
+// own models (a ChatGPT, Claude, Copilot or plugin account's) that only a
+// group listing alone could keep out: such a group doesn't take it from
+// the agents' lists. A provider the user keeps for routing groups itself
+// (Provider.Unlisted, "Only through routing groups") still keeps it out.
+func SubscriptionKept(e Entry) bool {
+	return e.Group == "" && e.Provider.Account != nil && !e.Provider.Unlisted
 }
 
 // catalogKeeping is Catalog with the unlisted models keep says, too.
@@ -2624,15 +2790,16 @@ func Served() []Entry {
 	})
 }
 
-// Unlisted are the models Served has and Catalog doesn't: those of the
-// providers kept for routing groups (Provider.Unlisted), and those a group
-// keeps out of the lists (Group.Unlists), which agents aren't offered.
+// Unlisted are the models Served has and agents aren't offered: those of
+// the providers kept for routing groups (Provider.Unlisted), and those a
+// group keeps out of the lists (Group.Unlists) but a signed-in
+// subscription's, which agents keep (SubscriptionKept).
 func Unlisted() []Entry {
 	var out []Entry
 	entries := providerEntries()
 	kept := unlistedByGroups(entries)
 	for _, e := range entries {
-		if e.Provider.Unlisted || kept[e.ID] {
+		if e.Provider.Unlisted || kept[e.ID] && !SubscriptionKept(e) {
 			out = append(out, e)
 		}
 	}
@@ -2702,7 +2869,8 @@ func entryFor(p Provider, m catalog.Model, s settings.Settings) Entry {
 	name := cmp.Or(m.Name, m.ID)
 	e := Entry{ID: p.ID + "/" + m.ID, Model: m.ID, Family: p.Family, Name: name, Efforts: effortsOf(m), Provider: p,
 		Images: images, ImageInput: imageInput, Context: ctx, WindowSet: p.ContextOf(m.ID) > 0, Output: output, OutputSet: outputOf(s, p.ID, m.ID) > 0, Free: m.Free, Rate: m.Rate, RateWas: m.RateWas, Tiers: m.Tiers, Released: m.Released,
-		Inputs: m.InputModalities, Outputs: m.OutputModalities, Codex: m.Codex}
+		Inputs: m.InputModalities, Outputs: m.OutputModalities, Codex: m.Codex,
+		AlwaysThinks: m.AlwaysThinks, DynamicTools: m.DynamicTools, DefaultEffort: m.DefaultEffort}
 	if lv, ok := catalog.CodexLevels(m.Codex); ok {
 		// the levels the vendor lists the model at in Codex's shape are
 		// its word, over models.dev's for the same id (Decorate)
@@ -2716,7 +2884,7 @@ func entryFor(p Provider, m catalog.Model, s settings.Settings) Entry {
 	// a model that thinks still does with the levels the user kept or
 	// none at all; one its source says nothing of thinks as most of the
 	// providers serving it say (#402)
-	e.Reasoning = m.Reasoning || len(e.Efforts) > 0 || catalog.Thinks(m.ID)
+	e.Reasoning = m.Reasoning || m.AlwaysThinks || len(e.Efforts) > 0 || catalog.Thinks(m.ID)
 	e.Efforts = effortsKept(e.Efforts, s.ModelEfforts[e.ID])
 	// levels the user gave a model with none known say it thinks too, so
 	// an agent told its levels isn't told it doesn't reason
@@ -2734,6 +2902,7 @@ func entryFor(p Provider, m catalog.Model, s settings.Settings) Entry {
 	// none (SetModelReasonless), whatever its list says
 	if s.ModelReasonless[e.ID] {
 		e.Efforts, e.Reasoning, e.AgentsV2, e.Reasonless = nil, false, false, true
+		e.AlwaysThinks, e.DefaultEffort = false, ""
 	}
 	return e
 }

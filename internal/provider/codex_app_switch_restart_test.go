@@ -60,14 +60,33 @@ func TestRestartSwitchedCodexApp(t *testing.T) {
 		t.Fatalf("one that stays: %v", err)
 	}
 
-	// ended, and the app starts none: said, not success
+	// ended, and the app starts none: said, not success, where the app
+	// can't be reopened (macOS: the user does it)
 	endCodexAppServer = func(pid int) error {
 		s.running = slices.DeleteFunc(s.running, func(p int) bool { return p == pid })
 		return nil
 	}
-	if err := RestartSwitchedCodexApp(ctx); !errors.Is(err, ErrCodexAppNotBack) {
-		t.Fatalf("none back: %v", err)
+	reopened := 0
+	CodexAppReopen = func(context.Context) error { reopened++; return errors.New("not here") }
+	s.running = []int{7}
+	if err := RestartSwitchedCodexApp(ctx); !errors.Is(err, ErrCodexAppNotBack) || reopened != 1 {
+		t.Fatalf("none back: %v, reopened %d", err, reopened)
 	}
+	// the Windows app, whose old app-server's stdout a leftover child
+	// holds open, starts none till it is quit and opened again (蛋仔 on
+	// Discord): reopened, it is on the new account
+	CodexAppReopen = func(context.Context) error { reopened++; return nil }
+	s.running = []int{7}
+	if err := RestartSwitchedCodexApp(ctx); err != nil || reopened != 2 {
+		t.Fatalf("none back on Windows: %v, reopened %d", err, reopened)
+	}
+	// the user quit the app meanwhile: it opens on the new account
+	CodexAppOpen = func(context.Context) (bool, bool) { return false, true }
+	s.running = []int{7}
+	if err := RestartSwitchedCodexApp(ctx); !errors.Is(err, ErrCodexAppGone) || reopened != 2 {
+		t.Fatalf("app quit: %v, reopened %d", err, reopened)
+	}
+	CodexAppOpen = func(context.Context) (bool, bool) { return true, true }
 
 	// the listing fails: unknown, not success
 	s.running, s.listErr = []int{9}, errors.New("ps failed")
@@ -170,10 +189,11 @@ func TestRestartSwitchedCodexAppReal(t *testing.T) {
 		t.Fatalf("app-server %d after the restart, first %d: want a new one", now, first)
 	}
 
-	// the app doesn't start another: said
+	// the app doesn't start another, and can't be reopened: said
 	f.mu.Lock()
 	f.back = false
 	f.mu.Unlock()
+	CodexAppReopen = func(context.Context) error { return errors.New("not here") }
 	if err := RestartSwitchedCodexApp(context.Background()); !errors.Is(err, ErrCodexAppNotBack) {
 		t.Fatalf("none back: %v", err)
 	}

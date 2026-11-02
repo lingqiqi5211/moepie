@@ -749,9 +749,11 @@ func (e Entry) Label() string {
 
 // Labels are how an agent's list names each of es, in order: as Label, or,
 // when the user wants names plain (settings' PlainNames, #335), by the
-// name alone — but for two or more the list would call the same, as a
-// routing group found for a model is called with that model left in the
-// list, which keep their provider's after it to tell them apart. With
+// name alone — but for two or more models the list would call the same,
+// which keep their provider's after it to tell them apart, and a routing
+// group named as anything else in the list (the group found for a model,
+// with that model left in it), which keeps "· routing group" while the
+// model it is named as stays plain. With
 // their own names plain (PlainOwnNames, #92), a name the user gave — a
 // model's, or a routing group's they made (#868: "· routing group" was
 // what an agent's narrow menu cut off) — is that name just as they wrote
@@ -761,16 +763,29 @@ func Labels(es []Entry) []string {
 	s := heldSettings()
 	plain := s.PlainNames
 	own := !plain && s.PlainOwnNames
-	same := map[string]int{}
+	// models and groups by name: a group is told apart by its "· routing
+	// group", so a model it shares a name with stays plain (nb5p on
+	// Discord: one relay's GPT-6.1 Terra kept "· MyGateway" beside the
+	// group found for it while its GPT-6.1 Sol had none)
+	models, groups := map[string]int{}, map[string]int{}
 	if plain || own {
 		for _, e := range es {
-			same[strings.ToLower(e.PlainName())]++
+			if e.Group == "" {
+				models[strings.ToLower(e.PlainName())]++
+			} else {
+				groups[strings.ToLower(e.PlainName())]++
+			}
 		}
 	}
 	for i, e := range es {
 		out[i] = e.Label()
 		mine := own && (e.Default != "" || e.Named)
-		if name := e.PlainName(); (plain || mine) && name != "" && same[strings.ToLower(name)] == 1 {
+		name := e.PlainName()
+		if !(plain || mine) || name == "" {
+			continue
+		}
+		k := strings.ToLower(name)
+		if e.Group == "" && models[k] == 1 || e.Group != "" && models[k] == 0 && groups[k] == 1 {
 			out[i] = name
 		}
 	}

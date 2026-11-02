@@ -391,16 +391,16 @@ func gatewayMatchesDetails(recs []Record, logs []sessions.Call) (map[int]bool, m
 	}
 	duplicates, actors, compactions := duplicateCodexCalls(logs)
 	pairs := codexResponseMatches(recs, logs, duplicates)
-	deduplicate := map[rowRef]bool{}
+	deduplicate := refSet{}
 	for index := range duplicates {
-		deduplicate[rowRef{local, index}] = true
+		deduplicate.add(rowRef{local, index})
 	}
 	responsePairs := make(map[rowRef]rowRef, len(pairs))
 	for record, call := range pairs {
 		responsePairs[rowRef{gateway, record}] = rowRef{local, call}
 	}
 	matched := map[int]bool{}
-	for ref := range matchedBlocks([]*rowChunk{gateway}, []*rowChunk{local}, deduplicate, responsePairs, time.Time{}, false) {
+	for ref := range matchedBlocks([]*rowChunk{gateway}, []*rowChunk{local}, deduplicate, responsePairs, time.Time{}, false).all() {
 		matched[ref.Index] = true
 	}
 	for index := range duplicates {
@@ -522,7 +522,9 @@ var ownPrice catalog.Price
 // a relay that sells kimi-k3 as moonshot-kimi-k3 answers as kimi-k3, which
 // is listed (#1498). The model asked for keeps its own price whenever it
 // has one, a zero set by the user included, so a ledger that matched the
-// vendor's bill still does.
+// vendor's bill still does. A record inside one of its provider's rate
+// windows (#2463) is priced at that window's rate, its own time read
+// against the windows, so calls either side of a boundary price apart.
 //
 // A local session's call has no provider of ours to price at (its billing
 // provider is the unknown one) but its file names the route it went
@@ -532,6 +534,11 @@ var ownPrice catalog.Price
 // nothing (#4278).
 func Pricer() func(Record) *catalog.Price {
 	prices := map[[4]string]*catalog.Price{}
+	// each provider's rate windows as the same read of the prices saw
+	// them: the windows are held once (BasePriceIn), each record's rate
+	// read at its own time (provider.RateAt), so a window that opens
+	// mid-page prices only the calls inside it (#2463)
+	windows := map[string][]provider.RateWindow{}
 	s := settings.Load()
 	return func(r Record) *catalog.Price {
 		if r.OwnCost != nil {
@@ -544,15 +551,16 @@ func Pricer() func(Record) *catalog.Price {
 		id := r.priceID()
 		k := [4]string{id, r.Model, served, r.SessionProvider}
 		if pr, ok := prices[k]; ok {
-			return pr
+			return atWindow(pr, windows[id], r.Time)
 		}
 		var pr *catalog.Price
-		v, ok := provider.EffectivePriceIn(s, id, r.Model)
+		v, ok, ws := provider.BasePriceIn(s, id, r.Model)
 		if !ok && served != "" {
-			v, ok = provider.EffectivePriceIn(s, id, served)
+			v, ok, ws = provider.BasePriceIn(s, id, served)
 		}
 		if ok {
 			pr = &v
+			windows[id] = ws
 		} else if r.Provider == UnknownProvider && r.SessionProvider != "" {
 			// A session file's usage entry names the provider the call went
 			// through (omp's model_usage: provider openrouter, model
@@ -572,8 +580,22 @@ func Pricer() func(Record) *catalog.Price {
 			catalog.Missing() // models.dev may list it by now
 		}
 		prices[k] = pr
-		return pr
+		return atWindow(pr, ws, r.Time)
 	}
+}
+
+// atWindow prices one record: the base price at the rate of the window
+// the record's time falls in (#2463), the price itself when none holds
+// or no price is known.
+func atWindow(pr *catalog.Price, ws []provider.RateWindow, at time.Time) *catalog.Price {
+	if pr == nil {
+		return nil
+	}
+	if r := provider.RateAt(ws, at); r > 0 && r != 1 {
+		p := pr.Times(r)
+		return &p
+	}
+	return pr
 }
 
 // NewPricer totals requests' token-bearing attempts at one snapshot of the

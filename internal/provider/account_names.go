@@ -109,15 +109,82 @@ func AccountNameOf(id, user string) string {
 }
 
 // AccountShown is how the account user of p is shown: by the name the
-// user gave it, else as its vendor names it. Records and lists keep the
-// vendor's name, the key the user's name is kept by, and look this up as
-// they are shown, so a rename reaches what came before it too
+// user gave it, else by the name its plugin's usage gives it (PluginUserOf),
+// else as its vendor names it. Records and lists keep the vendor's name,
+// the key the user's name is kept by, and look this up as they are shown,
+// so a rename reaches what came before it too
 // (magpie-community/plugins#310: a renamed Kiro account read by its old
 // name on the requests after).
-func (p Provider) AccountShown(user string) string { return cmp.Or(p.AccountName(user), user) }
+func (p Provider) AccountShown(user string) string {
+	if n := p.AccountName(user); n != "" {
+		return n
+	}
+	return cmp.Or(p.PluginUser(user), user)
+}
+
+// PluginUser is PluginUserOf the account user of p, "" for a provider no
+// plugin gives.
+func (p Provider) PluginUser(user string) string {
+	if !p.IsPlugin() {
+		return ""
+	}
+	return usageUser(p.Account.plugin.ID, user)
+}
 
 // AccountShownOf is AccountShown for the account user of the provider id.
-func AccountShownOf(id, user string) string { return cmp.Or(AccountNameOf(id, user), user) }
+func AccountShownOf(id, user string) string { return cmp.Or(AccountLabelOf(id, user), user) }
+
+// AccountLabelOf is the name the account user of id goes by besides
+// user itself: the user's own (AccountNameOf), else its plugin's
+// (PluginUserOf); "" for none. id is a provider's or "plugin:<id>", as
+// logins name a plugin's accounts.
+func AccountLabelOf(id, user string) string {
+	if p, ok := strings.CutPrefix(id, "plugin:"); ok {
+		id = PluginID(p)
+	}
+	return cmp.Or(AccountNameOf(id, user), PluginUserOf(id, user))
+}
+
+// PluginUserOf is the name a plugin's usage gives its account user
+// (usage().user, a masked phone) where that isn't user itself, "" for
+// none or one not read. A plugin's accountId is the account's key in
+// magpie (its own name, proxy and gateway key are kept by it), so
+// codearts keeps an IAM id there, iam::<domain>:user:<name>, and tells
+// the phone only in usage (#4416). It is shown, never kept: what was read
+// this run, else the last reading quotas.json has, so a read that fails
+// or hasn't been made yet shows what was known, or user, never nothing.
+func PluginUserOf(id, user string) string {
+	pp, ok := pluginOfAgent(id)
+	if !ok {
+		return ""
+	}
+	return usageUser(pp.ID, user)
+}
+
+// usageUser is PluginUserOf of the plugin's provider pid.
+func usageUser(pid, user string) string {
+	key := strings.ToLower(strings.TrimSpace(user))
+	if key == "" {
+		return ""
+	}
+	other := func(u string) string {
+		if u = strings.TrimSpace(u); strings.EqualFold(u, key) {
+			return ""
+		}
+		return u
+	}
+	loginUsageCache.Lock()
+	e := loginUsageCache.m["plugin:"+pid+"/"+key]
+	loginUsageCache.Unlock()
+	if u := other(e.q.User); u != "" {
+		return u
+	}
+	c := &lastQuotas
+	c.Lock()
+	defer c.Unlock()
+	c.load()
+	return other(c.m[PluginID(pid)+"/"+key].Q.User)
+}
 
 // SetAccountName names the account ref of the subscription id; "" takes
 // the name off.
@@ -161,7 +228,7 @@ func withAccountNames(qs []SubscriptionQuota) []SubscriptionQuota {
 	out := make([]SubscriptionQuota, len(qs))
 	for i, q := range qs {
 		if q.From == "" {
-			q.Alias = cmp.Or(AccountNameOf(q.Provider, q.User), q.Seat)
+			q.Alias = cmp.Or(AccountLabelOf(q.Provider, q.User), q.Seat)
 		}
 		out[i] = q
 	}
