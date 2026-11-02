@@ -80,10 +80,24 @@ type Settings struct {
 	// Dock keeps magpie in the Mac's Dock as well as the menu bar, for a
 	// menu bar too full to show its icon.
 	Dock bool `json:"dock,omitempty"`
-	// DockWindow shows it in the Dock only while its window is open, so
-	// Cmd-Tab reaches the window without an icon kept there the rest of
-	// the time. Dock wins over it.
+	// DockWindow is the With window choice: magpie is in the Dock, and so
+	// in Command-Tab, only while its window is open. It is what magpie
+	// does with neither Dock nor DockNever set (ShouguangCao on X: the
+	// window was out of Command-Tab, so going back to it to paste a key
+	// copied elsewhere took the menu bar), so it is still written for an
+	// older magpie reading the file, which took none for Hide.
 	DockWindow bool `json:"dockWindow,omitempty"`
+	// DockNever keeps magpie out of the Dock and Command-Tab even while
+	// its window is open, the Hide choice. Dock wins over it.
+	DockNever bool `json:"dockNever,omitempty"`
+	// DockSettled says this file's Dock choice is read with With window as
+	// the default. A file written before that (v0.1.2060) has none, and
+	// Hide was its default, stored as nothing: a user who chose Hide can't
+	// be told from one who never chose, so such a file with no choice is
+	// read as Hide (settleDock), never moved into the Dock by the new
+	// default. A new install, with no file, is settled from the start.
+	// Every save writes it.
+	DockSettled bool `json:"dockSettled,omitempty"`
 	// Proxy for magpie's own requests to vendors: "" follows the
 	// environment and then the system, "direct" uses none, anything else
 	// is the proxy (http://, https:// or socks5://; host:port means http).
@@ -153,6 +167,13 @@ type Settings struct {
 	// as written whatever finds them, each whole, in any case (#1977).
 	RedactActions map[string]string `json:"redactActions,omitempty"`
 	RedactAllow   []string          `json:"redactAllow,omitempty"`
+	// RedactRouteTo is the model an agent's request goes to, as written,
+	// when masking would change it (jessyoungyu on X: 「百度这家公司怎么样」
+	// reached a cloud model as a placeholder): "" masks it as before. Only
+	// a model whose every route the user set to go unmasked counts
+	// (provider.SkipsRedaction, the gateway's unredactedRoute), judged on
+	// each request; one that isn't now is as unset, masked.
+	RedactRouteTo string `json:"redactRouteTo,omitempty"`
 	// LAN shares the gateway on the local network; remote callers must use
 	// named caller keys. LANKey is retained for older Magpie versions.
 	// LAN is this computer's own (KeepOwn; Lullaby on Discord: sharing
@@ -589,7 +610,7 @@ type Settings struct {
 	// DesktopSubagentEffort fixes Desktop's subagent tool turns at this
 	// reasoning level. Empty keeps the effort each request asks for.
 	DesktopSubagentEffort string `json:"desktopSubagentEffort,omitempty"`
-	// FullContext has Codex and Claude Code told a model's whole context
+	// FullContext has Codex, Claude Code and Grok Build told a model's whole context
 	// window. Off, a window above WorkingWindow is told as WorkingWindow,
 	// so they compact a long conversation there instead of sending ever
 	// more of it on every turn (X: Chen, a 1M DeepSeek model through
@@ -659,6 +680,13 @@ type Settings struct {
 	// Agents list leaves out (ikunbots on X). It is that list's only: the
 	// ledger keeps their calls, and the totals and the chart count them.
 	UsageAgentsHidden []string `json:"usageAgentsHidden,omitempty"`
+	// UsageCardsHidden are the allowance cards the Usage page's Overview
+	// leaves out (whqtian_07012 on Discord), each as its tray card id (the
+	// provider id, then "|" and the account when there is one) and "|plan"
+	// or "|balance", so StepFun's balance card goes while its plan card
+	// stays. Only what that page shows: routing, caps, counting, the tray
+	// panel (PanelUsageHidden is its own) and the menu bar's cells keep them.
+	UsageCardsHidden []string `json:"usageCardsHidden,omitempty"`
 	// ClientAgents counts a client magpie doesn't know as one of the agents
 	// it does, on the Usage and Sessions pages (#1958, NorethSea): a bridge
 	// that starts Codex's app-server under a name of its own
@@ -1171,6 +1199,7 @@ func (s *Settings) KeepOwn(cur Settings) {
 	s.SessionReads = cur.SessionReads
 	s.UIFont, s.CodeFont = cur.UIFont, cur.CodeFont
 	s.Window, s.Proxy, s.Port, s.Dock, s.DockWindow, s.Lightweight = cur.Window, cur.Proxy, cur.Port, cur.Dock, cur.DockWindow, cur.Lightweight
+	s.DockNever, s.DockSettled = cur.DockNever, cur.DockSettled
 	s.ProxyCustom = cur.ProxyCustom
 	s.WindowMaximised, s.KeepAwake, s.KeepAwakeDisplay = cur.WindowMaximised, cur.KeepAwake, cur.KeepAwakeDisplay
 	s.TrayUsages, s.TrayUsage, s.TrayUsageEvery, s.TrayNoLogos, s.TrayNoBird, s.TrayPace, s.TrayNoCost = cur.TrayUsages, cur.TrayUsage, cur.TrayUsageEvery, cur.TrayNoLogos, cur.TrayNoBird, cur.TrayPace, cur.TrayNoCost
@@ -1456,11 +1485,26 @@ func loadChecked() (Settings, error) {
 	b, err := through("settings", Path(), func(b []byte) ([]byte, error) { return b, nil })
 	if err != nil {
 		if os.IsNotExist(err) {
+			// a new install: With window is its default
+			s.DockSettled = true
 			return s.normal(), nil
 		}
-		return s.normal(), fmt.Errorf("could not read settings at %s: %w", Path(), err)
+		return s.settleDock().normal(), fmt.Errorf("could not read settings at %s: %w", Path(), err)
 	}
 	return parse(b)
+}
+
+// settleDock reads a Dock choice written before With window was the
+// default (DockSettled unset) as that magpie did: no choice is Hide.
+func (s Settings) settleDock() Settings {
+	if s.DockSettled {
+		return s
+	}
+	if !s.Dock && !s.DockWindow && !s.DockNever {
+		s.DockNever = true
+	}
+	s.DockSettled = true
+	return s
 }
 
 // parsed is the last settings.json that parsed whole and what it read as,
@@ -1492,6 +1536,7 @@ func parse(b []byte) (Settings, error) {
 	parses.Add(1)
 	perr := json.Unmarshal(bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")), &s)
 	if perr == nil {
+		s = s.settleDock()
 		// only what parsed whole is kept: a last good generation read in
 		// its place is read again, as is a file that can't be read at all
 		parsed.Lock()
@@ -1507,7 +1552,7 @@ func parse(b []byte) (Settings, error) {
 	} else if len(bytes.TrimSpace(bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")))) != 0 {
 		err = fmt.Errorf("could not read settings at %s: %w", Path(), perr)
 	}
-	return s.normal(), err
+	return s.settleDock().normal(), err
 }
 
 // parses counts settings.json's parses (Parses).
@@ -1815,7 +1860,10 @@ func save(s Settings, recording bool) error { return saveOwn(s, recording, false
 // any other save keeps the file's.
 func saveOwn(s Settings, recording, reads bool) error {
 	defer filememo.Forget() // read again, where a request holds it
-	s = s.normal()
+	// what is written is settled: a Settings read from an older file was
+	// settled as it was read, and one made without reading has its Dock
+	// choice read as that file's would be
+	s = s.settleDock().normal()
 	if s.DefaultModelLimit != nil && *s.DefaultModelLimit < 0 {
 		return fmt.Errorf("default model limit must be a non-negative integer")
 	}
@@ -1931,6 +1979,10 @@ func saveOwn(s Settings, recording, reads bool) error {
 	if s.CodexSubagentModel != "" && !strings.Contains(s.CodexSubagentModel, "/") {
 		return fmt.Errorf("the model for Codex's subagents must be a model's id such as codex/gpt-5.5, not %q", s.CodexSubagentModel)
 	}
+	s.RedactRouteTo = strings.TrimSpace(s.RedactRouteTo)
+	if s.RedactRouteTo != "" && !strings.Contains(s.RedactRouteTo, "/") {
+		return fmt.Errorf("the model for requests masking would change must be a model's id such as ollama/qwen3, not %q", s.RedactRouteTo)
+	}
 	s.DesktopSubagentModel = strings.TrimSpace(s.DesktopSubagentModel)
 	if s.DesktopSubagentModel != "" && !strings.Contains(s.DesktopSubagentModel, "/") {
 		return fmt.Errorf("the model for Claude Desktop's subagents must be a model's id such as deepseek/deepseek-v4, not %q", s.DesktopSubagentModel)
@@ -1970,6 +2022,7 @@ func saveOwn(s Settings, recording, reads bool) error {
 	s.UsageOrder = ids(s.UsageOrder)
 	s.PanelUsageHidden = ids(s.PanelUsageHidden)
 	s.UsageAgentsHidden = ids(s.UsageAgentsHidden)
+	s.UsageCardsHidden = ids(s.UsageCardsHidden)
 	s.ClientAgents = clientAgents(s.ClientAgents)
 	s.UsageCleared = usageCleared(s.UsageCleared)
 	s.TrayUsages = ids(s.TrayUsages)
