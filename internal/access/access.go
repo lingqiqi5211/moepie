@@ -122,7 +122,8 @@ type Key struct {
 	// key has them only beside a Limit, which an older magpie still reads.
 	More []Limit `json:"moreLimits,omitempty"`
 	// Models are the models the key may use (#882): "<provider>/<model>",
-	// "<provider>/*" or a group's "group/<name>"; none for every model.
+	// "<provider>/*" or a group's "group/<name>"; none for every model,
+	// unless it lists accounts: then its accounts' providers' (HeldModels).
 	Models []string `json:"models,omitempty"`
 	// Accounts are the accounts and keys the key may use (#905), as
 	// "<provider>/<account>": a signed-in account by its stable id, a
@@ -501,7 +502,7 @@ func Authenticate(secret string) (Identity, bool) {
 			if k.Off {
 				return Identity{}, false
 			}
-			return Identity{KeyID: k.ID, KeyName: k.Name, Limit: k.Limit, More: k.More, Models: k.Models, Accounts: k.Accounts, Quotas: k.Quotas}, true
+			return Identity{KeyID: k.ID, KeyName: k.Name, Limit: k.Limit, More: k.More, Models: HeldModels(k.Models, k.Accounts), Accounts: k.Accounts, Quotas: k.Quotas}, true
 		}
 	}
 	s := settings.Load()

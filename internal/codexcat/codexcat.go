@@ -150,10 +150,19 @@ type model struct {
 	} `json:"truncation_policy"`
 	Tools      []string `json:"experimental_supported_tools"`
 	Modalities []string `json:"input_modalities"`
-	Context    *int     `json:"context_window,omitempty"`
-	// the model's whole window when Context is the working one
-	// (settings.Working): Codex's model_context_window may raise it
-	// that far, as it does OpenAI's own models'
+	// the model's whole window, which Codex shows (95% of it) as the
+	// context the conversation has
+	Context *int `json:"context_window,omitempty"`
+	// where Codex compacts the conversation when that is before the
+	// window: the threshold set on the model or its provider, else
+	// Long conversations' (settings.Working). Codex compacts at the
+	// lesser of this and 90% of Context, and a
+	// model_auto_compact_token_limit the user put in config.toml comes
+	// before it. Until 10-30 the threshold went in Context, so a 1M
+	// model showed 258K in Codex (01huadalang on Discord).
+	AutoCompact *int `json:"auto_compact_token_limit,omitempty"`
+	// never written now; kept a field so it is one magpie owns, and
+	// Keep doesn't carry an old catalog's over
 	MaxContext *int   `json:"max_context_window,omitempty"`
 	Tiers      []tier `json:"service_tiers"`
 	// Without the search, Codex puts every MCP tool's schema (a
@@ -275,9 +284,9 @@ func entriesAt(ms []catalog.Model, after int, effort string) []any {
 			if m.Compact > 0 {
 				w = min(c, m.Compact)
 			}
-			e.Context = &w
+			e.Context = &c
 			if w < c {
-				e.MaxContext = &c
+				e.AutoCompact = &w
 			}
 		}
 		e.Truncation.Mode, e.Truncation.Limit = "tokens", 10000
@@ -897,7 +906,7 @@ func listedEntry(m catalog.Model, priority int, work settings.Settings, autoRevi
 			w = work.Working(c)
 		}
 		if w < c {
-			e["context_window"] = w
+			e["auto_compact_token_limit"] = w
 		}
 	}
 	// the levels, where the user's differ from the vendor's: those the
@@ -983,6 +992,7 @@ func Window(e map[string]any, n, most int) {
 // Tag names a list of magpie's models: another list, another tag.
 func Tag(ms []catalog.Model) string {
 	b, _ := json.Marshal(ms)
+	b = append(b, catalogFormat...)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:6])
 }
@@ -996,6 +1006,12 @@ func UsedTag(used []string) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:6])
 }
+
+// catalogFormat changes when the entries made of the same models change
+// shape, so a Codex holding the list magpie gave before asks again: v2 put
+// the window in context_window and the threshold in
+// auto_compact_token_limit (10-30).
+const catalogFormat = "v2"
 
 // tagMark is where a tag starts in an ETag magpie made.
 const tagMark = "+magpie-"
