@@ -203,11 +203,23 @@ func publicRoute(r gateway.Route, pub func(string) string) gateway.Route {
 // panel's Routing tab asks for it, Masking on one request's record (key)
 // when a masked call's badge there does, or the Usage page's Requests on one
 // provider or agent when its Usage tab does, its Overview (the allowances)
-// when a menu-bar cell's click does. Anything but an id, or a name of the
-// kind a provider or an agent has, is dropped.
+// when a menu-bar cell's click does, or Plugins' Discover, looking for what
+// the panel's add sheet found nothing by (q), when its More in Plugins
+// does. Anything but an id, a name of the kind a provider or an agent has,
+// or a line of text to look for, is dropped.
 func mainView(q url.Values) string {
 	view := q.Get("view")
 	switch view {
+	case "plugins":
+		// q, even empty, says Discover: without it the page opens on the
+		// tab visited last (#3579)
+		if f, ok := q["q"]; ok {
+			s := ""
+			if mainFind.MatchString(f[0]) {
+				s = f[0]
+			}
+			view += "&q=" + url.QueryEscape(s)
+		}
 	case "routing":
 		if id, err := strconv.ParseInt(q.Get("req"), 10, 64); err == nil && id > 0 {
 			view += "&req=" + strconv.FormatInt(id, 10)
@@ -239,6 +251,9 @@ func mainView(q url.Values) string {
 
 // mainName is the id of a provider or an agent.
 var mainName = regexp.MustCompile(`^[A-Za-z0-9._@:/ -]{1,80}$`)
+
+// mainFind is a line of text to look for, as a search field holds one.
+var mainFind = regexp.MustCompile(`^[^\x00-\x1f\x7f]{0,100}$`)
 
 // mainURL is the window's page for a view as mainView gives it, the
 // request's id kept as its own parameter (the panel's link to one request,
@@ -384,7 +399,14 @@ func traceRoutes(mux *http.ServeMux) {
 		day := r.URL.Query().Get("day")
 		days, routes, cut := gateway.History(day)
 		rememberTitleHistory(day, routes)
-		writeJSON(rw, map[string]any{"days": days, "routes": pricedRoutes(routes), "cut": cut})
+		out := map[string]any{"days": days, "routes": pricedRoutes(routes), "cut": cut}
+		if day == "" {
+			// the live page's accounts and keys say tried and answered of
+			// the day the Usage page reads, not of the last few requests
+			// the trace still keeps (#3351)
+			out["tallies"] = gateway.DayTallies()
+		}
+		writeJSON(rw, out)
 	})
 	// an account's rest lifted by hand: verified with its vendor, say
 	mux.HandleFunc("POST /api/gateway/unrest", func(rw http.ResponseWriter, r *http.Request) {

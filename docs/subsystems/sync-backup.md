@@ -218,6 +218,16 @@ given to no agent here and carried on unchanged, so neither computer's sync
 removes or replaces the other's (`TestLocalServerThroughSync`, two computers
 through the fake S3; `TestRestoreKeepsLocalServer` for a backup file).
 
+The library part carries the library's subagents (`library.Bundle.Subagents`,
+see [library](library.md)), by sync and backup file alike: the receiving
+computer writes them into its agents when it puts the library, and records
+what it wrote there itself, so `Applied` never travels and a file the user
+edited stays theirs. A bundle from a magpie before subagents were carried
+has no list and keeps this computer's; an empty list takes them out. A
+library with none hashes as it did before, so upgrading syncs nothing
+(`TestSyncSubagents`, `TestNoSubagentsHashAsBefore`,
+`TestBackupFileCarriesSubagents`).
+
 ## Verification
 
 ```sh

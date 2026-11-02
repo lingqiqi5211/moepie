@@ -57,6 +57,7 @@ func (h *host) makeMain(url string) *application.WebviewWindow {
 		BackgroundColour: winBg,
 	})
 	h.zoomWhenLoaded(w)
+	lowWhileHidden(w)
 	if runtime.GOOS == "windows" {
 		w.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) { w.ExecJS(frameOnlyResizeJS) })
 	}
@@ -87,7 +88,17 @@ func (h *host) makeMain(url string) *application.WebviewWindow {
 					return nil
 				})
 			}
+			h.keepAt(w) // a resize by the top or left edge moves it too
 		})
+	})
+	// A move is kept once it settles too (keepAt), so the window opens
+	// where it was left after a restart, an update's included.
+	var moved *time.Timer
+	w.OnWindowEvent(events.Common.WindowDidMove, func(*application.WindowEvent) {
+		if moved != nil {
+			moved.Stop()
+		}
+		moved = time.AfterFunc(500*time.Millisecond, func() { h.keepAt(w) })
 	})
 	// Closing the window keeps the tray alive; quitting is a menu action.
 	// One lightweight mode lets go is closed for good.
@@ -122,6 +133,7 @@ func (h *host) makePanel() *application.WebviewWindow {
 	po.Width, po.Height, po.Zoom = h.panelW(), cmp.Or(h.panelHeight, zoomed(panelStart, z)), z
 	w := h.app.Window.NewWithOptions(po)
 	h.zoomWhenLoaded(w)
+	lowWhileHidden(w)
 	if h.tray != nil {
 		h.tray.AttachWindow(w).WindowOffset(6)
 	}
@@ -270,7 +282,9 @@ func (h *host) openMain(url string) {
 	if h.panel != nil {
 		h.panel.Hide()
 	}
-	h.dock(settings.Load(), true)
+	// the window a restart by itself brings back: up, not in front
+	quiet := quietShow.Swap(false)
+	h.dockFront(settings.Load(), true, !quiet)
 	if h.main == nil {
 		w := h.makeMain(cmp.Or(url, "/?"+h.query))
 		h.main = w
@@ -278,7 +292,7 @@ func (h *host) openMain(url string) {
 		h.whenLoaded(w, func() {
 			if h.main == w {
 				h.placeMain(w)
-				showHere(w)
+				showHere(w, !quiet)
 			}
 		})
 		return
@@ -290,7 +304,7 @@ func (h *host) openMain(url string) {
 		return // made again, it is shown once its page has come
 	}
 	h.placeMain(h.main)
-	showHere(h.main)
+	showHere(h.main, !quiet)
 }
 
 // reopenMain answers a click on magpie's Dock icon (#1252). A window that is
@@ -317,18 +331,22 @@ const spaceSettle = 500 * time.Millisecond
 // showHere shows w and makes it key on the Space the user is on, wherever it
 // was last; on the main thread. It moves only while being shown: left on,
 // activating magpie in any way (the Dock, Command-Tab) would pull the open
-// window off its own Space onto the user's (#1252).
-func showHere(w *application.WebviewWindow) {
+// window off its own Space onto the user's (#1252). Without focus, it is
+// shown and left behind the app the user is in (a restart by itself).
+func showHere(w *application.WebviewWindow, focus bool) {
 	setMovesToActiveSpace(w, true)
 	w.Show()
-	w.Focus()
+	if focus {
+		w.Focus()
+	}
 	time.AfterFunc(spaceSettle, func() {
 		application.InvokeAsync(func() { setMovesToActiveSpace(w, false) })
 	})
 }
 
 // placeMain puts the main window, made and not shown yet, as it was last
-// left; on the main thread, before its first Show. On Windows, a size kept
+// left; on the main thread, before its first Show. It goes back where it
+// was put (putBack). On Windows, a size kept
 // on a larger screen is fitted to this one's work area and centred: Windows
 // doesn't, and the title bar would be out of reach. Then, if it was
 // maximised, it is maximised again; on Linux it was made so (StartState),
@@ -349,10 +367,12 @@ func showHere(w *application.WebviewWindow) {
 // to its own size, which the Mac fits to the screen again, so it couldn't
 // be restored at all.
 func (h *host) placeMain(w *application.WebviewWindow) {
-	if h.placed.Swap(w) == w || runtime.GOOS == "linux" {
+	if h.placed.Swap(w) == w {
 		return
 	}
-	if w.IsMaximised() {
+	// where it was left, on a screen there now (putBack)
+	put := h.putBack(w)
+	if runtime.GOOS == "linux" || w.IsMaximised() {
 		return
 	}
 	wd, ht := w.Size()
@@ -360,7 +380,9 @@ func (h *host) placeMain(w *application.WebviewWindow) {
 	fw, fh, fitted := fitRoom(wd, ht, sw, sh)
 	if fitted && runtime.GOOS == "windows" {
 		w.SetSize(fw, fh)
-		w.Center()
+		if !put || !h.putBack(w) {
+			w.Center()
+		}
 		fitted = false
 	}
 	if settings.Load().WindowMaximised && !fitted {
@@ -368,6 +390,57 @@ func (h *host) placeMain(w *application.WebviewWindow) {
 		w.Maximise()
 		w.EnableSizeConstraints()
 	}
+}
+
+// putBack moves the main window, not shown yet, to where it was last left
+// (settings.WindowAt), whole on a screen there now (openAt), and says
+// whether it did; on the main thread. Nothing kept, or no screen there now
+// holding any of it, leaves it where the system put it, centred.
+func (h *host) putBack(w *application.WebviewWindow) bool {
+	s, err := settings.LoadChecked()
+	if err != nil || len(s.WindowAt) != 2 || !keepsPlace(runtime.GOOS, os.Getenv) {
+		return false // an unreadable file is no place known
+	}
+	wd, ht := w.Size()
+	x, y, ok := openAt(s.WindowAt, wd, ht, workAreas(h.app.Screen.GetAll()))
+	if ok {
+		w.SetPosition(x, y)
+	}
+	return ok
+}
+
+// keepAt keeps where the main window has been moved to (settleAt): only a
+// window placed and shown (placeMain), up, and not maximised, full screen
+// or minimised, which are the screen's place and not one the user gave it
+// (Windows puts a minimised window at -32000, -32000).
+func (h *host) keepAt(w *application.WebviewWindow) {
+	if h.placed.Load() != w || !keepsPlace(runtime.GOOS, os.Getenv) || w.IsFullscreen() || w.IsMinimised() || w.IsMaximised() || !w.IsVisible() {
+		return
+	}
+	if wd, _ := w.Size(); wd == 0 {
+		return // let go by lightweight mode
+	}
+	x, y := w.Position()
+	s, err := settings.LoadChecked()
+	if err != nil {
+		return // unreadable: left as it is, not written over
+	}
+	if settleAt(&s, x, y) {
+		if err := settings.Save(s); err != nil {
+			log.Println("window: keeping its place:", err)
+		}
+	}
+}
+
+// workAreas is the screens' work areas as openAt takes them.
+func workAreas(screens []*application.Screen) []area {
+	var out []area
+	for _, sc := range screens {
+		if sc != nil && sc.WorkArea.Width > 0 && sc.WorkArea.Height > 0 {
+			out = append(out, area{sc.WorkArea.X, sc.WorkArea.Y, sc.WorkArea.Width, sc.WorkArea.Height})
+		}
+	}
+	return out
 }
 
 // mainRoom is the work area of the screen the main window is on, in the

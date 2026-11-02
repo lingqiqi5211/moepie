@@ -34,6 +34,7 @@ for (const engine of ["chromium", "webkit"]) {
       await t.test(lang, async () => {
         const page = await browser.newPage({viewport:{width:980,height:820}});
         page.setDefaultTimeout(5000);
+        page.setDefaultNavigationTimeout(60000);
         const posted = [], errors = [];
         const state = {bun:true, bunVersion:"1.4.3", plugins:[{
           spec:SPEC, providers:[], moved:[], isGateway:true, gatewayOnly:true,
@@ -52,6 +53,8 @@ for (const engine of ["chromium", "webkit"]) {
         await page.locator(":is(.lib-tabs .opt, .nav-s):visible",{hasText:installed}).click();
         const row=page.locator("#view-plugins .pm-row");
         assert.equal(await row.locator(".pm-chip.kind.pv").count(),0);
+        const hook={en:"Request hook",zh:"请求 Hook","zh-TW":"請求 Hook",ja:"リクエストフック",de:"Anfrage-Hook"}[lang];
+        assert.equal((await row.locator(".pm-chip.kind.mw").innerText()).trim(),hook);
         const line=row.locator(".pm-gateway");
         await line.waitFor();
         assert.match(await line.innerText(), /120/);

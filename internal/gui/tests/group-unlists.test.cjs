@@ -52,7 +52,7 @@ function serve(lang, posts) {
 }
 
 const H0 = "Agents' model lists and the gateway's /v1/models show the group and each of its models.";
-const H1 = "Agents' model lists and the gateway's /v1/models show the group, not the models it names or its patterns match: they are used through it. A request naming one is still answered.";
+const H1 = "Agents' model lists and the gateway's /v1/models show the group, not the models it names or its patterns match: they are used through it. A signed-in subscription's models stay in agents' lists. A request naming one is still answered.";
 const KEYS = ["Model lists", "Its models too", "The group alone", "Its models unlisted", H0, H1, "Edit", "Save"];
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -66,6 +66,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const height = 1000;
         const page = await (await browser.newContext({ viewport: { width, height }, reducedMotion: "reduce" })).newPage();
         page.setDefaultTimeout(5000);
+        page.setDefaultNavigationTimeout(60000);
         const errors = [], posts = [];
         page.on("pageerror", (e) => errors.push(e.message));
         await page.route("**/*", serve(lang, posts));

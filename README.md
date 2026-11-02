@@ -52,7 +52,7 @@ Runs on macOS, Windows and Linux (menu bar app, window, TUI, web UI and CLI), in
 curl -fsSL https://usemagpie.ai/install.sh | sh
 ```
 
-<sub>Mac builds are signed and notarised, and every build updates itself. Behind a firewall, use `--proxy` or `--mirror`. Or `go install github.com/yetone/magpie@latest`, or the [Docker image](https://usemagpie.ai/docs/docker).</sub>
+<sub>Mac builds are signed and notarised, and every build updates itself. On Linux the script installs the desktop app, or the terminal build where there is no desktop or its WebKitGTK isn't installed (it says which package to add); `--gui` or `--tui` chooses. Behind a firewall, use `--proxy` or `--mirror`. Or `go install github.com/yetone/magpie@latest`, or the [Docker image](https://usemagpie.ai/docs/docker). Remove what the script installed with `curl -fsSL https://usemagpie.ai/install.sh | sh -s -- --uninstall`; your settings in `~/.config/magpie` stay unless you add `--purge`, which disconnects your agents and deletes them too.</sub>
 
 **2 · Add a provider.** Open magpie and go to **Providers → Add provider**. Pick a preset and paste a key, or sign in with a subscription.
 
@@ -273,7 +273,7 @@ Find them under Plugins › Discover › Gateway middleware. See [Gateway middle
 ### Also
 
 - **Library**: write instructions, MCP servers, skills and subagents once; magpie writes them into each agent's files in its format, and removes only what it wrote.
-- **Web search for any model**: a model that can't search gets magpie's search: a provider that can, or search APIs (Tavily, Brave, Exa, Firecrawl, You.com, DeepSeek, SearXNG), asked in the order you drag them into, each one able to be switched off without losing its key. An API can hold several keys: searches take turns over them (or use them in order with `pick=order`), a key refused lately is asked last, and Tavily keys show what each has used of its limit, in Settings and in `magpie search`. Any agent can mount the same search as an MCP server, with a `web_search` tool and a `web_fetch` tool that reads a page by its URL.
+- **Web search for any model**: a model that can't search gets magpie's search: a provider that can, or search APIs (Tavily, Brave, Exa, Firecrawl, You.com, DeepSeek, Doubao Search on Volcengine, Yuanbao Search on Tencent Cloud, SearXNG), asked in the order you drag them into, each one able to be switched off without losing its key. An API can hold several keys: searches take turns over them (or use them in order with `pick=order`), a key refused lately is asked last, and Tavily keys show what each has used of its limit, in Settings and in `magpie search`. Any agent can mount the same search as an MCP server, with a `web_search` tool and a `web_fetch` tool that reads a page by its URL.
 - **Images and video**: an image tool for any agent over MCP, with the model you choose, and videos with a Grok subscription or a MiniMax API key (MiniMax H3).
 - **Agents kept current**: the Agents page shows each CLI's version, updates it the way it was installed, and gives the commands for the ones you don't have.
 - **WSL**: on Windows, agents inside WSL distros are wired too, and their sessions counted.

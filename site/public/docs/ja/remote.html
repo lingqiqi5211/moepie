@@ -76,6 +76,8 @@
     <a href="#add">2. ほかのコンピューターで追加する</a>
     <a href="#models">使えるもの</a>
     <a href="#quotas">クォータと使用量</a>
+    <a href="#keys">短期キー</a>
+    <a href="#api">統計 API</a>
     <a href="#trouble">うまくいかないとき</a>
   </aside>
 
@@ -130,6 +132,48 @@ magpie provider refresh office   <span class="c"># 一覧を再取得</span></pr
     <h2 id="quotas"><a class="anchor" href="#quotas">クォータと使用量</a></h2>
     <p>使用量ページ、メニューバー、<code>magpie quota</code> には、共有する magpie のサブスクリプションカードがその名前付きで（<code>Codex · office</code>、id <code>office/codex</code>）、向こうが最後に読んだ内容で表示されます。ベンダーに問い合わせるのはサインインを持つコンピューターだけです。このコンピューターでカードを更新すると、向こうがもう一度読みます（最大で 30 秒に 1 回）。Codex のリセットや WorkBuddy のチェックインは、向こうのコンピューターのアプリ、TUI、CLI で行います。向こうが予算・モデル・アカウントで制限したキーにはカードは一切渡されず、ここにはそのキー自身のカードと上限だけが表示されます。</p>
     <p>共有する magpie は、このコンピューターのリクエストを、送ってきたゲートウェイキーの名前と応答したアカウントで記録します。</p>
+
+    <h2 id="keys"><a class="anchor" href="#keys">短期キー</a></h2>
+    <p>サンドボックスでエージェントを起動するプログラムは、エージェントごとに自動で失効するゲートウェイキーを渡せます。有効期間は 1 分から 30 日で、一部のモデル、一部のアカウント、有効期間全体のトークン数やコスト、または読み取り専用に制限できます。キー本体は応答に一度だけ含まれます。</p>
+    <div class="code">
+      <span class="lang">Shell</span>
+      <button class="copy" data-copy="ex-keys">コピー</button>
+      <pre id="ex-keys">curl -s -X POST http://127.0.0.1:3425/v1/magpie/keys \
+  -d '{"name":"sandbox-1","ttl":"1h","models":["office/codex/gpt-5"],"tokens":200000}'
+<span class="c"># {"id":"k…","name":"sandbox-1","key":"sk-magpie-…","expires":"…","models":[…],"limit":{…}}</span>
+curl -s http://127.0.0.1:3425/v1/magpie/keys              <span class="c"># 発行したキー（伏せ字）</span>
+curl -s -X DELETE http://127.0.0.1:3425/v1/magpie/keys/k…  <span class="c"># 早めに失効させる</span></pre>
+    </div>
+    <p>このコンピューター上のプログラムはキーなしで呼べますが、ブラウザーのページは呼べません。ほかのコンピューター、コンテナー、CI は、キーの発行を許可したゲートウェイキーを付けて呼びます。そのキーが発行したキーはすべてそのキーに縛られます。使えないモデルやアカウントは使えず、そのキーより後まで有効にはならず、使った分はそのキーの上限に数えられます。オフにするか削除すると、発行したキーもすぐに使えなくなります。コマンドラインでも同じで、キーだけを出力します。</p>
+    <div class="code">
+      <span class="lang">Shell</span>
+      <button class="copy" data-copy="ex-keys-cli">コピー</button>
+      <pre id="ex-keys-cli">magpie gateway-key issue --ttl 1h --name sandbox-1 --models office/codex/gpt-5 --tokens 200000
+magpie gateway-key issuer &lt;id&gt; on    <span class="c"># このキーにキーの発行を許可</span>
+magpie gateway-key issue --ttl 30m --from &lt;id&gt; --read-only --json
+magpie gateway-key list               <span class="c"># until 10-31 14:00、expired、issued by …</span></pre>
+    </div>
+    <p>期限切れのキーは、どの API でも理由付きの <code>401</code>（“the gateway key "sandbox-1" expired at …: ask for a new one”）で断られます。このコンピューターからでも同じです。1 時間後に削除されます。</p>
+
+    <h2 id="api"><a class="anchor" href="#api">統計 API</a></h2>
+    <p>使用量ページの内容は JSON でも、このコンピューターに、また magpie を共有している間はゲートウェイキー付きのリクエストに提供されます。予算、モデル、アカウントで制限されたキーには、自分のリクエストと上限だけが返ります。</p>
+    <ul>
+      <li><code>/v1/magpie/usage?period=today|7d|30d|all</code>：合計と、モデル、エージェント、プロバイダー、アカウント、ゲートウェイキーごとの内訳。</li>
+      <li><code>/v1/magpie/usage/requests</code>：リクエストログ。<code>period</code>、<code>day</code>、<code>offset</code>、<code>limit</code> と、絞り込みの <code>model</code>、<code>agent</code>、<code>provider</code>、<code>account</code>、<code>callerKey</code>、<code>failed=1</code>、<code>retried=1</code>、<code>q</code>。</li>
+      <li><code>/v1/magpie/quotas</code>：各サブスクリプションのウィンドウ（<code>?kept=1</code> でベンダーに問い合わせない）。<code>/v1/magpie/quotas/history?days=</code>：残量の履歴、最大 45 日。</li>
+      <li><code>/v1/magpie/limit</code>：キー自身の上限、有効期限、発行元キーの上限。</li>
+      <li><code>/v1/magpie/concurrency</code>：アカウントごとの実行中のリクエスト。</li>
+    </ul>
+    <div class="code">
+      <span class="lang">Shell</span>
+      <button class="copy" data-copy="ex-api">コピー</button>
+      <pre id="ex-api">curl -s 'http://127.0.0.1:3425/v1/magpie/usage?period=7d'
+curl -s 'http://127.0.0.1:3425/v1/magpie/usage/requests?period=today&amp;callerKey=k…&amp;failed=1&amp;limit=50'
+curl -s 'http://127.0.0.1:3425/v1/magpie/quotas?kept=1'
+curl -s 'http://127.0.0.1:3425/v1/magpie/quotas/history?days=14'
+curl -s http://127.0.0.1:3425/v1/magpie/limit -H 'Authorization: Bearer sk-magpie-…'
+curl -s http://127.0.0.1:3425/v1/magpie/concurrency</pre>
+    </div>
 
     <h2 id="trouble"><a class="anchor" href="#trouble">うまくいかないとき</a></h2>
     <div class="table-wrap"><table>

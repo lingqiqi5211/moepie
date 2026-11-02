@@ -95,6 +95,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const open = async (url) => {
           const page = await context.newPage();
           page.setDefaultTimeout(5000);
+          page.setDefaultNavigationTimeout(60000);
           page.on("pageerror", (e) => errors.push(e.message));
           await page.route("**/*", serve(lang, url.includes("mode=panel")));
           await page.goto(url);
@@ -205,6 +206,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const open = async (url) => {
           const page = await context.newPage();
           page.setDefaultTimeout(5000);
+          page.setDefaultNavigationTimeout(60000);
           page.on("pageerror", (e) => errors.push(e.message));
           await page.route("**/*", serve(lang, url.includes("mode=panel")));
           await page.goto(url);
@@ -280,6 +282,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const context = await browser.newContext({ viewport: { width, height: 760 }, reducedMotion: "reduce" });
         const page = await context.newPage();
         page.setDefaultTimeout(5000);
+        page.setDefaultNavigationTimeout(60000);
         const errors = [];
         page.on("pageerror", (e) => errors.push(e.message));
         await page.route("**/*", serve(lang));

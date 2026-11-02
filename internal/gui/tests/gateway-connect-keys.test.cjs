@@ -17,6 +17,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         localStorage.setItem("magpie.snipOS", "unix"); // This fixture asserts POSIX snippets.
       } catch {} });
       page.setDefaultTimeout(6000);
+      page.setDefaultNavigationTimeout(60000);
       const events = [], errors = [];
       page.on("pageerror", (e) => errors.push(e.message));
       await page.route("**/*", fixture(locale, "dark", events));

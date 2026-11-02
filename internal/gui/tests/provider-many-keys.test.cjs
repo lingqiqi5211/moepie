@@ -33,8 +33,9 @@ const relay = () => ({
 const solo = () => ({
   id: "solo", name: "Solo", icon: "generic", chat: "https://solo.example.com/v1", responses: "", anthropic: "", catalog: "",
   models: [{ id: "small", name: "", on: true }], agents: [], fallback: [], headers: {},
-  key: { set: true, masked: "sk-…solo" }, balanceToken: { takes: false, set: false }, proxy: "",
-  keyList: [{ id: "5050505050", name: "", masked: "sk-…solo", on: true, active: true }],
+  // no key yet: the API key box is shown only then (keys are replaced in Accounts)
+  key: { set: false }, balanceToken: { takes: false, set: false }, proxy: "",
+  keyList: [],
 });
 
 function serve(lang, posts) {
@@ -86,6 +87,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       });
       const page = await (await browser.newContext({ viewport: { width: 900, height: 760 }, reducedMotion: "reduce" })).newPage();
       page.setDefaultTimeout(5000);
+      page.setDefaultNavigationTimeout(60000);
       const errors = [];
       page.on("pageerror", (e) => errors.push(e.message));
       const posts = [];

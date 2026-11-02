@@ -212,6 +212,7 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
       <li><b>インストール。</b>
         <ul>
           <li>npm パッケージは <code>bun add</code> でインストールされ、OpenCode と同じくインストールスクリプトは実行されません。<code>postinstall</code> でのビルドが必要な依存は動きません。</li>
+          <li>パッケージは普段使っている npm レジストリから取得されます。<code>~/.npmrc</code> の <code>registry=</code>、<code>~/.bunfig.toml</code> の <code>install.registry</code>、シェルの <code>NPM_CONFIG_REGISTRY</code> / <code>BUN_CONFIG_REGISTRY</code> が「中国のミラー」スイッチより優先されます。<code>.npmrc</code> がそのレジストリ用に持つトークンはそこにだけ送られます。別のものを使うには <span class="ui">プラグイン</span> → 発見 の <span class="ui">npm レジストリ</span> を変更するか、<code>magpie plugin registry &lt;url&gt;</code> を実行します（<code>default</code> で元に戻ります）。</li>
           <li>git リポジトリは Bun が取得します：<code>github:owner/repo[#ref]</code>、<code>git+https://…</code>、<code>owner/repo</code>。</li>
           <li>フォルダやファイルへのパスは、その場所から読み込まれます。</li>
         </ul></li>
@@ -692,7 +693,7 @@ m plugin logout acme</pre>
 magpie plugin options model-map '{"mapping": {"fast": "deepseek/deepseek-chat"}}'</pre>
     </div>
     <h3 id="middleware-options"><a class="anchor" href="#middleware-options">オプション</a></h3>
-    <p>ミドルウェアは設定を <code>ctx.options</code> から読みます。これは <code>plugins.json</code> のそのエントリの <code>options</code> です。<span class="ui">プラグイン → インストール済み</span> でミドルウェアの <span class="ui">オプション</span> ボタンを押すとその行で JSON として編集でき、<code>magpie plugin options &lt;名前&gt; '&lt;json&gt;'</code> でも設定できます（<code>off</code> で消去）。名前はパッケージ名、spec、短い名前のどれでもかまいません：<code>@magpie-community/middleware-model-map</code> なら <code>model-map</code> です。次のリクエストから反映されます。パッケージは <code>package.json</code> の <code>"magpie": { "options": { … } }</code> でオプションの例を示せます。未設定のときエディタはそれから始まりますが、保存するまでミドルウェアはオプションなしで動きます。</p>
+    <p>ミドルウェアは設定を <code>ctx.options</code> から読みます。これは <code>plugins.json</code> のそのエントリの <code>options</code> です。<span class="ui">プラグイン → インストール済み</span> でミドルウェアの <span class="ui">オプション</span> ボタンを押すとその行で JSON として編集でき、<code>magpie plugin options &lt;名前&gt; '&lt;json&gt;'</code> でも設定できます（<code>off</code> で消去）。名前はパッケージ名、spec、短い名前のどれでもかまいません：<code>@magpie-community/middleware-model-map</code> なら <code>model-map</code> です。次のリクエストから反映されます。パッケージは <code>package.json</code> の <code>"magpie": { "options": { … } }</code> でオプションの例を示せます。未設定のときエディタはそれから始まりますが、保存するまでミドルウェアはオプションなしで動きます。プロバイダープラグインが宣言したスイッチ（編集画面の<span class="ui">プラグインのオプション</span>、たとえば Cursor の <code>wire_trace</code>）はそのスイッチとして保存されます：<code>magpie plugin options cursor '&lbrace;"wire_trace": true&rbrace;'</code> でオンになり、<code>off</code> ですべてのスイッチがプラグインの既定に戻ります。</p>
     <h3>動き方</h3>
     <p>ミドルウェアは Bun では動きません。ゲートウェイ自身のプロセスの中で、Go で書かれた JavaScript エンジン <a href="https://github.com/MoeForge/moejs">moejs</a> によって動きます。応答は数千のイベントとしてストリームされ、各イベントがミドルウェアの処理を待つからです。1 イベントでのフック呼び出しは約 1 マイクロ秒で済みますが、Bun との往復だと数十マイクロ秒かかります。各ミドルウェアのコンパイルは一度だけで、リクエストごとに専用のランタイムを使います。そのためリクエストは並行に処理され、同じリクエストのフック同士は <code>ctx.state</code> を共有します。</p>
     <ul>
@@ -775,6 +776,7 @@ claude mcp add --transport http magpie-tools http://127.0.0.1:3425/mcp/magpie/to
     </div>
     <p>設定 → プラグインには各プラグインのツールがこの名前で表示され、サーバーのアドレスをコピーできます。<code>args</code> は zod のフィールド定義（<code>tool.schema</code> は zod）、zod オブジェクト、または JSON Schema オブジェクトです。エージェントにはこれが示され、magpie は <code>execute</code> の前に呼び出しの引数をこれで検証します。引数が正しくなければ、その引数を示すエラーを返します。<code>ctx</code> は OpenCode と同じで、<code>agent</code> は呼び出したエージェントです。ツールの実行時間は 55 秒までで、時間切れになると <code>ctx.abort</code> が発火します。</p>
     <p>このサーバーは組み込みプラグイン <span class="ui">プラグインのツール</span> が提供します。オンのプラグインがツールを提供している間はオンのままで、オフのときはツールが一覧に出ず、呼び出しにはオフであることが返ります。ゲートウェイキーでの呼び出しはそのキーの上限に数えられます。ツールはプロバイダープラグインと同じくあなたの権限でプラグインホスト内で動き、結果は呼び出したエージェントにだけ返ります。</p>
+    <p>ツールを提供するプラグインは、ライブラリの MCP タブにもそれぞれ独立したサーバーとして現れ、プラグインの短い名前（<code>search1api</code>）が付きます。アドレスを手で追加する必要はありません。<a href="mcp-hub.html">MCP ハブ</a>がオンなら、そのツールはハブを使うすべてのエージェントに <code>search1api__search</code> として出ます。ほかのライブラリのサーバーと同じく、エージェントごとにオン・オフでき、ツールを一つずつ止めることもできます。削除すると、プラグインを外して追加し直すまで戻りません。</p>
 
     <h2 id="agents"><a class="anchor" href="#agents">エージェントプラグイン</a></h2>
     <p>プラグインは<em>エージェント</em>を追加することもできます。magpie に組み込みの設定がないエージェントです。そのエージェントがモデルをどこに書くか、magpie のゲートウェイを使うために他に何を書くかを伝えます。するとエージェントは magpie 自身のものと同じように<span class="ui">エージェント</span>ページに並びます。その行で magpie のモデルを選ぶと、magpie はモデルをゲートウェイのアドレスとエージェント専用のキーと一緒に設定へ書き込み、スイッチを切るとすべてユーザーの元の状態に戻します。下の例は <a href="https://aider.chat">Aider</a> を追加します。</p>

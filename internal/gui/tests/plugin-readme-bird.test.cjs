@@ -53,6 +53,7 @@ const bend = (d) => { const n = (d || "").match(/-?[\d.]+/g)?.map(Number) || [];
 async function open(browser, reduced) {
   const page = await (await browser.newContext({ viewport: { width: 980, height: 820 }, reducedMotion: reduced ? "reduce" : "no-preference" })).newPage();
   page.setDefaultTimeout(5000);
+  page.setDefaultNavigationTimeout(60000);
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   let release, next;

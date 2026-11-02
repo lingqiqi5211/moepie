@@ -105,7 +105,10 @@ cache.
 
 A client can send `X-Magpie-Cache-Marks: client` on a `/v1/messages`
 request to a Claude subscription. Without that header, the bridge behaves
-as before. Chat Completions and Responses ignore the header. The mode is
+as before — except Claude Code's auto mode classifier, whose own marks are
+kept like an opted-in client's when they are valid, and dropped as before when
+they are not (#3835). Chat Completions and Responses
+ignore the header. The mode is
 part of the run's identity, including rewritten conversations and tool-result
 handoffs: opted-in and ordinary requests never share a run.
 
@@ -120,6 +123,7 @@ to the client. `claude_cache.go` validates the marks before run selection;
 | Top-level `cache_control` | Sets the request-level tail through `CLAUDE_CODE_EXTRA_BODY`. |
 | Last message block | Sets the same request-level tail. |
 | Earlier message block, new run | Ends a block at that point in the rendered history with the same TTL. |
+| Earlier message block without a mark, new run | Ends a block there too, so a mark that moved on with the conversation's growth leaves the old boundary in place for Anthropic's prefix check (#3835). |
 | Earlier message block, running or saved run | Dropped and reported; the existing history cannot be edited. |
 | Tool definition | Dropped and reported; Claude Code owns the tools. |
 | Bridge history-chunk mark | Uses only a free slot and never a longer TTL than a preceding mark. |

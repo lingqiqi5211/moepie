@@ -76,6 +76,8 @@
     <a href="#add">2. Add it on the other computer</a>
     <a href="#models">What you get</a>
     <a href="#quotas">Quotas and usage</a>
+    <a href="#keys">Short-lived keys</a>
+    <a href="#api">Stats API</a>
     <a href="#trouble">When it doesn’t work</a>
   </aside>
 
@@ -130,6 +132,48 @@ magpie provider refresh office   <span class="c"># fetch its list again</span></
     <h2 id="quotas"><a class="anchor" href="#quotas">Quotas and usage</a></h2>
     <p>The Usage page, the menu bar and <code>magpie quota</code> show the shared magpie’s subscription cards, named with it (<code>Codex · office</code>, id <code>office/codex</code>), as that magpie last read them: only the computer with the sign-ins asks the vendors. A card’s refresh here has it read that card once more, at most once every 30 seconds. A Codex reset or a WorkBuddy check-in is pressed on that computer, from its own app, TUI or CLI. A key that magpie holds to a budget, some models or some accounts is told none of its cards: only that key’s own card shows here, with its limit.</p>
     <p>The shared magpie counts this computer’s requests under the name of the gateway key it sends, with the account that answered.</p>
+
+    <h2 id="keys"><a class="anchor" href="#keys">Short-lived keys</a></h2>
+    <p>A program that starts agents in sandboxes can give each one a gateway key of its own that stops working by itself. The key lives 1 minute to 30 days, and may be held to some models, some accounts, a number of tokens or a cost over its whole life, or to read-only use. Its secret is told once, in the answer.</p>
+    <div class="code">
+      <span class="lang">Shell</span>
+      <button class="copy" data-copy="ex-keys">Copy</button>
+      <pre id="ex-keys">curl -s -X POST http://127.0.0.1:3425/v1/magpie/keys \
+  -d '{"name":"sandbox-1","ttl":"1h","models":["office/codex/gpt-5"],"tokens":200000}'
+<span class="c"># {"id":"k…","name":"sandbox-1","key":"sk-magpie-…","expires":"…","models":[…],"limit":{…}}</span>
+curl -s http://127.0.0.1:3425/v1/magpie/keys              <span class="c"># the keys you issued, masked</span>
+curl -s -X DELETE http://127.0.0.1:3425/v1/magpie/keys/k…  <span class="c"># revoke one early</span></pre>
+    </div>
+    <p>A program on this computer may call it with no key; a page in a browser may not. Another computer, a container or CI calls it with a gateway key you let issue keys, and every key it issues is held to that key: never a model or account it may not use, never past its own expiry, and what they spend counts against its limit. Turning it off or removing it stops its keys at once. The same from the command line, which prints the key alone:</p>
+    <div class="code">
+      <span class="lang">Shell</span>
+      <button class="copy" data-copy="ex-keys-cli">Copy</button>
+      <pre id="ex-keys-cli">magpie gateway-key issue --ttl 1h --name sandbox-1 --models office/codex/gpt-5 --tokens 200000
+magpie gateway-key issuer &lt;id&gt; on    <span class="c"># let a key issue keys</span>
+magpie gateway-key issue --ttl 30m --from &lt;id&gt; --read-only --json
+magpie gateway-key list               <span class="c"># until 10-31 14:00, expired, issued by …</span></pre>
+    </div>
+    <p>An expired key is refused with <code>401</code> and why (“the gateway key "sandbox-1" expired at …: ask for a new one”) on every API, from this computer too. It is removed an hour later.</p>
+
+    <h2 id="api"><a class="anchor" href="#api">Stats API</a></h2>
+    <p>What the Usage page shows is also served as JSON, to this computer and, while magpie is shared, to a request with a gateway key. A key held to a budget, models or accounts is told only its own calls and limit.</p>
+    <ul>
+      <li><code>/v1/magpie/usage?period=today|7d|30d|all</code>: totals, by model, agent, provider, account and gateway key.</li>
+      <li><code>/v1/magpie/usage/requests</code>: the request log, with <code>period</code>, <code>day</code>, <code>offset</code>, <code>limit</code>, and filters <code>model</code>, <code>agent</code>, <code>provider</code>, <code>account</code>, <code>callerKey</code>, <code>failed=1</code>, <code>retried=1</code> and <code>q</code>.</li>
+      <li><code>/v1/magpie/quotas</code>: each subscription’s windows (<code>?kept=1</code> without asking the vendors); <code>/v1/magpie/quotas/history?days=</code>: what was left over time, 45 days at most.</li>
+      <li><code>/v1/magpie/limit</code>: the key’s own limits, its expiry, and its issuer’s limits.</li>
+      <li><code>/v1/magpie/concurrency</code>: requests in flight, per account.</li>
+    </ul>
+    <div class="code">
+      <span class="lang">Shell</span>
+      <button class="copy" data-copy="ex-api">Copy</button>
+      <pre id="ex-api">curl -s 'http://127.0.0.1:3425/v1/magpie/usage?period=7d'
+curl -s 'http://127.0.0.1:3425/v1/magpie/usage/requests?period=today&amp;callerKey=k…&amp;failed=1&amp;limit=50'
+curl -s 'http://127.0.0.1:3425/v1/magpie/quotas?kept=1'
+curl -s 'http://127.0.0.1:3425/v1/magpie/quotas/history?days=14'
+curl -s http://127.0.0.1:3425/v1/magpie/limit -H 'Authorization: Bearer sk-magpie-…'
+curl -s http://127.0.0.1:3425/v1/magpie/concurrency</pre>
+    </div>
 
     <h2 id="trouble"><a class="anchor" href="#trouble">When it doesn’t work</a></h2>
     <div class="table-wrap"><table>

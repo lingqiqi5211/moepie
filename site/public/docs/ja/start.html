@@ -165,7 +165,7 @@
     </figure>
 
     <h3>1 つのプロバイダに複数のアカウントやキー</h3>
-    <p>プロバイダの行を開き、使うアカウントやキーをすべてチェックします。<span class="ui">Routing</span> はリクエストをそれらにどう振り分けるかを決めます：<span class="ui">Smart</span>（デフォルト）、<span class="ui">In order</span>、<span class="ui">In turn</span>、<span class="ui">Least used first</span>、<span class="ui">Weekly pace</span>、<span class="ui">Speed first</span>（最近いちばん速く応答したキーが先）。<span class="ui">Fallback</span> には、プロバイダのクォータ切れ、レート制限、ダウン時に代わりに使うモデルを並べます。</p>
+    <p>プロバイダの行を開き、使うアカウントやキーをすべてチェックします。<span class="ui">Routing</span> はリクエストをそれらにどう振り分けるかを決めます：<span class="ui">Smart</span>（デフォルト）、<span class="ui">In order</span>、<span class="ui">In turn</span>、<span class="ui">Least used first</span>、<span class="ui">Weekly pace</span>、<span class="ui">By weight</span>（各アカウントやキーが横で設定した重みで取り分を受けます。たとえば Max アカウントは 5、Pro は 1）、<span class="ui">Speed first</span>（最近いちばん速く応答したキーが先）。<span class="ui">Fallback</span> には、プロバイダのクォータ切れ、レート制限、ダウン時に代わりに使うモデルを並べます。</p>
 
     <h3>1 つのモデルを複数のプロバイダで</h3>
     <p>グループとは、1 つまたは複数のプロバイダのモデルを、エージェントが 1 つとして選べるようにまとめたものです。ピッカーの <em>Routing groups</em> の下に <code>group/&lt;id&gt;</code> として表示されます。2 つのプロバイダが同じ名前で提供しているモデルは、それだけでグループになります。<span class="ui">Routing</span> タブの <span class="ui">New group</span> では、好きなモデルを組み合わせてグループを作れます。グループで何ができるかは、最初のモデルが基準になります。</p>
@@ -180,6 +180,7 @@
       <tr><td>週のペース <code>pace</code></td><td>更新までの 1 時間あたりの週の枠の残りが最も多いアカウント、つまりリセット時に失う分が最も多いもの。これにより各メンバーの週の枠がリセットで無駄になりにくくなります。週の枠がなく 5 時間枠だけのアカウント（Claude Enterprise）は、更新までの 1 時間あたりの 5 時間枠の残りで判断されるので、ほぼ常に最初になります。使用率が 90% 以上のものは、他が応答できなくなるまで待ちます。キーは最近送ったトークン数で判断します。</td></tr>
       <tr><td>重み順 <code>weight</code></td><td>グループ編集画面で各モデルの横に設定した重み（1〜1000、未設定は 1）に応じてリクエストを分けます。重み 3 のモデルは重み 1 のモデルが 1 件受けるごとに 3 件受け、まとめてではなく均等に散らします。各モデルは自分のプロバイダーのルーティングで自分のアカウントやキーを使い、グループ内のグループは 1 つとして数えます。失敗して休んでいるものはその回から外れ、失敗したときは次のモデルが代わりに答えます。</td></tr>
       <tr><td>速度優先 <code>fast</code></td><td>このモデルに最近いちばん速く応答したメンバー、アカウント、キーが先です。最初のトークンまでの時間と出力の速さで比べ、新しい応答ほど重く数えます。差が 1 割以内のものは並び順のままです。1 時間測っていないものには 5 件に 1 件を回すので、一度遅かったチャネルもまた試されます。失敗して休んでいるものは最後です。測るのはストリーミングの応答だけで、再起動すると測り直します。</td></tr>
+      <tr><td>最安優先 <code>cheap</code></td><td>ルーティンググループのみ。いまモデルが最も安いメンバーが先です。Usage が数えるのと同じく、この時間帯の入力・出力 100 万トークンあたりの価格で比べます：自分で設定した価格、なければ定価に、プロバイダの価格倍率と時間帯倍率をかけたもの。DeepSeek 公式 API、Command Code と OpenCode Go の DeepSeek モデルはピーク時間帯（平日 UTC 01:00–04:00 と 06:00–10:00）に 2 倍になるので、2 つのプロバイダにある同じ DeepSeek モデルはその時間に安い方へ送られます。同じ価格のものは順番どおり、価格が分からないものは最後です。</td></tr>
     </table></div>
     <div class="table-wrap"><table>
       <tr><th>維持</th><th>会話が、応答したアカウントやキーに留まる期間</th></tr>
@@ -266,6 +267,7 @@ magpie claude group/opus-anywhere    <span class="c"># これを使う</span></p
       <tr><td><code>magpie usage 7d</code></td><td>エージェントとモデルごとのトークンとコスト</td></tr>
       <tr><td><code>magpie tools</code> · <code>magpie tool generate_image "…" -o hero.png</code></td><td>magpie が MCP でエージェントに渡すツール（画像生成、画像認識、Web 検索、プラグインのツール）を一覧し、直接呼び出す。生成した画像はファイルに保存</td></tr>
       <tr><td><code>magpie tray</code></td><td>メニューバーのアイコンだけで起動</td></tr>
+      <tr><td><code>magpie log</code> · <code>magpie log -f</code></td><td>magpie のログの場所。不具合の報告に添えます。<code>-n 200</code> でアプリのログの末尾を表示、<code>-f</code> で追いかけます</td></tr>
     </table></div>
 
     <h2 id="faq"><a class="anchor" href="#faq">よくある質問</a></h2>
@@ -281,6 +283,9 @@ magpie claude group/opus-anywhere    <span class="c"># これを使う</span></p
     <p>いいえ。magpie は毎回ファイルを読み直し、自分が設定するキーだけに触れるので、他の設定やコメントはそのまま残ります。<span class="ui">Import…</span> で取り込んだプロバイダはコピーなので、その後エージェント側の設定を変えても再度コピーはされません。</p>
     <h3>GitHub に届かない環境で、インストールや更新をするには？</h3>
     <p>インストーラと <code>magpie update</code> にプロキシを渡します：<code>curl -fsSL https://usemagpie.ai/install.sh | sh -s -- --proxy http://127.0.0.1:7890</code>、または <code>magpie update --proxy socks5://127.0.0.1:1080</code>（http・https・socks5・socks5h に対応。<code>HTTPS_PROXY</code> と <code>ALL_PROXY</code> も使われます）。<code>--mirror &lt;prefix&gt;</code> を付けると、指定した GitHub ダウンロードミラーから <code>&lt;prefix&gt;https://github.com/…</code> としてリリースファイルを取得します。<code>magpie update mirror &lt;prefix&gt;</code> でアプリ自身の更新を含め毎回使い、<code>magpie update mirror off</code> で解除します。指定しない限りミラーは使われず、ファイルの SHA-256 はミラーではなく常に usemagpie.ai から取得するので、ミラーが書き換えたファイルはインストールされません。アプリ自身の更新は <span class="ui">Settings</span> → <span class="ui">Proxy</span> を通ります。</p>
+
+    <h3 id="log">magpie のログはどこにありますか？</h3>
+    <p>アプリ（ウィンドウ、メニューバーやトレイのアイコン、パネル。どう開いたかによらず）は <code>app.log</code> を書きます。macOS では <code>~/Library/Logs/magpie/app.log</code>、Windows では <code>%LOCALAPPDATA%\magpie\logs\app.log</code>、Linux では <code>~/.local/state/magpie/app.log</code>（<code>$XDG_STATE_HOME</code> が設定されていれば <code>$XDG_STATE_HOME/magpie</code>）、ポータブル版ではデータフォルダーの <code>logs</code> です。<span class="ui">設定</span> → <span class="ui">情報</span> → <span class="ui">ログ</span>にパスがあり、<span class="ui">開く</span>でそのフォルダーを表示します。<code>magpie log</code> はパスを表示し、<code>magpie log -f</code> は追いかけます。5 MiB に達すると隣の <code>app.old.log</code> になり、残るのは最大 2 ファイルです。記録されるのは magpie がしたことと出会ったエラー（プロバイダーがリクエストを断った、再試行した、プラグインが起動しなかった）で、キー、プロンプト、返答は含みません。キーやトークンに見えるものも伏せられます。サービスとして動く <code>magpie serve</code> のログは別の場所です。macOS では <code>~/Library/Logs/magpie/serve.log</code>、Linux では <code>journalctl --user -u magpie</code>。<code>magpie log</code> はそれも示します。</p>
 
     <h3 id="privacy">magpie は何を送信しますか？</h3>
     <p>プロンプト、返答、キー、アカウントは、使っているプロバイダーにだけ送られます。間に magpie 自身のサーバーはありません。リリース版の magpie は 1 日 1 回、使われていることを知らせます。何人が使っていて、何を優先して面倒を見るべきかを知るためです。送るのは、このコンピュータで作ったランダムな ID、magpie のバージョンとシステム、そして使っているエージェント、プロバイダー、モデルを magpie 自身の ID（<code>claude</code>、<code>deepseek</code>、<code>deepseek/deepseek-v4</code>）で、それぞれの数とともに。自分で追加したプロバイダーとそのモデルは <code>custom</code> とだけ記録します。プロバイダー追加シートの先頭に載るパートナーについては、1 日に表示された回数、開かれた回数、追加された回数も送ります（回数のみ）。名前、Base URL、アカウント、キー、プロンプト、使用量は送りません。<span class="ui">設定</span> → <span class="ui">プライバシー</span> → <span class="ui">使っているエージェント、プロバイダー、モデルを共有</span> でエージェント、プロバイダー、モデルとパートナーの回数を外せます。<span class="ui">ユーザー数に含める</span>、<code>DO_NOT_TRACK=1</code>、<code>MAGPIE_NO_STATS=1</code> のどれかですべてオフになります。ソースからのビルドは送信しません。パートナーの公式サイトと「キーを取得」のリンクは <code>usemagpie.ai/go/…</code> を経由し、移動の前にクリックを 1 回数えます（どのパートナーか、どのリンクか、国）。usemagpie.ai はパートナー一覧が取得された回数も数えます。これはサーバー自身が見るもので、どの Web サイトのアクセス集計とも同じく、上の設定には左右されません。ID、IP アドレス、アカウントは記録しません。プラグイン、インポートリンク、ライブラリが示すアイコンは <code>usemagpie.ai/api/icon</code> を経由して取得するので、アイコンのあるサーバーに見えるのはあなたの IP ではなく Cloudflare のアドレスです。このサーバーは画像を中継するだけで、数えることも記録することもしません。magpie が自分から送るものすべては、毎日のカウントの例、手元に残すファイル、各スイッチとともに<a href="/docs/ja/privacy">プライバシー</a>のページに挙げています。</p>

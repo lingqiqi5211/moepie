@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const installer = fileURLToPath(new URL("./public/install.sh", import.meta.url));
 
-function install(t, { termux = true, arch = "aarch64", override = false, prefixOnly = false, missing = false, corrupt = false, desktop = false, github = false, args = [], env: extra = {}, tamper = "" } = {}) {
+function install(t, { termux = true, arch = "aarch64", override = false, prefixOnly = false, missing = false, corrupt = false, desktop = false, github = false, args = [], env: extra = {}, tamper = "", libs = desktop, cli = !desktop, distro = "ID=ubuntu\nID_LIKE=debian\n", sessions = [], login = "" } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "magpie-install-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const tools = join(dir, "tools");
@@ -26,13 +26,41 @@ function install(t, { termux = true, arch = "aarch64", override = false, prefixO
   const file = termux ? `magpie-cli-android-${cpu}` : desktop ? `magpie-linux-${cpu}` : `magpie-cli-linux-${cpu}`;
   const assets = {};
   // A Linux asset is present even when Android's is missing: never use it.
-  for (const name of [file, `magpie-cli-linux-${cpu}`]) {
+  for (const name of new Set([file, `magpie-cli-linux-${cpu}`, `magpie-linux-${cpu}`])) {
     if (missing && name === file) continue;
     assets[name] = { url: github ? `https://github.com/yetone/magpie-releases/releases/download/vtest/${name}` : `https://download.invalid/${name}`, sha256: corrupt ? "0".repeat(64) : createHash("sha256").update(payload).digest("hex") };
   }
   const requests = join(dir, "requests");
   writeFileSync(join(tools, "uname"), `#!/bin/sh\ncase "$1" in -m) echo '${arch}';; -s) echo Linux;; esac\n`, { mode: 0o755 });
-  writeFileSync(join(tools, "ldconfig"), "#!/bin/sh\necho libwebkit2gtk-4.1.so.0\n", { mode: 0o755 });
+  // ldconfig -p as glibc prints it: the libraries the desktop app needs
+  // when libs, and another library always (a cache that was read)
+  const cache = ["libc.so.6", ...(libs ? ["libgtk-3.so.0", "libwebkit2gtk-4.1.so.0"] : [])]
+    .map((n) => `\t${n} (libc6,x86-64) => /usr/lib/x86_64-linux-gnu/${n}`).join("\n");
+  writeFileSync(join(tools, "ldconfig.txt"), cache + "\n");
+  writeFileSync(join(tools, "ldconfig"), `#!/bin/sh\ncat "${join(tools, "ldconfig.txt").replaceAll("\\", "/")}"\n`, { mode: 0o755 });
+  // logind: the graphical session this user is logged in to, if any
+  // (INSTALL_LOGIN "<id> <type>"); logind names a tty login when there is
+  // no graphical one
+  writeFileSync(join(tools, "loginctl"), `#!/bin/sh
+set -- "$@" "" "" "" "" ""
+id=\${INSTALL_LOGIN%% *} type=\${INSTALL_LOGIN#* }
+[ "$1 $3 $4 $5" = "show-user -p Display --value" ] && [ -n "$id" ] && echo "$id"
+[ "$1 $2 $3 $4 $5" = "show-session $id -p Type --value" ] && [ -n "$id" ] && echo "$type"
+exit 0
+`, { mode: 0o755 });
+  const dataDirs = join(dir, "data-dirs");
+  for (const s of sessions) {
+    mkdirSync(join(dataDirs, s.split("/")[0]), { recursive: true });
+    writeFileSync(join(dataDirs, s), "[Desktop Entry]\n");
+  }
+  writeFileSync(join(dir, "os-release"), distro);
+  // xdg-mime as xdg-utils writes the default: one line in mimeapps.list
+  writeFileSync(join(tools, "xdg-mime"), `#!/bin/sh
+[ "$1" = default ] || exit 0
+mkdir -p "$XDG_CONFIG_HOME"
+printf '[Default Applications]\\n' >> "$XDG_CONFIG_HOME/mimeapps.list"
+printf '%s=%s\\n' "$3" "$2" >> "$XDG_CONFIG_HOME/mimeapps.list"
+`, { mode: 0o755 });
   writeFileSync(join(tools, "curl"), `#!${process.execPath}
 const fs = require("node:fs");
 const args = process.argv.slice(2);
@@ -49,7 +77,17 @@ else fs.writeFileSync(args[args.indexOf("-o") + 1], tamper && url.startsWith(tam
     PREFIX: termux ? prefix : "",
     TERMUX_VERSION: termux && !prefixOnly ? "test" : "",
     MAGPIE_BIN_DIR: override ? bin : "",
-    MAGPIE_CLI: desktop ? "" : "1",
+    MAGPIE_CLI: cli ? "1" : "",
+    // a headless shell unless a test gives it a desktop
+    DISPLAY: "",
+    WAYLAND_DISPLAY: "",
+    XDG_CURRENT_DESKTOP: "",
+    XDG_SESSION_DESKTOP: "",
+    DESKTOP_SESSION: "",
+    XDG_SESSION_TYPE: "",
+    XDG_DATA_DIRS: dataDirs,
+    INSTALL_LOGIN: login,
+    MAGPIE_OS_RELEASE: join(dir, "os-release"),
     PATH: tools + ":" + process.env.PATH,
     XDG_CONFIG_HOME: join(dir, "config"),
     XDG_DATA_HOME: join(dir, "share"),
@@ -62,10 +100,15 @@ else fs.writeFileSync(args[args.indexOf("-o") + 1], tamper && url.startsWith(tam
     MAGPIE_MIRROR: "",
     ...extra,
   };
-  const result = spawnSync("sh", [installer, ...args], { env, encoding: "utf8" });
   const read = (p) => (existsSync(p) ? readFileSync(p, "utf8") : "");
-  const calls = read(env.INSTALL_ARGS).trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
-  return { ...result, bin, file, payload, share: env.XDG_DATA_HOME, requests: read(requests), calls };
+  const run = (args) => {
+    rmSync(requests, { force: true });
+    rmSync(env.INSTALL_ARGS, { force: true });
+    const result = spawnSync("sh", [installer, ...args], { env, encoding: "utf8" });
+    const calls = read(env.INSTALL_ARGS).trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    return { ...result, requests: read(requests), calls };
+  };
+  return { ...run(args), run, bin, file, payload, home, env, share: env.XDG_DATA_HOME, config: env.XDG_CONFIG_HOME };
 }
 
 test("Termux downloads Android arm64 into PREFIX/bin even with WebKit installed", (t) => {
@@ -167,4 +210,204 @@ test("a file the mirror changed is refused and the installed magpie kept", (t) =
   const bad = install(t, { termux: false, args: ["--mirror", "gh.mirror.example"] });
   assert.notEqual(bad.status, 0);
   assert.match(bad.stderr, /--mirror is an http\(s\) address/);
+});
+
+// pota on Discord: the script installed magpie and had no way to take it
+// off. --uninstall takes off what it put there and keeps the user's
+// settings; --purge has magpie disconnect the agents and delete them first.
+function installedDesktop(t, opts = {}) {
+  const r = install(t, { termux: false, desktop: true, ...opts });
+  assert.equal(r.status, 0, r.stderr);
+  const exe = join(r.bin, "magpie");
+  // magpie itself, as far as the uninstall asks it anything
+  writeFileSync(exe, `#!/bin/sh
+echo "$*" >> "$HOME/magpie-calls"
+[ "$1 $2" = "daemon uninstall" ] && rm -f "$XDG_CONFIG_HOME/systemd/user/magpie.service"
+[ "$1 $2" = "uninstall --yes" ] && { [ -z "$MAGPIE_FAIL" ] || exit 1; rm -rf "$XDG_CONFIG_HOME/magpie" "$XDG_DATA_HOME/applications/magpie.desktop"; }
+exit 0
+`, { mode: 0o755 });
+  const settings = join(r.config, "magpie", "settings.json");
+  mkdirSync(join(r.config, "magpie"), { recursive: true });
+  writeFileSync(settings, "{}");
+  const calls = () => (existsSync(join(r.home, "magpie-calls")) ? readFileSync(join(r.home, "magpie-calls"), "utf8") : "");
+  return { ...r, exe, settings, calls, entry: join(r.share, "applications/magpie.desktop"), icon: join(r.share, "icons/hicolor/256x256/apps/magpie.png"), mime: join(r.config, "mimeapps.list") };
+}
+
+test("--uninstall takes off the command, menu entry, icon and magpie:// default, and keeps the settings", (t) => {
+  const r = installedDesktop(t);
+  for (const p of [r.exe, r.entry, r.icon]) assert.ok(existsSync(p), p);
+  writeFileSync(r.mime, readFileSync(r.mime, "utf8") + "text/html=firefox.desktop\n");
+  assert.match(readFileSync(r.mime, "utf8"), /^x-scheme-handler\/magpie=magpie\.desktop$/m);
+  const u = r.run(["--uninstall"]);
+  assert.equal(u.status, 0, u.stderr);
+  for (const p of [r.exe, r.entry, r.icon]) assert.equal(existsSync(p), false, p);
+  assert.equal(readFileSync(r.mime, "utf8"), "[Default Applications]\ntext/html=firefox.desktop\n");
+  // with no line of the user's, the list xdg-mime made goes with it
+  const bare = installedDesktop(t);
+  const bu = bare.run(["--uninstall"]);
+  assert.equal(bu.status, 0, bu.stderr);
+  assert.equal(existsSync(bare.mime), false);
+  assert.ok(existsSync(r.settings), "the settings stay");
+  assert.equal(r.calls(), "", "magpie isn't asked to uninstall");
+  assert.equal(u.calls.length, 0, "nothing is downloaded");
+  assert.match(u.stdout, /kept your settings.*--purge/);
+  // again: nothing there, nothing wrong
+  const again = r.run(["--uninstall"]);
+  assert.equal(again.status, 0, again.stderr);
+  assert.match(again.stdout, /no magpie installed by this script/);
+});
+
+test("--uninstall takes the service and login entry that start this magpie, never another's", (t) => {
+  const r = installedDesktop(t);
+  const unit = join(r.config, "systemd/user/magpie.service");
+  const login = join(r.config, "autostart/magpie.desktop");
+  mkdirSync(join(r.config, "systemd/user"), { recursive: true });
+  mkdirSync(join(r.config, "autostart"), { recursive: true });
+  writeFileSync(unit, `[Service]\nExecStart="${r.exe}" serve\n`);
+  writeFileSync(login, `[Desktop Entry]\nExec="${r.exe}" --autostart\n`);
+  const u = r.run(["--uninstall"]);
+  assert.equal(u.status, 0, u.stderr);
+  assert.equal(existsSync(unit), false);
+  assert.equal(existsSync(login), false);
+  assert.match(r.calls(), /^daemon uninstall$/m);
+
+  // another magpie's (one still there) are left alone
+  const o = installedDesktop(t);
+  const other = join(o.home, "elsewhere/magpie");
+  mkdirSync(join(o.home, "elsewhere"), { recursive: true });
+  writeFileSync(other, "", { mode: 0o755 });
+  mkdirSync(join(o.config, "systemd/user"), { recursive: true });
+  mkdirSync(join(o.config, "autostart"), { recursive: true });
+  const ounit = join(o.config, "systemd/user/magpie.service");
+  const ologin = join(o.config, "autostart/magpie.desktop");
+  writeFileSync(ounit, `[Service]\nExecStart="${other}" serve\n`);
+  writeFileSync(ologin, `[Desktop Entry]\nExec="${other}" --autostart\n`);
+  writeFileSync(o.entry, `[Desktop Entry]\nExec=${other} %u\n`);
+  const ou = o.run(["--uninstall"]);
+  assert.equal(ou.status, 0, ou.stderr);
+  for (const p of [ounit, ologin, o.entry]) assert.ok(existsSync(p), p);
+  assert.equal(existsSync(o.exe), false);
+});
+
+test("--purge has magpie uninstall itself first, then takes off the install", (t) => {
+  const r = installedDesktop(t);
+  const u = r.run(["--purge"]);
+  assert.equal(u.status, 0, u.stderr);
+  assert.match(r.calls(), /^uninstall --yes$/m);
+  for (const p of [r.exe, r.entry, r.icon, r.settings]) assert.equal(existsSync(p), false, p);
+  // magpie took the menu entry itself; its icon and magpie:// default go too
+  assert.equal(existsSync(r.mime), false);
+  assert.doesNotMatch(u.stdout, /kept your settings/);
+
+  // magpie failing to: the command stays, to run it again
+  const f = installedDesktop(t, { env: { MAGPIE_FAIL: "1" } });
+  const fu = f.run(["--uninstall", "--purge"]);
+  assert.notEqual(fu.status, 0);
+  assert.match(fu.stderr, /magpie uninstall didn't finish/);
+  for (const p of [f.exe, f.entry, f.settings]) assert.ok(existsSync(p), p);
+
+  // no magpie to ask: refused, the settings kept
+  const n = installedDesktop(t);
+  rmSync(n.exe);
+  const nu = n.run(["--purge"]);
+  assert.notEqual(nu.status, 0);
+  assert.match(nu.stderr, /no magpie at .* --uninstall alone/);
+  assert.ok(existsSync(n.settings));
+});
+
+test("--uninstall in Termux takes off PREFIX/bin/magpie", (t) => {
+  const r = install(t, {});
+  assert.equal(r.status, 0, r.stderr);
+  const u = r.run(["--uninstall"]);
+  assert.equal(u.status, 0, u.stderr);
+  assert.equal(existsSync(join(r.bin, "magpie")), false);
+  assert.match(u.stdout, /removed .*com\.termux\/files\/usr\/bin\/magpie/);
+});
+
+// shuhai on Discord: on a Linux desktop the script installed the terminal
+// build, with one line at the end about WebKitGTK. The build is chosen with
+// nothing asked: the desktop app when its libraries are there; on a
+// desktop without them, the terminal build and, said last, the command
+// that installs them on this distribution; --gui and --tui choose instead.
+function linux(t, opts) {
+  const r = install(t, { termux: false, cli: false, ...opts });
+  assert.equal(r.status, 0, r.stderr);
+  const gui = /magpie-linux-arm64/.test(r.requests);
+  assert.notEqual(gui, /magpie-cli-linux-arm64/.test(r.requests), r.requests);
+  assert.equal(existsSync(join(r.share, "applications/magpie.desktop")), gui);
+  return { ...r, gui };
+}
+const last = (r, n) => r.stdout.trimEnd().split("\n").slice(-n).join("\n");
+
+test("Linux with GTK 3 and WebKitGTK 4.1 gets the desktop app, with nothing to install", (t) => {
+  for (const env of [{ DISPLAY: ":0" }, { WAYLAND_DISPLAY: "wayland-0" }, {}]) {
+    const r = linux(t, { libs: true, env });
+    assert.ok(r.gui, JSON.stringify(env));
+    assert.doesNotMatch(r.stdout, /WebKitGTK|apt install/);
+  }
+});
+
+test("a desktop without WebKitGTK gets the terminal build and its distribution's command, said last", (t) => {
+  const desktops = [
+    { env: { DISPLAY: ":0" } },
+    { env: { WAYLAND_DISPLAY: "wayland-0" } },
+    { env: { XDG_CURRENT_DESKTOP: "XFCE" } },
+    { env: { XDG_SESSION_TYPE: "wayland" } },
+    // ssh into a computer whose user is logged in to its desktop
+    { login: "2 x11" },
+    { login: "c3 wayland" },
+    // or that has a desktop to log in to
+    { sessions: ["xsessions/xfce.desktop"] },
+    { sessions: ["wayland-sessions/gnome.desktop"] },
+  ];
+  for (const opts of desktops) {
+    const r = linux(t, { libs: false, ...opts });
+    assert.equal(r.gui, false, JSON.stringify(opts));
+    assert.match(r.stdout, /has a desktop, but the desktop app needs GTK 3 and WebKitGTK 4\.1/);
+    assert.match(last(r, 4), /sudo apt install libwebkit2gtk-4\.1-0/, JSON.stringify(opts));
+    assert.match(last(r, 4), /install\.sh \| sh -s -- --gui/);
+  }
+  for (const [distro, want] of [
+    ["ID=fedora\n", /sudo dnf install webkit2gtk4\.1/],
+    ['ID="linuxmint"\nID_LIKE="ubuntu debian"\n', /sudo apt install libwebkit2gtk-4\.1-0/],
+    ["ID=endeavouros\nID_LIKE=arch\n", /sudo pacman -S --needed webkit2gtk-4\.1/],
+    ['ID="opensuse-tumbleweed"\nID_LIKE="opensuse suse"\n', /sudo zypper install libwebkit2gtk-4_1-0/],
+    ["ID=nixos\n", /install WebKitGTK 4\.1 \(webkit2gtk 4\.1\) from your distribution/],
+  ]) {
+    const r = linux(t, { libs: false, distro, env: { DISPLAY: ":0" } });
+    assert.match(r.stdout, want, distro);
+  }
+});
+
+test("a headless Linux without WebKitGTK gets the terminal build and no desktop advice", (t) => {
+  // no login at all, or a tty login (an ssh shell's, on a server or in WSL)
+  for (const login of ["", "135 tty"]) {
+    const r = linux(t, { libs: false, login });
+    assert.equal(r.gui, false);
+    assert.match(r.stdout, /installed the terminal build/);
+    assert.doesNotMatch(r.stdout, /WebKitGTK|apt install|--gui/, login);
+  }
+});
+
+test("--gui installs the desktop app before its libraries, and says what installs them", (t) => {
+  const r = linux(t, { libs: false, args: ["--gui"] });
+  assert.ok(r.gui);
+  assert.match(last(r, 2), /aren't installed; it opens once they are/);
+  assert.match(last(r, 2), /sudo apt install libwebkit2gtk-4\.1-0/);
+  // the flag wins over MAGPIE_CLI=1
+  const over = linux(t, { libs: true, cli: true, args: ["--gui"] });
+  assert.ok(over.gui);
+  assert.doesNotMatch(over.stdout, /aren't installed/);
+});
+
+test("--tui and MAGPIE_CLI=1 install the terminal build on a desktop with WebKitGTK", (t) => {
+  for (const opts of [{ args: ["--tui"] }, { cli: true }]) {
+    const r = linux(t, { libs: true, env: { DISPLAY: ":0" }, ...opts });
+    assert.equal(r.gui, false, JSON.stringify(opts));
+    assert.doesNotMatch(r.stdout, /WebKitGTK/);
+  }
+  const help = install(t, { termux: false, args: ["--help"] });
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /--gui .*desktop app/);
+  assert.match(help.stdout, /--tui .*terminal build/);
 });

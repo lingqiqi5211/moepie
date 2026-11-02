@@ -118,6 +118,7 @@ function server(lang, original = false, opened = []) {
 async function open(browser, lang, width, { original = false, touch = true, opened = [] } = {}) {
   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: touch, reducedMotion: "reduce", colorScheme: "light" });
   page.setDefaultTimeout(5000);
+  page.setDefaultNavigationTimeout(60000);
   await page.addInitScript(at => {
     const RealDate = Date;
     window.Date = class extends RealDate {

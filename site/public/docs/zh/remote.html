@@ -76,6 +76,8 @@
     <a href="#add">2. 在其他电脑上添加</a>
     <a href="#models">能用到什么</a>
     <a href="#quotas">额度与用量</a>
+    <a href="#keys">短期密钥</a>
+    <a href="#api">统计 API</a>
     <a href="#trouble">出问题时</a>
   </aside>
 
@@ -130,6 +132,48 @@ magpie provider refresh office   <span class="c"># 重新获取列表</span></pr
     <h2 id="quotas"><a class="anchor" href="#quotas">额度与用量</a></h2>
     <p>用量页、菜单栏和 <code>magpie quota</code> 会显示共享 magpie 的订阅卡片，带上它的名字（<code>Codex · office</code>，id <code>office/codex</code>），内容是那边最近一次读取的结果：只有保存登录的电脑去问厂商。在本机刷新卡片会让那边再读一次，最多每 30 秒一次。Codex 重置或 WorkBuddy 签到要在那台电脑上，用它自己的应用、TUI 或 CLI 来做。那边限了额度、模型或账号的密钥看不到它的任何卡片：本机只显示这把密钥自己的卡片和它的限额。</p>
     <p>共享的 magpie 把本机的请求记在本机所用网关密钥的名字下，并记下应答的账号。</p>
+
+    <h2 id="keys"><a class="anchor" href="#keys">短期密钥</a></h2>
+    <p>在沙箱里启动 agent 的程序，可以给每个 agent 发一把自己的网关密钥，到期自动失效。密钥有效期 1 分钟到 30 天，可以限定部分模型、部分账号、整个有效期内的 token 数或花费，或只读。密钥本身只在返回里出现一次。</p>
+    <div class="code">
+      <span class="lang">Shell</span>
+      <button class="copy" data-copy="ex-keys">复制</button>
+      <pre id="ex-keys">curl -s -X POST http://127.0.0.1:3425/v1/magpie/keys \
+  -d '{"name":"sandbox-1","ttl":"1h","models":["office/codex/gpt-5"],"tokens":200000}'
+<span class="c"># {"id":"k…","name":"sandbox-1","key":"sk-magpie-…","expires":"…","models":[…],"limit":{…}}</span>
+curl -s http://127.0.0.1:3425/v1/magpie/keys              <span class="c"># 你签发的密钥（已遮盖）</span>
+curl -s -X DELETE http://127.0.0.1:3425/v1/magpie/keys/k…  <span class="c"># 提前吊销</span></pre>
+    </div>
+    <p>本机上的程序不带密钥即可调用；浏览器里的网页不行。其他电脑、容器或 CI 要带一把你允许签发的网关密钥来调用，它签发的每把密钥都受它约束：用不了它不能用的模型和账号，不会比它晚过期，花费也计入它的限额。关掉或删掉它，它签发的密钥立刻失效。命令行里也一样，只输出密钥本身：</p>
+    <div class="code">
+      <span class="lang">Shell</span>
+      <button class="copy" data-copy="ex-keys-cli">复制</button>
+      <pre id="ex-keys-cli">magpie gateway-key issue --ttl 1h --name sandbox-1 --models office/codex/gpt-5 --tokens 200000
+magpie gateway-key issuer &lt;id&gt; on    <span class="c"># 允许这个密钥签发密钥</span>
+magpie gateway-key issue --ttl 30m --from &lt;id&gt; --read-only --json
+magpie gateway-key list               <span class="c"># until 10-31 14:00、expired、issued by …</span></pre>
+    </div>
+    <p>过期的密钥在每个 API 上都返回 <code>401</code> 并说明原因（“the gateway key "sandbox-1" expired at …: ask for a new one”），本机请求也一样。一小时后它会被删掉。</p>
+
+    <h2 id="api"><a class="anchor" href="#api">统计 API</a></h2>
+    <p>用量页上的内容也以 JSON 提供给本机；共享 magpie 时，也提供给带网关密钥的请求。受预算、模型或账号限制的密钥只能看到自己的请求和限额。</p>
+    <ul>
+      <li><code>/v1/magpie/usage?period=today|7d|30d|all</code>：总量，以及按模型、agent、提供商、账号和网关密钥的分项。</li>
+      <li><code>/v1/magpie/usage/requests</code>：请求记录，支持 <code>period</code>、<code>day</code>、<code>offset</code>、<code>limit</code>，以及筛选 <code>model</code>、<code>agent</code>、<code>provider</code>、<code>account</code>、<code>callerKey</code>、<code>failed=1</code>、<code>retried=1</code> 和 <code>q</code>。</li>
+      <li><code>/v1/magpie/quotas</code>：每个订阅的额度窗口（<code>?kept=1</code> 不去问厂商）；<code>/v1/magpie/quotas/history?days=</code>：剩余额度的历史，最多 45 天。</li>
+      <li><code>/v1/magpie/limit</code>：这把密钥自己的限额、过期时间，以及签发它的密钥的限额。</li>
+      <li><code>/v1/magpie/concurrency</code>：每个账号正在进行的请求。</li>
+    </ul>
+    <div class="code">
+      <span class="lang">Shell</span>
+      <button class="copy" data-copy="ex-api">复制</button>
+      <pre id="ex-api">curl -s 'http://127.0.0.1:3425/v1/magpie/usage?period=7d'
+curl -s 'http://127.0.0.1:3425/v1/magpie/usage/requests?period=today&amp;callerKey=k…&amp;failed=1&amp;limit=50'
+curl -s 'http://127.0.0.1:3425/v1/magpie/quotas?kept=1'
+curl -s 'http://127.0.0.1:3425/v1/magpie/quotas/history?days=14'
+curl -s http://127.0.0.1:3425/v1/magpie/limit -H 'Authorization: Bearer sk-magpie-…'
+curl -s http://127.0.0.1:3425/v1/magpie/concurrency</pre>
+    </div>
 
     <h2 id="trouble"><a class="anchor" href="#trouble">出问题时</a></h2>
     <div class="table-wrap"><table>

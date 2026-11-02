@@ -212,6 +212,7 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
       <li><b>安装。</b>
         <ul>
           <li>npm 包用 <code>bun add</code> 安装，不运行安装脚本，和 OpenCode 安装插件的方式一样。依赖 <code>postinstall</code> 构建的包无法使用。</li>
+          <li>包从你已在用的 npm 源下载：<code>~/.npmrc</code> 里的 <code>registry=</code>、<code>~/.bunfig.toml</code> 里的 <code>install.registry</code>，或 shell 里的 <code>NPM_CONFIG_REGISTRY</code> / <code>BUN_CONFIG_REGISTRY</code>，优先于「国内镜像」开关。<code>.npmrc</code> 里为这个源保存的 token 只发给它。要换一个，在 <span class="ui">插件</span> → 发现 里修改 <span class="ui">npm 源</span>，或运行 <code>magpie plugin registry &lt;url&gt;</code>（<code>default</code> 恢复默认）。</li>
           <li>git 仓库由 Bun 拉取：<code>github:owner/repo[#ref]</code>、<code>git+https://…</code> 或 <code>owner/repo</code>。</li>
           <li>文件夹或文件的路径就地加载。</li>
         </ul></li>
@@ -692,7 +693,7 @@ m plugin logout acme</pre>
 magpie plugin options model-map '{"mapping": {"fast": "deepseek/deepseek-chat"}}'</pre>
     </div>
     <h3 id="middleware-options"><a class="anchor" href="#middleware-options">选项</a></h3>
-    <p>中间件从 <code>ctx.options</code> 读取设置，也就是 <code>plugins.json</code> 里它那一项的 <code>options</code>。可以在<span class="ui">插件 → 已安装</span>里点中间件的<span class="ui">选项</span>按钮，在它那一行里以 JSON 编辑；也可以用 <code>magpie plugin options &lt;名字&gt; '&lt;json&gt;'</code>（<code>off</code> 清除）。名字可以是包名、spec 或短名：<code>@magpie-community/middleware-model-map</code> 的短名是 <code>model-map</code>。从下一个请求起生效。包可以在 <code>package.json</code> 里用 <code>"magpie": { "options": { … } }</code> 给出建议的选项：没有设置时编辑框以它为起点，但在你保存之前，中间件运行时没有选项。</p>
+    <p>中间件从 <code>ctx.options</code> 读取设置，也就是 <code>plugins.json</code> 里它那一项的 <code>options</code>。可以在<span class="ui">插件 → 已安装</span>里点中间件的<span class="ui">选项</span>按钮，在它那一行里以 JSON 编辑；也可以用 <code>magpie plugin options &lt;名字&gt; '&lt;json&gt;'</code>（<code>off</code> 清除）。名字可以是包名、spec 或短名：<code>@magpie-community/middleware-model-map</code> 的短名是 <code>model-map</code>。从下一个请求起生效。包可以在 <code>package.json</code> 里用 <code>"magpie": { "options": { … } }</code> 给出建议的选项：没有设置时编辑框以它为起点，但在你保存之前，中间件运行时没有选项。提供方插件声明的开关（编辑页里的<span class="ui">插件选项</span>，比如 Cursor 的 <code>wire_trace</code>）会按开关保存：<code>magpie plugin options cursor '&lbrace;"wire_trace": true&rbrace;'</code> 打开它，<code>off</code> 把所有开关恢复为插件的默认值。</p>
     <h3>运行方式</h3>
     <p>中间件不在 Bun 里运行，而是在网关自己的进程里，用 Go 写的 JavaScript 引擎 <a href="https://github.com/MoeForge/moejs">moejs</a> 运行。原因是一个回复会流式传输成千上万个事件，每个事件都要等它处理完。在一个事件上调用一次钩子大约耗时 1 微秒，而和 Bun 往返一次要几十微秒。每个中间件只编译一次，每个请求有自己的运行时，所以请求之间可以并行，同一个请求的各个钩子共享 <code>ctx.state</code>。</p>
     <ul>
@@ -775,6 +776,7 @@ claude mcp add --transport http magpie-tools http://127.0.0.1:3425/mcp/magpie/to
     </div>
     <p>设置 → 插件里会按这些名字列出每个插件的工具，并能复制服务器地址。<code>args</code> 可以是 zod 字段表（<code>tool.schema</code> 就是 zod）、zod 对象或 JSON Schema 对象。智能体会看到它，magpie 在 <code>execute</code> 运行前按它检查调用的参数；参数不对时回一个写明是哪个参数的错误。<code>ctx</code> 与 OpenCode 的相同，<code>agent</code> 是发起调用的智能体。每个工具最多运行 55 秒，到时 <code>ctx.abort</code> 触发。</p>
     <p>这个服务器由内置插件 <span class="ui">插件工具</span> 提供。只要有已开启的插件提供工具，它就保持开启；关闭时不列出任何工具，调用会说明它已关闭。用网关密钥发起的调用计入该密钥的限额。工具和提供方插件一样，以你的权限在插件宿主里运行，结果只回给调用它的智能体。</p>
+    <p>每个提供工具的插件也会在资料库的 MCP 页里成为一个独立的服务器，以插件的短名命名（如 <code>search1api</code>），不用再手动添加地址。开启 <a href="mcp-hub.html">MCP 聚合</a>时，它的工具会出现在每个接入聚合的智能体里，名为 <code>search1api__search</code>；和资料库里其他服务器一样，可以按智能体开关，或单独关掉某个工具。删掉后，只有把插件移除再重新添加才会再出现。</p>
 
     <h2 id="agents"><a class="anchor" href="#agents">Agent 插件</a></h2>
     <p>插件还可以添加一个 <em>Agent</em>：magpie 没有内置接入的那种。它说明这个 Agent 把模型写在哪里，以及还要写些什么才能让 Agent 走 magpie 的网关。这样它就和 magpie 内置的 Agent 一样出现在 <span class="ui">Agent</span> 页：在它那一行选一个 magpie 的模型，magpie 就把模型连同网关地址和这个 Agent 自己的 key 写进它的配置；关掉开关，一切恢复成用户原来的样子。下面的例子添加 <a href="https://aider.chat">Aider</a>。</p>

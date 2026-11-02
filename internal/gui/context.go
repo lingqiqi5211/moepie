@@ -9,6 +9,7 @@ package gui
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"net/http"
 	"os"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/sessions"
+	"github.com/yetone/magpie/internal/usage"
 )
 
 // defaultWindow is the window a prompt is measured against when the
@@ -91,7 +93,18 @@ type ctxAgent struct {
 	Models     []string           `json:"models"`
 	LatestID   int64              `json:"latestId"`
 	LatestTime time.Time          `json:"latestTime"`
+	// Clients are the libraries scriptsAgent's card is of, the most used
+	// first
+	Clients []string `json:"clients,omitempty"`
 }
+
+// scriptsAgent is the card the requests of a script go under: those whose
+// User-Agent names only an HTTP library, a runtime or an API SDK
+// (usage.IsLibrary: curl, Bun, python-httpx), or nothing at all ("other").
+// Each had a card of its own, scored as an agent's (theforeveriris on X).
+// Read from each route's agent as kept, so the history's older days go
+// there too; the Usage page's Agents list still has each by its own name.
+const scriptsAgent = "scripts"
 
 type ctxJSON struct {
 	Days     int          `json:"days"`
@@ -357,6 +370,17 @@ func contextOfRecs(routes []ctxRec, days int) ctxJSON {
 		return listed
 	}
 	joinConvs(routes, list)
+	// routes are the tab's copies, so the history kept (ctxKept) keeps
+	// each route's own agent
+	scripts := map[string]int{}
+	for i := range routes {
+		if a := routes[i].Agent; a == "other" || usage.IsLibrary(a) {
+			if a != "other" {
+				scripts[a]++
+			}
+			routes[i].Agent = scriptsAgent
+		}
+	}
 	tooled := toolSessions(routes)
 	var order []string
 	for i := range routes {
@@ -521,6 +545,14 @@ func contextOfRecs(routes []ctxRec, days int) ctxJSON {
 		slices.SortFunc(a.Models, func(x, y string) int { return acc.models[y] - acc.models[x] })
 		if len(a.Models) > 3 {
 			a.Models = a.Models[:3]
+		}
+		if a.Agent == scriptsAgent {
+			a.Clients = slices.SortedFunc(maps.Keys(scripts), func(x, y string) int {
+				if scripts[x] != scripts[y] {
+					return scripts[y] - scripts[x]
+				}
+				return strings.Compare(x, y)
+			})
 		}
 		scoreAgent(a, acc.counted > 0)
 		out.Agents = append(out.Agents, *a)
