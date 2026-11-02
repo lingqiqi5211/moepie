@@ -143,6 +143,11 @@ func usagePriceCacheKey(now time.Time) string {
 	fmt.Fprint(h, string(prices), string(aliases), string(usageAliases))
 	for _, current := range provider.All() {
 		fmt.Fprintf(h, "%q:%q:%v:%t:%t:%t;", current.ID, current.Where(), current.Catalogs(), current.IsPlugin(), current.Account == nil, current.Key != "")
+		if current.Account != nil {
+			// a plan prices calls too: Codex's auto-review is free on a
+			// paid ChatGPT plan only (provider.ChatGPTReviewFree)
+			fmt.Fprintf(h, "%q;", current.Account.Plan)
+		}
 		fmt.Fprint(h, statKey(catalog.LivePath(current.ID)))
 	}
 	meta += fmt.Sprintf("|%x", h.Sum(nil))

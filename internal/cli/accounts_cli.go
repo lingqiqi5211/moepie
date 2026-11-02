@@ -673,6 +673,10 @@ func importAccounts(args []string) error {
 // tests can have it go nowhere without starting a program (noBrowser).
 var openInBrowser = openURLInBrowser
 
+// appLink hands an app's import link over once something here opens it
+// (agent.OpenAppLink); tests stand in for the system's answer.
+var appLink = agent.OpenAppLink
+
 func openURLInBrowser(url string) {
 	// the link is printed beside it, to open by hand when this fails (#2043)
 	if err := proc.OpenBrowser(url); err != nil {

@@ -762,7 +762,7 @@ func claudeCallLine(st *callFile, b []byte) {
 	if c.Session == "" {
 		c.Session = st.Session
 	}
-	if st.Agent == "claude" && l.Entrypoint == "claude-desktop" {
+	if st.Agent == "claude" && desktopEntrypoint(string(l.Entrypoint)) {
 		c.Agent = "claude-desktop"
 	}
 	if l.APIError {
@@ -1246,4 +1246,12 @@ func ReadCallSource(s CallSource) []Call {
 	}
 	callsMu.Unlock()
 	return st.Calls
+}
+
+// desktopEntrypoint is a Claude Code transcript's entrypoint when Claude
+// Desktop ran it for its Code tab: "claude-desktop", or
+// "claude-desktop-3p" in its third-party inference mode (Desktop 2.7032's
+// nK: type "3p"), the mode a gateway such as magpie's is set in.
+func desktopEntrypoint(e string) bool {
+	return e == "claude-desktop" || e == "claude-desktop-3p"
 }

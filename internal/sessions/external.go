@@ -41,7 +41,16 @@ func MergeExternal(native []Session, external []ExternalSession) []Session {
 	seen := make(map[agentID]struct{}, len(native))
 	for _, s := range native {
 		seen[agentID{s.Agent, s.ID}] = struct{}{}
+		// Raft's Pi sessions are Pi's to the gateway too (GatewayKeys),
+		// spelled here rather than through it: no "agent|id" string made
+		// for each session on each poll
+		if s.Agent == "raft" {
+			seen[agentID{"pi", s.ID}] = struct{}{}
+		}
 		for _, id := range s.Copies {
+			seen[agentID{s.Agent, id}] = struct{}{}
+		}
+		for _, id := range s.Subs {
 			seen[agentID{s.Agent, id}] = struct{}{}
 		}
 	}

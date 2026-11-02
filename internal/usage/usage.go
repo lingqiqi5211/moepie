@@ -135,8 +135,8 @@ type Record struct {
 	Own int64 `json:"own_ms,omitempty"`
 	// Masking: the ms of Own that went on masking the request (Settings
 	// → Privacy: the rules, and the local model with its wait for a
-	// turn); 0 where nothing was masked, or in a record from before it
-	// was kept.
+	// turn), all of it where Own is unknown; 0 where nothing was masked,
+	// or in a record from before it was kept.
 	Masking int64 `json:"masking_ms,omitempty"`
 	Retried int64 `json:"retried_ms,omitempty"`
 	Queued  int64 `json:"queued_ms,omitempty"`

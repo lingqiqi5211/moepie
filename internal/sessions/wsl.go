@@ -68,6 +68,7 @@ var wslAgents = []struct{ agent, dir string }{
 	{"claude", ".claude"},
 	{"codex", ".codex"},
 	{"pi", filepath.Join(".pi", "agent")},
+	{"raft", ".slock"},
 	{"omp", filepath.Join(".omp", "agent")},
 	{"kimi", ".kimi-code"},
 }
@@ -84,6 +85,8 @@ func wslScan(home string) []file {
 			out = append(out, codexFilesIn(dir)...)
 		case "pi":
 			out = append(out, piFilesIn(dir, "")...)
+		case "raft":
+			out = append(out, raftFilesIn(dir)...)
 		case "omp":
 			out = append(out, ompFilesIn(dir)...)
 		case "kimi":

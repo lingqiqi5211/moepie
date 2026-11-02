@@ -154,6 +154,14 @@ type Session struct {
 	// Copies are the ids of the sessions that are copies of its
 	// conversation, not listed apart from it (ccCopies)
 	Copies []string `json:"-"`
+	// Subs are the ids its subagents' and advisor's own files name
+	// themselves by (omp), each one the session its requests tell the
+	// gateway, while their tokens are counted in this session (subIDs)
+	Subs []string `json:"-"`
+	// BranchOf is the main file of the session a Claude-format session
+	// is a branch of (ccFamily): it is listed under that one, and read
+	// from that one's start up to where it went its own way
+	BranchOf string `json:"-"`
 }
 
 // PriceOf is the effective price of a model as a session names it, at the
@@ -636,8 +644,8 @@ func allFiles() []file {
 	}
 	// each lister asked Reads already; a file listed under another
 	// agent's name is held to that agent too
-	return allowed(distinctOf(append(callFileLists(codexFiles()), openCodeFiles(), piFiles(),
-		wslFiles("pi", "omp", "kimi"), zcodeFiles(), dshFiles(), clineFiles(), ccFiles("qoder", QoderDir("qoder")), ccFiles("qoder-cn", QoderDir("qoder-cn")),
+	return allowed(distinctOf(append(callFileLists(codexFiles()), openCodeFiles(), piFiles(), raftFiles(),
+		wslFiles("pi", "raft", "omp", "kimi"), zcodeFiles(), dshFiles(), clineFiles(), ccFiles("qoder", QoderDir("qoder")), ccFiles("qoder-cn", QoderDir("qoder-cn")),
 		grokFiles(), workbuddyFiles(), codebuddyFiles(), droidFiles(), ompFiles(), cursorFiles(), hermesFiles(), almaFiles(), kimiFiles(), agyFiles())...))
 }
 
@@ -717,6 +725,7 @@ func Dirs() []string {
 	for _, d := range []struct{ dir, sessions string }{
 		{OpenCodeDir(), OpenCodeDir()},
 		{PiDir(), PiDir()},
+		{SlockDir(), filepath.Join(SlockDir(), "agents")},
 		{ZCodeDir(), zcodeDB()},
 		{DshDir(), filepath.Join(DshDir(), "sessions")},
 		{ClineSessionDir(), ClineSessionDir()},
@@ -1077,7 +1086,7 @@ func loadCache() {
 // row are folded into the latest, and one is written saveGap after the
 // last at the soonest.
 func saveCache() {
-	snap := save{cacheFile{Version: cacheVersion, Zone: zone(), Files: maps.Clone(cache)}, CachePath()}
+	snap := save{cacheFile{Version: cacheVersion, Zone: zone(), Files: savable()}, CachePath()}
 	saving.Lock()
 	defer saving.Unlock()
 	saving.next = &snap
@@ -1206,7 +1215,7 @@ func refresh(want, all []file) {
 		if f.cold {
 			continue // in a stopped WSL distro: what was read of it stands
 		}
-		if s := cache[f.path]; s == nil || s.Size != f.size || s.Mod != f.mod.UnixNano() || (f.agent == "hermes" && (f.m().hermes == nil || f.m().rev == "" || s.DBRevision != f.m().rev)) || ((f.agent == "alma" || f.agent == "cursor" || f.agent == "agy") && s.DBRevision != f.m().rev) {
+		if s := parsed(f.path); s == nil || s.Size != f.size || s.Mod != f.mod.UnixNano() || (f.agent == "hermes" && (f.m().hermes == nil || f.m().rev == "" || s.DBRevision != f.m().rev)) || ((f.agent == "alma" || f.agent == "cursor" || f.agent == "agy") && s.DBRevision != f.m().rev) {
 			if parsing[f.path] != nil {
 				// a refresh is reading it, another or this one (a path
 				// listed twice): its last parse stands until that one is
@@ -1268,7 +1277,7 @@ func refresh(want, all []file) {
 	}
 	jobs := make([]job, len(todo))
 	for i, f := range todo {
-		jobs[i] = job{f: f, old: cache[f.path]}
+		jobs[i] = job{f: f, old: parsed(f.path)}
 	}
 	generation := cacheGeneration
 	mu.Unlock()
@@ -1309,7 +1318,7 @@ func refresh(want, all []file) {
 	publish := func(i int) {
 		j := &jobs[i]
 		// A concurrent read may already have published a newer parse.
-		if generation == cacheGeneration && cache[j.f.path] == j.old {
+		if generation == cacheGeneration && parsed(j.f.path) == j.old {
 			cache[j.f.path] = j.parsed
 		}
 		close(parsing[j.f.path])
@@ -1483,6 +1492,7 @@ func Reset() {
 	wslReset()
 	forgetHermesPrints()
 	forgetAgySummaries()
+	forgetBehind()
 	mu.Lock()
 	defer mu.Unlock()
 	saved()
@@ -1544,7 +1554,7 @@ func listSessions(limit int) []Session {
 	identities := codexIdentitySnapshot(files)
 	taskTitles := codexSubagentTaskTitles(files)
 
-	copies := ccCopies(files)
+	copies, branches := ccFamily(files)
 	copyIDs := copiesByKeeper(copies, groups)
 
 	price, titles := pricer(), codexTitleOf()
@@ -1556,6 +1566,7 @@ func listSessions(limit int) []Session {
 		}
 		if s, ok := assemble(groups[k], price, titles); ok {
 			s.Copies = copyIDs[k]
+			setBranch(&s, branches[k], groups)
 			setSessionCodexIdentity(&s, identities)
 			setSessionCodexTaskTitle(&s, taskTitles)
 			out = append(out, s)
@@ -1592,6 +1603,26 @@ func sessionID(fs []file) string {
 	return id
 }
 
+// subIDs are the ids a session's other files (an omp subagent's or
+// advisor's) give in their own header, other than its own id. Each of
+// those files is an agent of its own to its vendor: omp sends its id as
+// the request's session (x-session-affinity), so the gateway records the
+// subagent's calls under that id, while this session counts the same
+// calls from the file. GatewayKeys keeps the gateway from counting them
+// a second time.
+func subIDs(fs []file, id string) []string {
+	var out []string
+	for _, f := range fs {
+		if f.main || !idInFile(f.agent) {
+			continue
+		}
+		if st := cache[f.path]; st != nil && st.ID != "" && st.ID != id && !slices.Contains(out, st.ID) {
+			out = append(out, st.ID)
+		}
+	}
+	return out
+}
+
 // assemble puts a session together from its files' parses.
 func assemble(fs []file, price func(string) *catalog.Price, codexTitle func(string) string) (Session, bool) {
 	s, ok := assembleListed(fs, price, codexTitle)
@@ -1620,6 +1651,7 @@ func assembleListed(fs []file, price func(string) *catalog.Price, codexTitle fun
 		s.ReadOnly = s.ReadOnly || f.readOnly
 	}
 	s.ID = sessionID(fs)
+	s.Subs = subIDs(fs, s.ID)
 	var custom, named, first string
 	models := map[string]*Model{}
 	for _, f := range fs {
@@ -1739,7 +1771,7 @@ func parserFor(agent string) sessionParser {
 		return sessionParser{whole: parseCursor}
 	case "codex":
 		return sessionParser{line: codexBody}
-	case "pi", "omp":
+	case "pi", "raft", "omp":
 		return sessionParser{line: piParse}
 	case "workbuddy", "codebuddy":
 		return sessionParser{line: workbuddyLine}
@@ -2564,5 +2596,35 @@ func get(key string) (s Session, ok, found bool) {
 	s, ok = assemble(fs, pricer(), codexTitleOf())
 	setSessionCodexIdentity(&s, identities)
 	setSessionCodexTaskTitle(&s, taskTitles)
+	if parserFor(fs[0].agent).claude {
+		// judged with the files of its agent cache has read, as the
+		// listing judges them
+		var mine []file
+		groups := map[string][]file{}
+		for _, f := range files {
+			if f.agent == fs[0].agent {
+				mine = append(mine, f)
+				groups[f.key] = append(groups[f.key], f)
+			}
+		}
+		_, branches := ccFamily(mine)
+		setBranch(&s, branches[key], groups)
+	}
 	return s, ok, true
+}
+
+// setBranch marks s a branch of the session by the key head (ccFamily):
+// nested under it, and read from its start (TranscriptOf). "" leaves s.
+func setBranch(s *Session, head string, groups map[string][]file) {
+	g := groups[head]
+	if head == "" || len(g) == 0 {
+		return
+	}
+	s.Role, s.ParentSession = "branch", sessionID(g)
+	for _, f := range g {
+		if f.main {
+			s.BranchOf = f.path
+			break
+		}
+	}
 }

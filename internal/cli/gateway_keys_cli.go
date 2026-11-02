@@ -82,9 +82,11 @@ func gatewayKeysTo(out io.Writer, args []string) error {
 			if k.Off {
 				state = "disabled"
 			}
+			// a key that names accounts and no model may use only its
+			// accounts' providers' models (access.HeldModels)
 			models := "all"
-			if len(k.Models) > 0 {
-				models = strings.Join(k.Models, ",")
+			if ms := access.HeldModels(k.Models, k.Accounts); len(ms) > 0 {
+				models = strings.Join(ms, ",")
 			}
 			accounts := "all"
 			if len(k.Accounts) > 0 {
@@ -385,6 +387,10 @@ func gatewayKeyModels(out io.Writer, args []string) error {
 		return fmt.Errorf("Key not found")
 	}
 	k := keys[i]
+	if len(k.Models) == 0 && len(k.Accounts) > 0 {
+		_, err = fmt.Fprintf(out, "%s: only its accounts' providers' models, %s\n", k.Name, strings.Join(access.HeldModels(nil, k.Accounts), ", "))
+		return err
+	}
 	if len(k.Models) == 0 {
 		_, err = fmt.Fprintf(out, "%s: every model\n", k.Name)
 		return err

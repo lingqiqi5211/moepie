@@ -248,6 +248,7 @@ type lineCallReader struct {
 var lineCallReaders = map[string]lineCallReader{
 	"kimi": {kimiCallsBegin, kimiCallLine, nil},         // #1607
 	"pi":   {piCallsBegin, readPiCallLine, piCallsKept}, // #1951
+	"raft": {piCallsBegin, readPiCallLine, piCallsKept},
 	"omp":  {piCallsBegin, readPiCallLine, piCallsKept},
 }
 

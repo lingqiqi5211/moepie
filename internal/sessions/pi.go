@@ -80,6 +80,12 @@ func piFilesIn(dir, sessionDir string) []file {
 		more, _ := filepath.Glob(filepath.Join(d, "*.jsonl"))
 		paths = append(paths, more...)
 	}
+	return piNamed("pi", paths)
+}
+
+// piNamed are the Pi session files among paths, <time>_<id>.jsonl, each
+// once, as agent's.
+func piNamed(agent string, paths []string) []file {
 	var out []file
 	seen := map[string]bool{}
 	for _, p := range paths {
@@ -92,7 +98,7 @@ func piFilesIn(dir, sessionDir string) []file {
 		if !ok || id == "" {
 			continue
 		}
-		f := file{agent: "pi", key: "pi:" + id, path: p, main: true}
+		f := file{agent: agent, key: agent + ":" + id, path: p, main: true}
 		if stat(&f) {
 			out = append(out, f)
 		}

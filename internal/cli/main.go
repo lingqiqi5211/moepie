@@ -17,6 +17,7 @@ import (
 	"github.com/yetone/magpie/internal/appdir"
 	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/claudebridge"
+	"github.com/yetone/magpie/internal/codexrelay"
 	"github.com/yetone/magpie/internal/davsync"
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/imagemcp"
@@ -65,6 +66,7 @@ const usage = `magpie — one place to pick every agent's model
 
   magpie backup [--no-keys] [--no-library] [file]    providers, keys, settings, profiles, agent models and the library in one file, sealed with a passphrase
   magpie restore [--no-agents] [--no-library] <file> put a backup in on this machine
+  magpie uninstall [--yes]                           disconnect every agent, putting back what each had, then remove magpie's service and files
   magpie webdav [on <address>|set k=v…|now|off]      the same, kept the same on every computer through a WebDAV folder (magpie webdav help)
   magpie s3 [on s3://<bucket>[/<prefix>]|set k=v…|now|off]   the same through an S3-compatible bucket: AWS, R2, B2, MinIO… (magpie s3 help)
   magpie github [on github://<owner>/<repo>[/<folder>]|set k=v…|now|off]   the same in an encrypted GitHub repository (magpie github help)
@@ -332,6 +334,14 @@ func run(args []string) error {
 			return toolsCmd(args[1:])
 		case "tool":
 			return toolCmd(args[1:])
+		case "uninstall":
+			// what the app starts as it quits from Settings › Uninstall
+			// magpie: nothing is made again before its folders go
+			if len(args) > 1 && args[1] == "--data-after" {
+				return uninstallData(args[2:])
+			}
+		case codexrelay.Command: // internal: what a quitting magpie leaves for Codex's open threads
+			return codexrelay.Main(args[1:], gateway.CodexRelay())
 		}
 	}
 	startUp()
@@ -348,6 +358,9 @@ func run(args []string) error {
 	// a Codex that reaches magpie for account failover alone is handed
 	// only its own models (#1385)
 	gateway.CodexOwnOnly = agent.CodexOwnOnly
+	// what magpie writes into an agent's TOML, YAML or dotenv config says
+	// so in a comment, for whoever reads it once magpie is gone
+	agent.MarkWritten()
 	// the Codex app's titles, descriptions and summaries, which it asks
 	// for on a model of its own, on the model of magpie's picked beside
 	// its ChatGPT sign-in rather than on that account (atom_Ray on X)
@@ -491,6 +504,8 @@ func run(args []string) error {
 		return backupCmd(args[1:])
 	case "restore":
 		return restoreCmd(args[1:])
+	case "uninstall":
+		return uninstallCmd(args[1:])
 	case "webdav", "dav":
 		return webdavCmd(args[1:])
 	case "plugin", "plugins":
@@ -527,11 +542,16 @@ func run(args []string) error {
 				// Lody takes only a gateway on this computer's loopback
 				return fmt.Errorf("%s takes magpie only at a loopback address, and the gateway is at %s: nothing was opened", a.Name, gateway.URL())
 			}
+			// handed over only when something here opens it, or nothing
+			// opens and nothing says so (sungt, 10-29)
+			openApp := func(u string) error { return appLink(u, func(u string) error { openInBrowser(u); return nil }) }
+			handOver := openApp
 			if a.ID == "lody" {
 				// Lody on Linux is run with the link (agent.OpenLody)
-				_ = agent.OpenLody(link, func(u string) error { openInBrowser(u); return nil })
-			} else {
-				openInBrowser(link)
+				handOver = func(u string) error { return agent.OpenLody(u, openApp) }
+			}
+			if err := handOver(link); err != nil {
+				return fmt.Errorf("%w. Open %s once or install it again, then run this again", err, a.Name)
 			}
 			fmt.Println(green.Render("✓"), bold.Render(a.Name), muted.Render("opened to add magpie — confirm it there"))
 			fmt.Println(muted.Render("  " + link))
