@@ -213,8 +213,9 @@ type Provider struct {
 	// price as listed; at most three decimals (PriceRateOK).
 	PriceRate float64 `json:"priceRate,omitempty"`
 
-	// Headers are extra HTTP request headers sent to the vendor, exactly as
-	// the user typed them. They ride on every request magpie makes to a plain
+	// Headers are extra HTTP request headers sent to the vendor, as the user
+	// typed them but for ${sessionId} and ${threadId} in a value, the
+	// request's conversation ids (SentHeaders, conversation.go). They ride on every request magpie makes to a plain
 	// key+URL provider — forwarded calls, connectivity tests, and model-list
 	// fetches — applied after the auth headers, so the user can override those
 	// when a gateway insists on a private scheme. Signed-in agent accounts
@@ -223,8 +224,8 @@ type Provider struct {
 
 	// ExtraBody are JSON fields added to the body of every request to the
 	// vendor (#1604), filling in what the body lacks, or replacing it for a
-	// name written "!name"; ${sessionId} in a value is the conversation's
-	// id (extrabody.go). Signed-in agent accounts ignore it, as Headers.
+	// name written "!name"; ${sessionId} and ${threadId} in a value are the
+	// conversation's ids (extrabody.go, conversation.go). Signed-in agent accounts ignore it, as Headers.
 	ExtraBody ExtraBody `json:"extraBody,omitempty"`
 
 	// Searches says the vendor answers a web search tool offered on its
@@ -445,6 +446,17 @@ type Provider struct {
 	// it serves only through the routing groups it is in, and by its
 	// "provider/model" ids.
 	Unlisted bool `json:"unlisted,omitempty"`
+	// HiddenDrawers are the provider's image models the user unticked in
+	// its editor (321sssrt on X: an OpenAI key lists a dozen): left out of
+	// every list one is picked from (Settings › Images, another magpie's
+	// list, Aside's) and of Automatic's choice, as an unticked chat model
+	// is left out of the agents' lists. A deny list beside Models, not in
+	// it: Models is what agents chat with, empty meaning the vendor's list,
+	// so an image model put there would be offered to chat with, and
+	// hiding one would mean picking every chat model. A request that names
+	// one still draws with it, and so does the one Settings › Images
+	// names: a hidden pick is shown as picked, and said to be hidden.
+	HiddenDrawers []string `json:"hiddenDrawers,omitempty"`
 	// Off switches the provider off without removing it: its keys and
 	// settings stay, but agents aren't given its models, no request,
 	// routing group or fallback goes to it, and its balance isn't asked,
@@ -651,7 +663,7 @@ func All() []Provider {
 	// round every 30s), most of an idle magpie's CPU (xsw on Discord)
 	off := sync.OnceValue(func() bool { return settings.AccountDiscoveryOffIn(heldSettings()) })
 	for _, p := range held {
-		if p.Account != nil && off() {
+		if p.Account != nil && off() && !p.publicAccount() {
 			continue
 		}
 		out = append(out, p.clone()) // callers change theirs, Keys[i] and Headers included
@@ -769,6 +781,8 @@ func withPicks(a, pk Provider) Provider {
 	// the extra body fields written for it, which a ChatGPT account's
 	// requests take (WithExtraBody, magpie-releases#18)
 	a.ExtraBody = pk.ExtraBody
+	// and the image models unticked in its editor (HiddenDrawers)
+	a.HiddenDrawers = pk.HiddenDrawers
 	return a
 }
 
@@ -896,7 +910,7 @@ func Save(p Provider) error {
 		if p.ID == "kiro" {
 			key = p.Key
 		}
-		p = Provider{ID: p.ID, Key: key, Models: p.Models, NoModels: p.NoModels, BestInFamily: p.BestInFamily, PickedFrom: p.PickedFrom, Delisted: p.Delisted, Unlisted: p.Unlisted, Off: p.Off, Fallback: p.Fallback, Routing: p.Routing, Sink: p.Sink, Affinity: p.Affinity, KeepLogin: p.KeepLogin, KeepLoginAs: p.KeepLoginAs, SwitchOnly: p.SwitchOnly, Contexts: p.Contexts, Family: p.Family, Proxy: p.Proxy, AccountProxies: p.AccountProxies, AccountModels: p.AccountModels, AccountCaps: p.AccountCaps, AccountWindowCaps: p.AccountWindowCaps, CapStop: p.CapStop, CapCareful: p.CapCareful, AccountNames: p.AccountNames, MaxConcurrency: p.MaxConcurrency, AccountConcurrency: p.AccountConcurrency, QueueLimit: p.QueueLimit, QueueWait: p.QueueWait, MaxRPM: p.MaxRPM, PriceRate: p.PriceRate, QuotaRest: p.QuotaRest, QuotaResetAt: p.QuotaResetAt, RestCap: p.RestCap, PinUpstream: p.PinUpstream, NativeCompaction: p.NativeCompaction, PromptAsWritten: p.PromptAsWritten, Hidden: hiddenAccount(p.ID), Quiet: quietAccount(p.ID), Tucked: tuckedAccount(p.ID)}
+		p = Provider{ID: p.ID, Key: key, Models: p.Models, NoModels: p.NoModels, BestInFamily: p.BestInFamily, PickedFrom: p.PickedFrom, Delisted: p.Delisted, Unlisted: p.Unlisted, HiddenDrawers: p.HiddenDrawers, Off: p.Off, Fallback: p.Fallback, Routing: p.Routing, Sink: p.Sink, Affinity: p.Affinity, KeepLogin: p.KeepLogin, KeepLoginAs: p.KeepLoginAs, SwitchOnly: p.SwitchOnly, Contexts: p.Contexts, Family: p.Family, Proxy: p.Proxy, AccountProxies: p.AccountProxies, AccountModels: p.AccountModels, AccountCaps: p.AccountCaps, AccountWindowCaps: p.AccountWindowCaps, CapStop: p.CapStop, CapCareful: p.CapCareful, AccountNames: p.AccountNames, MaxConcurrency: p.MaxConcurrency, AccountConcurrency: p.AccountConcurrency, QueueLimit: p.QueueLimit, QueueWait: p.QueueWait, MaxRPM: p.MaxRPM, PriceRate: p.PriceRate, QuotaRest: p.QuotaRest, QuotaResetAt: p.QuotaResetAt, RestCap: p.RestCap, PinUpstream: p.PinUpstream, NativeCompaction: p.NativeCompaction, PromptAsWritten: p.PromptAsWritten, Hidden: hiddenAccount(p.ID), Quiet: quietAccount(p.ID), Tucked: tuckedAccount(p.ID)}
 	} else {
 		p.AccountProxies = keyProxies(p) // a provider of keys proxies each key apart
 		if subscriptionID(p.ID) && !stored(p.ID) {
@@ -1105,6 +1119,9 @@ func AddCopy(p Provider, from string) (string, error) {
 		p.Fallback = slices.Clone(src.Fallback)
 	}
 	p.Unlisted = p.Unlisted || src.Unlisted
+	if p.HiddenDrawers == nil {
+		p.HiddenDrawers = slices.Clone(src.HiddenDrawers)
+	}
 	p.Searches = p.Searches || src.Searches
 	p.Unredacted = p.Unredacted || src.Unredacted
 	p.NativeCompaction = p.NativeCompaction || src.NativeCompaction

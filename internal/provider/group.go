@@ -713,68 +713,25 @@ func autoGroups(entries []Entry, same map[string]string) []Group {
 				g.Name = own(e) // a vendor that names it, over one that only lists its id
 			}
 		}
+		// the name goes with the id agents are given (auto/<Spelled>): the
+		// one models.dev gives that spelling, else, where no vendor names
+		// it, that spelling itself, not the first provider's (XYenon on
+		// Discord: glm-5-3-flash beside auto/glm-5.3-flash). A group the
+		// user changed is stored with their name, never this one.
+		g.Spelled = spelledIn(g, same)
+		if n := catalog.NameOf(g.Spelled); g.Spelled != "" && n != "" {
+			g.Name = n
+		} else if g.Spelled != "" && g.Name == es[0].Model {
+			g.Name = g.Spelled
+		}
 		out = append(out, g)
 	}
 	return out
 }
 
-// sameModel is a model's name as vendors agree on it: lowercase, without
-// the vendor's own prefix ("anthropic/claude-sonnet-5" is claude-sonnet-5,
-// "accounts/fireworks/models/…" too), with a version's dot as Anthropic
-// writes it ("claude-opus-5.5" is claude-opus-5-5, and so is Fireworks'
-// "p" for the dot, "deepseek-v4p1"), a run of spaces, "_" and "-" as one
-// "-" (a relay that lists its display name as the id, "GPT-6 Sol", is
-// gpt-6-sol: Chill on Discord), and without the snapshot
-// date some add: "claude-opus-5-5-20260801", Vertex's "…@20260801", and
-// Volcengine Ark's six digits ("deepseek-v4-1-flash-260910" is
-// deepseek-v4-1-flash, #583). Anything else stays: a variant after ":"
-// (":batch"), -flash, -thinking, and a four-digit release (qwen's -2507,
-// kimi-k2-0905) that is a model of its own. So does OpenAI's dashed date
-// ("gpt-4o-2024-08-06"): a pinned snapshot apart from the alias that
-// moves, and an id that has had a group of its own (auto-gpt-4o-2024-08-06)
-// agents and saved groups name. An id spelt with spaces merges with its
-// dashed spelling, whose group id (Slug's) it had already.
-func sameModel(id string) string {
-	k := strings.ToLower(strings.TrimSpace(id))
-	if i := strings.LastIndex(k, "/"); i >= 0 {
-		k = k[i+1:]
-	}
-	k = strings.Trim(modelGaps.ReplaceAllString(k, "-"), "-")
-	b := []byte(k)
-	for i := 1; i+1 < len(b); i++ {
-		if (b[i] == '.' || b[i] == 'p') && isDigit(b[i-1]) && isDigit(b[i+1]) {
-			b[i] = '-'
-		}
-	}
-	k = string(b)
-	if i := strings.LastIndexAny(k, "-@"); i > 0 && snapshotDate(k[i+1:]) {
-		k = k[:i]
-	}
-	return k
-}
-
-// snapshotDate is whether s is the date a vendor dates a snapshot of a
-// model by: YYYYMMDD from 2000 on, or Ark's YYMMDD from 2023 on, with a
-// month and a day that are one.
-func snapshotDate(s string) bool {
-	if strings.Trim(s, "0123456789") != "" {
-		return false
-	}
-	switch {
-	case len(s) == 8 && strings.HasPrefix(s, "20"):
-		return true
-	case len(s) == 6:
-		yy, mm, dd := atoi2(s[0:2]), atoi2(s[2:4]), atoi2(s[4:6])
-		return yy >= 23 && yy <= 39 && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31
-	}
-	return false
-}
-
-// modelGaps are what sameModel spells as one "-": a run of spaces (a
-// no-break one too), "_" and "-".
-var modelGaps = regexp.MustCompile(`[\s\p{Zs}_-]+`)
-
-func atoi2(s string) int { return int(s[0]-'0')*10 + int(s[1]-'0') }
+// sameModel is a model's name as vendors agree on it: catalog.SameModel,
+// which says what it keeps and what it folds.
+func sameModel(id string) string { return catalog.SameModel(id) }
 
 func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 

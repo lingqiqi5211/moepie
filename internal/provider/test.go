@@ -60,7 +60,8 @@ func (p Provider) Test(ctx context.Context) []Result {
 			return []Result{{Protocol: proto, Error: zenPublicNone}}
 		}
 		url, body := tiny(q, proto, UpstreamName(p, model))
-		return []Result{probe(ctx, q, proto, url, q.tested(asClient(client, proto, body)), model, testWait)}
+		ctx, b := q.tested(ctx, asClient(client, proto, body))
+		return []Result{probe(ctx, q, proto, url, b, model, testWait)}
 	}
 	if p.isClaudeAccount() {
 		return []Result{p.testClaude(ctx, p.testModel(p, Anthropic))}
@@ -82,7 +83,8 @@ func (p Provider) Test(ctx context.Context) []Result {
 			continue
 		}
 		url, body := tiny(q, proto, UpstreamName(p, model))
-		out = append(out, probe(ctx, q, proto, url, q.tested(body), model, testWait))
+		ctx, b := q.tested(ctx, body)
+		out = append(out, probe(ctx, q, proto, url, b, model, testWait))
 	}
 	if len(out) == 0 && p.zenPublic() {
 		out = append(out, Result{Protocol: Chat, Error: zenPublicNone})
@@ -344,7 +346,8 @@ func (p Provider) testOne(ctx context.Context, model string) Result {
 		r := probe(ctx, q, proto, url, []byte(body), model, drawWait)
 		if !r.OK && ((r.Status == 404 || r.Status == 405) && HostOf(q.Chat) != "openrouter.ai" || r.Status == 400 && catalog.PointsToChat(r.Error)) {
 			url, body := tiny(q, proto, model)
-			if c := probe(ctx, q, proto, url, q.tested(body), model, testWait); c.OK {
+			ctx, b := q.tested(ctx, body)
+			if c := probe(ctx, q, proto, url, b, model, testWait); c.OK {
 				return c
 			}
 		}
@@ -413,7 +416,8 @@ func (p Provider) testOn(ctx context.Context, client string, proto Protocol, mod
 	if client != "" {
 		body = asClient(client, proto, body)
 	}
-	return probe(ctx, p, proto, url, p.tested(body), model, testWait)
+	ctx, b := p.tested(ctx, body)
+	return probe(ctx, p, proto, url, b, model, testWait)
 }
 
 // keyFor is p using the first key on that works with proto: one made for

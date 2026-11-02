@@ -3,12 +3,15 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -341,4 +344,108 @@ func TestClaudeSwitchOnlyMovesASignInKeptOnOne(t *testing.T) {
 	if o, _ := c["claudeAiOauth"].(map[string]any); o["refreshToken"] != "sk-ant-ort01-b" {
 		t.Fatalf("Claude Code is signed in with %v", o)
 	}
+}
+
+// cn_Vincentzyx on X: Claude Code not connected to magpie, only its
+// sign-in switched, the accounts in the order Make first gave them. The
+// account Claude Code was on ran out and it stayed there: no request of a
+// saved account passes magpie then, so one Claude Code wasn't signed in
+// to since had no reading, and the switch counted no account known to
+// have room. A saved account with no reading is read by Claude Code's own
+// /usage, in its own directory, in order and only till one has room, and
+// one read isn't read again on the next look.
+func TestClaudeSwitchOnlyReadsUnreadSpares(t *testing.T) {
+	claudeThree(t) // pro@x.com signed in; team and max saved
+	var text atomic.Value
+	text.Store("Current session: 100% used")
+	runs := fakeClaudeUsage(t, &text, nil)
+	forget := func() {
+		lastQuotas.Lock()
+		lastQuotas.m, lastQuotas.loaded = nil, false
+		lastQuotas.Unlock()
+		loginUsageCache.Lock()
+		loginUsageCache.m = nil
+		loginUsageCache.Unlock()
+	}
+	forget()
+	t.Cleanup(forget)
+	if err := SetSwitchOnly("claude", true); err != nil {
+		t.Fatal(err)
+	}
+	var spares []string
+	for _, l := range Logins("claude") {
+		if !l.Active {
+			if err := SetLoginOn("claude", l.User, true); err != nil {
+				t.Fatal(err)
+			}
+			spares = append(spares, l.User)
+		}
+	}
+	if len(spares) != 2 {
+		t.Fatalf("spares: %v", spares)
+	}
+	// the first in line can't be read now (Claude Code failed), the
+	// second has room
+	used := map[string]string{"": "100", claudeAccountDir(spares[1]): "10"}
+	ran := map[string]int{}
+	var mu sync.Mutex
+	UsageClaudeVia(func(_ context.Context, dir string) (string, error) {
+		runs.Add(1)
+		mu.Lock()
+		ran[dir]++
+		mu.Unlock()
+		if used[dir] == "" {
+			return "", errors.New("Claude Code: network is unreachable")
+		}
+		return "Current session: " + used[dir] + "% used", nil
+	})
+	for _, u := range spares {
+		if q := LoginUsage(context.Background(), "claude")[u]; q.Error != errClaudeSaved.Error() {
+			t.Fatalf("%s read before the switch looked: %+v", u, q)
+		}
+	}
+	from, to, back, ok := NextLogin(context.Background(), "claude")
+	if !ok || back || to != spares[1] || !strings.HasPrefix(from, "pro@x.com") {
+		t.Fatalf("got %q→%q back=%v ok=%v, want on to %q", from, to, back, ok, spares[1])
+	}
+	mu.Lock()
+	if ran[""] != 1 || ran[claudeAccountDir(spares[0])] != 1 || ran[claudeAccountDir(spares[1])] != 1 {
+		t.Fatalf("/usage runs by directory: %v", ran)
+	}
+	mu.Unlock()
+	// the next look, a few minutes on (the minute's cache gone, past the
+	// 30s floor): the failed one isn't run again before its wait, the
+	// one read isn't run again at all
+	look := func() {
+		t.Helper()
+		loginUsageCache.Lock()
+		loginUsageCache.m = nil
+		loginUsageCache.Unlock()
+		claudeUsage.Lock()
+		for k, e := range claudeUsage.m {
+			e.tried = e.tried.Add(-3 * time.Minute)
+			claudeUsage.m[k] = e
+		}
+		claudeUsage.Unlock()
+		if _, to, _, ok := NextLogin(context.Background(), "claude"); !ok || to != spares[1] {
+			t.Fatalf("next look: to %q ok=%v", to, ok)
+		}
+	}
+	mu.Lock()
+	failed, read := ran[claudeAccountDir(spares[0])], ran[claudeAccountDir(spares[1])]
+	mu.Unlock()
+	look()
+	mu.Lock()
+	if ran[claudeAccountDir(spares[0])] != failed || ran[claudeAccountDir(spares[1])] != read {
+		t.Fatalf("a spare run again on the next look: %v", ran)
+	}
+	mu.Unlock()
+	// past its wait (usageTestWait), the one that failed is tried again
+	look()
+	look()
+	mu.Lock()
+	if ran[claudeAccountDir(spares[0])] != failed+1 || ran[claudeAccountDir(spares[1])] != read {
+		t.Fatalf("after the wait: %v", ran)
+	}
+	mu.Unlock()
 }

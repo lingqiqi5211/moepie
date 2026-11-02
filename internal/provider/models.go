@@ -1130,8 +1130,16 @@ func (p Provider) planModels(ms []catalog.Model) []catalog.Model {
 		}
 	}
 	if len(out) == 0 {
+		var images map[string]bool
+		if r := p.regionOf(pr); r != nil {
+			images = r.Images
+		}
 		for _, id := range models {
-			out = append(out, catalog.Model{ID: id, Name: id})
+			m := catalog.Model{ID: id, Name: id}
+			if v, ok := images[id]; ok {
+				m.ImageInput, m.Images = &v, v
+			}
+			out = append(out, m)
 		}
 	}
 	if len(free) == 0 && p.IsCline() {
@@ -1890,7 +1898,9 @@ var makerCatalogs = sync.OnceValue(func() []string {
 // account is at Anthropic's. A remote magpie's is what that magpie counts
 // the model at, as its list says (remotePrice). A model no catalog prices
 // is at the price its plugin lists it at (pluginListPrice), else, when the
-// plugin says the plan serves it free, costs nothing (pluginFree).
+// plugin says the plan serves it free, costs nothing (pluginFree). Codex's
+// auto-review through the Codex subscription costs nothing too, as OpenAI
+// serves it a ChatGPT sign-in (codexReviewFree).
 func (p Provider) ListPrice(model string) (catalog.Price, bool) {
 	if own := p.OwnModelID(model); own != model {
 		// Listed IDs map directly to vendor IDs. A vendor ID can also
@@ -1907,7 +1917,7 @@ func (p Provider) listPrice(model string) (catalog.Price, bool) {
 	if pr, ok := p.remoteOwnPrice(model); ok {
 		return pr, true
 	}
-	if p.clineOwnFreeModel(model) || p.kiloOwnFreeModel(model) {
+	if p.clineOwnFreeModel(model) || p.kiloOwnFreeModel(model) || p.codexReviewFree(model) {
 		// served at no cost: not at the price of the model it is free of
 		return catalog.Price{}, true
 	}
@@ -1934,7 +1944,7 @@ func (p Provider) listPrice(model string) (catalog.Price, bool) {
 		if pr, ok := catalog.PricedBy(priceCatalogs(cats), m); ok {
 			return pr, true
 		}
-		if pr, ok := catalog.PricedBy(makerPriceCatalogs(), m); ok {
+		if pr, ok := makerListPrice(m); ok {
 			return pr, true
 		}
 	}
@@ -2205,11 +2215,25 @@ var kimiCodeAPI = map[string]string{
 // gone since.
 func MakerPrice(model string) (catalog.Price, bool) {
 	for _, m := range pricedNames(model) {
-		if pr, ok := catalog.PricedBy(makerPriceCatalogs(), m); ok {
+		if pr, ok := makerListPrice(m); ok {
 			return pr, true
 		}
 	}
 	return catalog.Price{}, false
+}
+
+// makerListPrice is a model id's list price at its maker: the price of
+// the models.dev provider that lists it as its own model
+// (catalog.MakerPriced), else the first maker preset's that lists it. The
+// lab's own comes first, so a model a maker preset resells (Mistral's
+// DeepSeek V4.1 Flash) is costed at what its lab charges, the official
+// price a subscription's call is estimated at (bestony on Discord, on
+// Command Code).
+func makerListPrice(m string) (catalog.Price, bool) {
+	if pr, ok := catalog.MakerPriced(makerPriceCatalogs(), m); ok {
+		return pr, true
+	}
+	return catalog.PricedBy(makerPriceCatalogs(), m)
 }
 
 // SamePriceIn is the maker's list price of the model the user said
@@ -2284,6 +2308,9 @@ func priceOf(s settings.Settings, p Provider, known bool, model string) (catalog
 		}
 	}
 	if !known {
+		if p.codexReviewFree(model) { // signed out since: still a ChatGPT sign-in's
+			return catalog.Price{}, true
+		}
 		if pr, ok := MakerPrice(model); ok {
 			return pr, true
 		}
@@ -2413,7 +2440,7 @@ func pricedNames(model string) []string {
 func PricedName(model string) string {
 	n := pricedNames(model)
 	for _, name := range n {
-		if _, ok := catalog.PricedBy(makerPriceCatalogs(), name); ok {
+		if _, ok := makerListPrice(name); ok {
 			return name
 		}
 	}
@@ -2423,7 +2450,14 @@ func PricedName(model string) string {
 // PricedNameFor is PricedName for a call to that provider: a Kimi Code
 // membership's k3 is priced as the API's kimi-k3 (kimiCodeAPI).
 func PricedNameFor(providerID, model string) string {
-	if p, ok := byIDOrWas(providerID); ok && p.kimiCodeMember() {
+	p, ok := byIDOrWas(providerID)
+	if !ok {
+		p = Provider{ID: providerID}
+	}
+	if p.codexReviewFree(model) {
+		return model // free, not priced as another model (codexReviewFree)
+	}
+	if ok && p.kimiCodeMember() {
 		if id, ok := kimiCodeAPI[strings.ToLower(strings.TrimSpace(model))]; ok {
 			return id
 		}

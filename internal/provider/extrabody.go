@@ -15,7 +15,8 @@ package provider
 //     id: the session the agent names (its session header), else one
 //     magpie derives from the conversation's first user message — the same
 //     for every turn of it. A fixed string would put every session on one
-//     cache key.
+//     cache key. ${threadId} is the thread's (conversation.go); Headers
+//     take both too.
 //   - The fields that carry the conversation, or that magpie must decide
 //     for routing and streaming to work (ExtraBodyReserved), can't be set:
 //     a save naming one is refused, and one written into the file by hand
@@ -36,7 +37,7 @@ package provider
 
 import (
 	"bytes"
-	"crypto/rand"
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -139,9 +140,9 @@ func cleanExtraBody(e ExtraBody) ExtraBody {
 }
 
 // WithExtraBody is body with the provider's extra fields merged in, as the
-// package's comment says; session is the conversation's id for
-// ${sessionId}. A body that isn't a JSON object goes as it came.
-func (p Provider) WithExtraBody(body []byte, session string) []byte {
+// package's comment says; c is the conversation for ${sessionId} and
+// ${threadId}. A body that isn't a JSON object goes as it came.
+func (p Provider) WithExtraBody(body []byte, c Conversation) []byte {
 	owned, takes := p.extraBodyTakes()
 	if len(p.ExtraBody) == 0 || !takes {
 		return body
@@ -167,7 +168,7 @@ func (p Provider) WithExtraBody(body []byte, session string) []byte {
 		if d.Decode(&v) != nil {
 			continue
 		}
-		m[n], changed = withSession(v, session), true
+		m[n], changed = withSession(v, c), true
 	}
 	if !changed {
 		return body
@@ -181,19 +182,19 @@ func (p Provider) WithExtraBody(body []byte, session string) []byte {
 	return bytes.TrimSuffix(out.Bytes(), []byte("\n"))
 }
 
-// withSession is v with ${sessionId} in its strings, at any depth, as
-// session.
-func withSession(v any, session string) any {
+// withSession is v with ${sessionId} and ${threadId} in its strings, at
+// any depth, as c's ids.
+func withSession(v any, c Conversation) any {
 	switch x := v.(type) {
 	case string:
-		return strings.ReplaceAll(x, SessionPlaceholder, session)
+		return c.expand(x)
 	case map[string]any:
 		for k, e := range x {
-			x[k] = withSession(e, session)
+			x[k] = withSession(e, c)
 		}
 	case []any:
 		for i, e := range x {
-			x[i] = withSession(e, session)
+			x[i] = withSession(e, c)
 		}
 	}
 	return v
@@ -201,7 +202,9 @@ func withSession(v any, session string) any {
 
 // tested is a test's or a detection's tiny request body for p as it goes
 // out: the extra fields, on a session of the test's own, then what the
-// backend adjusts.
-func (p Provider) tested(body string) []byte {
-	return p.Prepare(p.WithExtraBody([]byte(body), "magpie-test-"+strings.ToLower(rand.Text()[:12])))
+// backend adjusts; ctx carries the same session, for the headers Sign
+// puts on it.
+func (p Provider) tested(ctx context.Context, body string) (context.Context, []byte) {
+	c := OwnConversation("magpie-test-")
+	return WithConversation(ctx, c), p.Prepare(p.WithExtraBody([]byte(body), c))
 }

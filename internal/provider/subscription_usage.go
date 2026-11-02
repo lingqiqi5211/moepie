@@ -781,10 +781,11 @@ func AskUsage() {
 // Claude Code's own /usage. The account Claude Code is signed in to
 // (active) is read when the user asked since it last was, or when the last
 // reading's claudeUsageWait is up and Claude Code was used since. A saved
-// account is read only when its card is refreshed (savedRefresh), by Claude
-// Code run in the account's own config directory (readSavedClaudeUsage),
-// Claude Code's own sign-in left as it is (#1630). Any other time it is
-// what was kept.
+// account is read only when its card is refreshed (savedRefresh), or when
+// the switch off a spent account has no reading of it (spareRead), by
+// Claude Code run in the account's own config directory
+// (readSavedClaudeUsage), Claude Code's own sign-in left as it is (#1630).
+// Any other time it is what was kept.
 // magpie itself never asks Anthropic.
 func claudeWindows(ctx context.Context, user string, active bool) ([]QuotaWindow, error) {
 	key := strings.ToLower(user)
@@ -796,8 +797,12 @@ func claudeWindows(ctx context.Context, user string, active bool) ([]QuotaWindow
 	c.Unlock()
 	due := e.tried.IsZero() || claudeAsked.Load() != 0 && asked > e.asked ||
 		active && now.Sub(e.tried) >= e.wait && (e.heard.After(e.tried) || claudeUsedSince(e.tried))
+	// a saved account the switch off a spent one has no reading of
+	// (spareRead): read once, and again only after a wait while its read
+	// keeps failing, never every look
+	spare := !active && spareRead(ctx) && e.ws == nil && (e.tried.IsZero() || now.Sub(e.tried) >= e.wait)
 	// nor, with allowances read only when asked, one nobody asked for
-	read := (active || savedRefresh(ctx, user)) && due && now.Sub(e.tried) >= claudeAskFloor && !holding(ctx)
+	read := ((active || savedRefresh(ctx, user)) && due || spare) && now.Sub(e.tried) >= claudeAskFloor && !holding(ctx)
 	c.Lock()
 	// one reading an ask or a wait, its first caller's; the others keep
 	// to it
@@ -896,6 +901,24 @@ func savedRefresh(ctx context.Context, user string) bool {
 	return ok && wasAsked(ctx) && r.wants("claude", user)
 }
 
+type spareReadKey struct{}
+
+// readingSpare is ctx for the switch off a spent account (NextLogin)
+// reading a saved Claude account it has nothing on: with Claude Code kept
+// to its own sign-in (switch-only), no request of a saved account passes
+// magpie to tell its allowance, and one never signed in to in Claude Code
+// since had no reading at all, so the switch found no account with room
+// and never moved (cn_Vincentzyx on X).
+func readingSpare(ctx context.Context) context.Context {
+	return context.WithValue(ctx, spareReadKey{}, true)
+}
+
+// spareRead says ctx is readingSpare's.
+func spareRead(ctx context.Context) bool {
+	b, _ := ctx.Value(spareReadKey{}).(bool)
+	return b
+}
+
 // elapsed is ws as of now: a window that has reset since it was read
 // starts again from nothing.
 func elapsed(ws []QuotaWindow, now time.Time) []QuotaWindow {
@@ -965,7 +988,7 @@ func codexWindows(ctx context.Context, token, accountID string) (plan string, ou
 	var data codexUsage
 	base := strings.TrimSuffix(CodexBase, "/codex")
 	out = []QuotaWindow{}
-	if err = accountJSON(ctx, base+"/wham/usage", token, map[string]string{"chatgpt-account-id": accountID}, &data); err != nil {
+	if err = accountJSON(ctx, base+"/wham/usage", token, codexAccountHeaders(accountID), &data); err != nil {
 		return "", out, nil, "", false, err
 	}
 	if c := data.Credits; c != nil && c.Has && !c.Unlimited {

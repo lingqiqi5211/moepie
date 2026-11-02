@@ -238,6 +238,18 @@ func (a Allowance) OnCredits() bool {
 	return false
 }
 
+// WeekUsedUp says whether the allowance's week, a window of a day or more
+// that counts every model, is used up at now, as its last reading says:
+// weekUsedUp's rule (AutoUseCodexReset) on an allowance, credits or none.
+func (a Allowance) WeekUsedUp(now time.Time) bool {
+	for _, l := range a {
+		if l.Span >= 24*time.Hour && l.Model == "" && l.matches == nil && l.Used >= 100 && l.Resets.After(now) {
+			return true
+		}
+	}
+	return false
+}
+
 // Restarts is when an auto-used reset starts the account's windows again,
 // as the Codex reset about to run out is spent (expiringResetSpent):
 // resetExpiryLead before it runs out, or now when the account is held up
