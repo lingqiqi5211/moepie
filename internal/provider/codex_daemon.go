@@ -167,6 +167,9 @@ const codexDaemonRecheck = 5 * time.Second
 func noteCodexSwitch(from, to string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	// the Codex app's app-servers are found and restarted on
+	// KeepCodexAppOnItsProvider's own look, whatever this listing finds
+	codexAppAccountSwitched()
 	ps, err := listProcesses(ctx)
 	known := err == nil
 	codexDaemonMu.Lock()
@@ -177,9 +180,6 @@ func noteCodexSwitch(from, to string) {
 	}
 	noteLeft(&codexDaemonLeft, findCodexDaemon(ps, codexHome()), from, to)
 	noteLeft(&codexAppLeft, findCodexApp(ps), from, to)
-	if codexAppLeft.pid != 0 {
-		codexAppAccountLeft(codexAppLeft.pid)
-	}
 }
 
 // noteLeft updates what is known of the app-server pid, running as Codex's
@@ -269,7 +269,8 @@ func DismissCodexApp() {
 // codex.
 func findCodexApp(ps []proc.Process) int {
 	for _, p := range ps {
-		if isCodexAppServer(p.Args) {
+		// not another program's, run from the app's codex with --listen
+		if isCodexAppOwnServer(p.Args) {
 			return p.PID
 		}
 	}
@@ -554,3 +555,23 @@ func splitExe(args string) (exe, rest string) {
 
 // CodexHome is the Codex home magpie wires and signs Codex in through.
 func CodexHome() string { return codexHome() }
+
+// CodexPIDs lists the Codex processes running now that may hold a thread
+// sending to magpie's gateway: the Codex app's app-server, the managed
+// daemon, the CLI's sessions, an editor's codex. A relay magpie leaves at
+// quit for them ends once they all have (codexrelay).
+func CodexPIDs(ctx context.Context) []int {
+	ps, err := listProcesses(ctx)
+	if err != nil {
+		return nil
+	}
+	var pids []int
+	for _, p := range ps {
+		exe, _ := splitExe(p.Args)
+		base := strings.ToLower(exe[strings.LastIndexAny(exe, `/\`)+1:])
+		if p.PID != os.Getpid() && (base == "codex" || base == "codex.exe" || isCodexAppServer(p.Args) || isManagedDaemon(p.Args)) {
+			pids = append(pids, p.PID)
+		}
+	}
+	return pids
+}

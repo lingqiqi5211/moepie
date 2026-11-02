@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -39,11 +40,11 @@ func stubCodexApp(t *testing.T) *codexAppStub {
 	t.Cleanup(func() {
 		CodexAppRoute, codexAppServersOn, endCodexAppServer, codexTurnRunning = oldOn, oldList, oldEnd, oldTurn
 		codexApp.Lock()
-		codexApp.seen, codexApp.route, codexApp.stale, codexApp.stuck, codexApp.why = false, "", nil, false, nil
+		codexApp.seen, codexApp.route, codexApp.stale, codexApp.stuck, codexApp.why, codexApp.switched = false, "", nil, false, nil, false
 		codexApp.Unlock()
 	})
 	codexApp.Lock()
-	codexApp.seen, codexApp.route, codexApp.stale, codexApp.stuck, codexApp.why = false, "", nil, false, nil
+	codexApp.seen, codexApp.route, codexApp.stale, codexApp.stuck, codexApp.why, codexApp.switched = false, "", nil, false, nil, false
 	codexApp.Unlock()
 	CodexAppRoute = func() (string, bool, bool) {
 		r := s.route
@@ -70,7 +71,7 @@ func stubCodexApp(t *testing.T) *codexAppStub {
 		}
 		return nil
 	}
-	codexTurnRunning = func(string, time.Time) bool { return s.turnOpen }
+	codexTurnRunning = func(string, time.Time, time.Time) bool { return s.turnOpen }
 	return s
 }
 
@@ -192,7 +193,8 @@ func TestCodexAppEndSaysWhy(t *testing.T) {
 		t.Fatalf("the route changed: ended %v", got)
 	}
 	said("where Codex's config sends it changed")
-	codexAppAccountLeft(101)
+	s.running = []int{101}
+	codexAppAccountSwitched()
 	if got := step(); !slices.Equal(got, []int{101}) {
 		t.Fatalf("the account switched: ended %v", got)
 	}
@@ -361,24 +363,117 @@ func TestCodexTurnOpen(t *testing.T) {
 	started := `{"type":"event_msg","payload":{"type":"task_started","turn_id":"1"}}` + "\n"
 	done := `{"type":"event_msg","payload":{"type":"task_complete","turn_id":"1"}}` + "\n"
 	aborted := `{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"1"}}` + "\n"
-	if codexTurnOpen(home, now) {
+	if codexTurnOpen(home, now, time.Time{}) {
 		t.Fatal("no sessions: open")
 	}
 	write("rollout-a.jsonl", started+done, now)
-	if codexTurnOpen(home, now) {
+	if codexTurnOpen(home, now, time.Time{}) {
 		t.Fatal("turn complete: open")
 	}
 	write("rollout-b.jsonl", started+aborted, now)
-	if codexTurnOpen(home, now) {
+	if codexTurnOpen(home, now, time.Time{}) {
 		t.Fatal("turn aborted: open")
 	}
 	write("rollout-c.jsonl", started+done+started, now.Add(-codexTurnWindow-time.Minute))
-	if codexTurnOpen(home, now) {
+	if codexTurnOpen(home, now, time.Time{}) {
 		t.Fatal("a turn left open long ago: open")
 	}
 	write("rollout-d.jsonl", started+done+started, now)
-	if !codexTurnOpen(home, now) {
+	if !codexTurnOpen(home, now, time.Time{}) {
 		t.Fatal("a turn running: not open")
+	}
+	// since: a turn with no readable start still counts
+	if !codexTurnOpen(home, now, now.Add(-time.Hour)) {
+		t.Fatal("a turn running whose start can't be read: not open")
+	}
+	if err := os.Remove(filepath.Join(dir, "rollout-d.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	stamped := func(at time.Time) string {
+		return `{"timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","type":"event_msg","payload":{"type":"task_started","turn_id":"2"}}` + "\n"
+	}
+	since := now.Add(-time.Minute)
+	write("rollout-e.jsonl", started+done+stamped(since.Add(-time.Hour)), now)
+	if codexTurnOpen(home, now, since) {
+		t.Fatal("a turn started before the app-servers: open")
+	}
+	if !codexTurnOpen(home, now, time.Time{}) {
+		t.Fatal("a turn started an hour ago, since unknown: not open")
+	}
+	write("rollout-e.jsonl", started+done+stamped(since.Add(-time.Second)), now)
+	if !codexTurnOpen(home, now, since) {
+		t.Fatal("a turn started within the slack of the app-servers' start: not open")
+	}
+	write("rollout-e.jsonl", started+done+stamped(since.Add(time.Second)), now)
+	if !codexTurnOpen(home, now, since) {
+		t.Fatal("a turn started after the app-servers: not open")
+	}
+}
+
+// A turn left open by an app-server that is gone doesn't hold the switch
+// back. 蛋仔 (danzi002 on Discord, 10-29 and 10-30) switched the Codex
+// app's used-up account in magpie and the app stayed grey until it was
+// quit and opened: "点了会话再切换账号就重启不了". Codex 0.164's
+// app-server, killed mid-turn (force quit, crash), writes no turn_aborted,
+// and opening that thread in a new app-server writes
+// thread_settings_applied, so the session file read as a turn running for
+// as long as the user had it open. A turn started before the app-servers
+// to be ended can't be running in them; one started after still holds
+// them, and so does any open turn when their start can't be read. The
+// lines are the shape Codex 0.164.0-alpha.11.1 wrote for a SIGKILLed
+// app-server and a resume, payloads cut short.
+func TestCodexAppSwitchPastATurnItsServerNeverRan(t *testing.T) {
+	signIn(t)
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	s := stubCodexApp(t)
+	codexTurnRunning = func(home string, now, since time.Time) bool { return codexTurnOpen(home, now, since) }
+	oldStart := codexServerStart
+	t.Cleanup(func() {
+		codexServerStart = oldStart
+		DismissCodexDaemon()
+		DismissCodexApp()
+	})
+	now := time.Now()
+	serverStart := now.Add(-5 * time.Minute)
+	startErr := error(nil)
+	codexServerStart = func(pid int) (time.Time, error) { return serverStart, startErr }
+	dir := filepath.Join(home, "sessions", "2026", "10", "30")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	line := func(at time.Time, n int, typ, payload string) string {
+		return `{"timestamp":"` + at.UTC().Format("2006-01-02T15:04:05.000Z") + `","ordinal":` + strconv.Itoa(n) + `,"type":"` + typ + `","payload":` + payload + "}\n"
+	}
+	rollout := func(turnAt time.Time) {
+		body := line(turnAt, 0, "session_meta", `{"session_id":"01a188a5-f780-7dc3-92a8-919bf6116f56"}`) +
+			line(turnAt, 1, "event_msg", `{"type":"task_started","turn_attribution":{"turn_id":"01a188a5-f791-7341-aee6-b832a5a5ec87"}}`) +
+			line(turnAt, 7, "response_item", `{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}`) +
+			line(turnAt, 8, "event_msg", `{"type":"item_completed","thread_id":"01a188a5-f780-7dc3-92a8-919bf6116f56"}`) +
+			// the thread opened again in the app's next app-server
+			line(now.Add(-time.Second), 9, "event_msg", `{"type":"thread_settings_applied","thread_id":"01a188a5-f780-7dc3-92a8-919bf6116f56"}`)
+		if err := os.WriteFile(filepath.Join(dir, "rollout-2026-10-30T00-01-00-01a188a5.jsonl"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	idle := func() (int, time.Time) { return 0, now.Add(-time.Minute) }
+	step := func() []int { return codexAppStep(context.Background(), now, idle) }
+
+	s.running = []int{60}
+	step()
+	rollout(serverStart.Add(time.Minute))
+	noteCodexSwitch("a@x", "b@x")
+	if got := step(); got != nil {
+		t.Fatalf("a turn started in the running app-server: ended %v", got)
+	}
+	rollout(serverStart.Add(-10 * time.Minute))
+	startErr = errors.New("gone")
+	if got := step(); got != nil {
+		t.Fatalf("an open turn with the app-server's start unknown: ended %v", got)
+	}
+	startErr = nil
+	if got := step(); !slices.Equal(got, []int{60}) {
+		t.Fatalf("a turn left open by an app-server gone since: ended %v, want [60]", got)
 	}
 }
 
@@ -560,5 +655,31 @@ func TestRestartCodexAppEndsOnlyItsServer(t *testing.T) {
 	codexAppGoneWait = 300 * time.Millisecond
 	if err := RestartCodexApp(context.Background(), bundle); err == nil {
 		t.Fatal("an app-server that stays: no error")
+	}
+}
+
+// magpie uninstall restarts the Codex app's app-server once, so the app
+// reads a config with magpie out of it with no magpie left to watch it;
+// a running turn is waited for, never cut short.
+func TestRestartCodexAppWhenIdle(t *testing.T) {
+	s := stubCodexApp(t)
+	oldEvery := codexAppEvery
+	codexAppEvery = time.Millisecond
+	t.Cleanup(func() { codexAppEvery = oldEvery })
+	if n, left, err := RestartCodexAppWhenIdle(context.Background(), time.Second); n != 0 || left || err != nil {
+		t.Fatalf("no app running: %d %v %v", n, left, err)
+	}
+	s.running = []int{7, 8}
+	s.turnOpen = true
+	if n, left, _ := RestartCodexAppWhenIdle(context.Background(), 20*time.Millisecond); n != 0 || !left || len(s.ended) != 0 {
+		t.Fatalf("a turn running: ended %v, left %v", s.ended, left)
+	}
+	s.turnOpen = false
+	if n, left, err := RestartCodexAppWhenIdle(context.Background(), time.Second); n != 2 || left || err != nil || !slices.Equal(s.ended, []int{7, 8}) {
+		t.Fatalf("ended %v (%d), left %v, %v", s.ended, n, left, err)
+	}
+	s.endErr = proc.ErrDenied
+	if _, left, _ := RestartCodexAppWhenIdle(context.Background(), time.Second); !left {
+		t.Fatal("an app-server not ended isn't said")
 	}
 }

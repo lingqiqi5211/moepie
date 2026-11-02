@@ -80,6 +80,19 @@ func codexSubagentThread(h http.Header, meta sessionMetadata) string {
 	return ""
 }
 
+// threadOf is the thread a request names apart from its session, for
+// ${threadId} (provider/conversation.go): Codex's thread_id, in its turn
+// metadata or its thread-id header. "" when it names none — no other
+// agent does — and ${threadId} is then the session's.
+func threadOf(h http.Header, body []byte) string {
+	for _, t := range []string{requestSessionMetadata(h, body).Thread, h.Get("thread-id")} {
+		if t = strings.TrimSpace(t); t != "" && len(t) <= 128 {
+			return t
+		}
+	}
+	return ""
+}
+
 // codexResumeTo is the model a Codex subagent's request goes on instead
 // of asked: the one its thread was spawned on, when it asks for another.
 // "" leaves the request as it came: not a Codex subagent's, a thread not

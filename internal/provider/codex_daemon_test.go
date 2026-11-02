@@ -599,3 +599,29 @@ func TestCodexDaemonEnvIsTheTerminals(t *testing.T) {
 		t.Errorf("env %q, want %q", got, in)
 	}
 }
+
+// CodexPIDs finds what can hold a thread open on the gateway's address
+// as magpie quits: the Codex app, a CLI session, the app's app-server and
+// a managed daemon; never another program, nor magpie itself.
+func TestCodexPIDsFindsOpenCodex(t *testing.T) {
+	old := listProcesses
+	t.Cleanup(func() { listProcesses = old })
+	listProcesses = func(context.Context) ([]proc.Process, error) {
+		return []proc.Process{
+			{PID: 11, Args: "/Applications/Codex.app/Contents/MacOS/Codex"},
+			{PID: 12, Args: "/opt/homebrew/bin/codex resume"},
+			{PID: 13, Args: codexWindowsAppServer},
+			{PID: 14, Args: "/Users/u/.codex/bin/codex app-server --managed-daemon"},
+			{PID: 15, Args: "/usr/bin/vim codex.md"},
+			{PID: 16, Args: "/Applications/Codexify.app/Contents/MacOS/Codexify"},
+			{PID: os.Getpid(), Args: "/usr/local/bin/codex"},
+		}, nil
+	}
+	if got := CodexPIDs(context.Background()); !slices.Equal(got, []int{11, 12, 13, 14}) {
+		t.Fatalf("got %v", got)
+	}
+	listProcesses = func(context.Context) ([]proc.Process, error) { return nil, errors.New("ps failed") }
+	if got := CodexPIDs(context.Background()); got != nil {
+		t.Fatalf("a failed list gave %v", got)
+	}
+}

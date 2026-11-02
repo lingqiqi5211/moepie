@@ -208,6 +208,26 @@ func switchingUsage(ctx context.Context, agent string) map[string]SubscriptionQu
 	return comparableSwitchingUsage(ctx, qs, states)
 }
 
+// someSwitchingUsage is switchingUsage of the named accounts alone: raw is
+// what was read, u only the readings fit to choose an account by.
+func someSwitchingUsage(ctx context.Context, agent string, users ...string) (raw, u map[string]SubscriptionQuota) {
+	want := map[string]bool{}
+	for _, user := range users {
+		if user != "" {
+			want[strings.ToLower(user)] = true
+		}
+	}
+	if len(want) == 0 {
+		return map[string]SubscriptionQuota{}, map[string]SubscriptionQuota{}
+	}
+	qs, _, states := loginUsageOf(ctx, agent, want)
+	u = comparableSwitchingUsage(ctx, qs, states)
+	if u == nil {
+		u = map[string]SubscriptionQuota{}
+	}
+	return qs, u
+}
+
 func comparableSwitchingUsage(ctx context.Context, qs map[string]SubscriptionQuota, states map[string]readState) map[string]SubscriptionQuota {
 	if ctx.Err() != nil {
 		return nil
@@ -236,7 +256,8 @@ func comparableSwitchingUsage(ctx context.Context, qs map[string]SubscriptionQuo
 // one it is on: the account magpie moved it off, once that has room again
 // (back); else, when the one it is on is spent, the first of its other
 // accounts that are on in magpie, in the order they were saved, whose
-// allowance is known and not spent, or, when every one is past its line
+// allowance is known and not spent; a saved Claude account not read yet is
+// read then (readSpare). Or, when every one is past its line
 // too, the one with the most room left (roomLeft). ok is false when the agent should
 // stay.
 func NextLogin(ctx context.Context, agent string) (from, to string, back, ok bool) {
@@ -276,8 +297,14 @@ func NextLogin(ctx context.Context, agent string) (from, to string, back, ok boo
 	if keep && first != nil && first.On && first.Lapsed == "" {
 		return from, first.User, true, true
 	}
-	raw, _, states := loginUsageAt(ctx, agent)
-	u := comparableSwitchingUsage(ctx, raw, states)
+	// the account it is on, and the one it goes back to, are read; the
+	// spares only once the one it is on is spent (below): every account
+	// read at once on each look was a burst no official client makes
+	var firstUser string
+	if first != nil {
+		firstUser = first.User
+	}
+	raw, u := someSwitchingUsage(ctx, agent, from, firstUser)
 	now := time.Now()
 	// an account at its usage cap is spent as one at the share below
 	// (account_caps.go): it is moved off, and none is moved to or back to
@@ -313,6 +340,16 @@ func NextLogin(ctx context.Context, agent string) (from, to string, back, ok boo
 	if keep || !staleSpent && (!known || q.Error != "" || !q.Held && !usedPast(q, share, now) && !capped(from, q)) {
 		return "", "", false, false
 	}
+	// the accounts it may move to are read only now: every account read at
+	// once on each look was a burst no official client makes
+	users := make([]string, 0, len(spares))
+	for _, l := range spares {
+		users = append(users, l.User)
+	}
+	_, more := someSwitchingUsage(ctx, agent, users...)
+	for user, q := range more {
+		u[user] = q
+	}
 	// every spare past its line too: the one with the most room left, when
 	// it has more than the one it is on by roomMargin, so that the agent
 	// isn't moved to and fro between two all but even; else it stays
@@ -322,7 +359,12 @@ func NextLogin(ctx context.Context, agent string) (from, to string, back, ok boo
 	}
 	for _, l := range spares {
 		q, known := u[l.User]
-
+		if agent == "claude" && (!known || unreadSpare(q)) {
+			// a saved Claude account magpie has no reading of: read now,
+			// by Claude Code's /usage in its own directory, one account at
+			// a time and only till one has room
+			q, known = readSpare(ctx, l)
+		}
 		if !known || q.Error != "" || q.Held {
 			continue
 		}
@@ -421,6 +463,23 @@ func NextInOrder(ctx context.Context, agent string) (to string, over bool, err e
 		return "", false, fmt.Errorf("magpie has no reading of %s's other accounts' usage: name the one to switch to (magpie accounts switch %s <email>)", agent, agent)
 	}
 	return best, true, nil
+}
+
+// unreadSpare says q, a saved Claude account's reading, has nothing to go
+// by: never read (a /usage not run), or a read that failed for a reason
+// not the account's own. Its /usage is then run (readSpare).
+func unreadSpare(q SubscriptionQuota) bool {
+	return q.Error != "" && (readDeferred(q.Error) || !claudeUsageDenied.MatchString(q.Error))
+}
+
+// readSpare is the reading of the saved Claude account l, its /usage run
+// now when claudeWindows allows (spareRead: once, then again only after a
+// wait), rather than the minute's cached "not read yet".
+func readSpare(ctx context.Context, l Login) (SubscriptionQuota, bool) {
+	forgetLoginReading(l)
+	_, u := someSwitchingUsage(readingSpare(ctx), l.Agent, l.User)
+	q, known := u[l.User]
+	return q, known
 }
 
 // SwitchWhenSpent signs agent in to the next of its accounts when the one
@@ -578,6 +637,8 @@ func KeepOnAnAccountWithRoom(ctx context.Context) {
 		c, cancel := context.WithTimeout(ctx, time.Minute)
 		noteCodexUsedUp(CodexUsedUp(c))
 		cancel()
+		// Codex's own sign-in refused for good, or signed in again since
+		noteCodexGoneNow()
 		t.Reset(codexLookEvery(knownLoginUsage("codex")))
 	}
 }

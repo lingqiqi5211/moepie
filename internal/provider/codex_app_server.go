@@ -3,6 +3,7 @@ package provider
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
@@ -69,6 +70,11 @@ var (
 // whose app-server died leaves one open for good.
 const codexTurnWindow = 30 * time.Minute
 
+// codexTurnSlack is how much earlier than the app-servers' start a turn's
+// timestamp may be and still count as theirs: the two clocks are read by
+// different programs.
+const codexTurnSlack = 2 * time.Second
+
 // codexAppListWait bounds one listing of the app-servers and their homes:
 // at a load of 200 a 10s bound ran out on the owner's Mac (the change was
 // taken up at the next look, 9s later).
@@ -91,8 +97,26 @@ var (
 		return out, nil
 	}
 	endCodexAppServer = proc.End
-	codexTurnRunning  = func(home string, now time.Time) bool { return codexTurnOpen(home, now) }
+	codexTurnRunning  = func(home string, now, since time.Time) bool { return codexTurnOpen(home, now, since) }
+	codexServerStart  = proc.Started
 )
+
+// codexServersSince is when the oldest of the app-servers pids started: a
+// turn started before it can't be running in any of them. It is zero,
+// "unknown", when one's start can't be read, and every open turn counts.
+func codexServersSince(pids []int) time.Time {
+	var since time.Time
+	for _, p := range pids {
+		t, err := codexServerStart(p)
+		if err != nil || t.IsZero() {
+			return time.Time{}
+		}
+		if since.IsZero() || t.Before(since) {
+			since = t
+		}
+	}
+	return since
+}
 
 // isCodexAppOwnServer is whether a command line is the Codex app's own
 // app-server, which it talks to over stdio: one another program starts
@@ -149,10 +173,13 @@ var codexApp struct {
 	// each with how often it was ended
 	stale map[int]int
 	// why records the cause for each stale app-server, including account
-	// switches queued through codexAppAccountLeft, until it is ended.
+	// switches seen by codexAppAccountSwitched, until it is ended.
 	why map[int]string
 	// stuck: one of them outlived codexAppTries ends, or may not be ended
 	stuck bool
+	// switched: Codex's ChatGPT account changed since the app-servers were
+	// last listed (codexAppAccountSwitched)
+	switched bool
 }
 
 // CodexAppStuck is whether a Codex app is left on the provider it started
@@ -164,7 +191,7 @@ func CodexAppStuck() bool {
 	return c.stuck
 }
 
-// codexAppAccountLeft has the Codex app's app-server pid, left on the
+// codexAppAccountSwitched has the Codex app's own app-servers, left on the
 // ChatGPT account Codex was switched away from (noteCodexSwitch), ended
 // as a route change's are, once no Codex turn runs: the app starts
 // another, which reads auth.json and the new account afresh, so the app
@@ -172,20 +199,20 @@ func CodexAppStuck() bool {
 // (zhibukaixinyao on Discord: Windows has no Restart button). One
 // switched away and back before then is restarted all the same, which
 // costs the app nothing it shows.
-func codexAppAccountLeft(pid int) {
+//
+// They are listed at codexAppStep's next look, as a route change's are:
+// every one on Codex's home, by the test a route change uses, and listed
+// again at the look after when the listing fails. The pid the switch
+// itself saw was the first app-server-looking process in a five-second
+// listing, which was another program's (Miyi Helper's `--listen stdio://`
+// one, listed ahead of the app's on the owner's Mac) or none when ps was
+// slow, and then nothing was ended and the app stayed grey on the used-up
+// account till the user restarted it (danzi002 on Discord).
+func codexAppAccountSwitched() {
 	c := &codexApp
 	c.Lock()
 	defer c.Unlock()
-	if c.stale == nil {
-		c.stale = map[int]int{}
-	}
-	if _, ok := c.stale[pid]; !ok {
-		c.stale[pid] = 0
-		if c.why == nil {
-			c.why = map[int]string{}
-		}
-		c.why[pid] = "Codex's ChatGPT account was switched"
-	}
+	c.switched = true
 }
 
 // KeepCodexAppOnItsProvider runs codexAppStep every codexAppEvery till
@@ -223,7 +250,7 @@ func codexAppStep(ctx context.Context, now time.Time, busy func() (int, time.Tim
 	c.Lock()
 	// at the first look only a used-up account's app-servers are ended:
 	// what the others read before magpie started isn't known
-	changed := !c.seen && out || c.seen && c.route != route
+	changed := !c.seen && out || c.seen && c.route != route || c.switched
 	if !changed {
 		c.seen, c.route = true, route
 	}
@@ -242,7 +269,10 @@ func codexAppStep(ctx context.Context, now time.Time, busy func() (int, time.Tim
 		if !c.seen {
 			why = "Codex's account is used up, so magpie serves it"
 		}
-		c.seen, c.route = true, route
+		if c.switched {
+			why = "Codex's ChatGPT account was switched"
+		}
+		c.seen, c.route, c.switched = true, route, false
 		c.stale, c.stuck, c.why = map[int]int{}, false, map[int]string{}
 		for _, p := range pids {
 			c.stale[p], c.why[p] = 0, why
@@ -280,7 +310,13 @@ func codexAppStep(ctx context.Context, now time.Time, busy func() (int, time.Tim
 	if inFlight, last := busy(); inFlight > 0 || now.Sub(last) < codexAppIdle {
 		return nil
 	}
-	if codexTurnRunning(home, now) {
+	c.Lock()
+	stale := make([]int, 0, len(c.stale))
+	for p := range c.stale {
+		stale = append(stale, p)
+	}
+	c.Unlock()
+	if codexTurnRunning(home, now, codexServersSince(stale)) {
 		return nil
 	}
 	var ended []int
@@ -308,8 +344,15 @@ func codexAppStep(ctx context.Context, now time.Time, busy func() (int, time.Tim
 // codexTurnOpen is whether a Codex session under home has a turn started
 // and not ended (task_started after its last task_complete or
 // turn_aborted) in a file written to within codexTurnWindow of now: the
-// app-server running it would cut it short.
-func codexTurnOpen(home string, now time.Time) bool {
+// app-server running it would cut it short. A turn started before since,
+// when the app-servers about to be ended started, ran in an app-server
+// gone since (force quit, crashed): a SIGKILLed one writes no
+// turn_aborted, and opening that thread again in the app writes
+// thread_settings_applied, so the file stays in the window as long as
+// the user looks at it. Counting it kept a switched account from ever
+// reaching the app (蛋仔 on Discord, 10-29 and 10-30: "点了会话再切换账号
+// 就重启不了"). A zero since counts every open turn.
+func codexTurnOpen(home string, now, since time.Time) bool {
 	open := false
 	_ = filepath.WalkDir(filepath.Join(home, "sessions"), func(path string, d fs.DirEntry, err error) error {
 		if err != nil || open {
@@ -325,7 +368,7 @@ func codexTurnOpen(home string, now time.Time) bool {
 		if err != nil || now.Sub(info.ModTime()) > codexTurnWindow {
 			return nil
 		}
-		open = sessionTurnOpen(path)
+		open = sessionTurnOpen(path, since)
 		return nil
 	})
 	return open
@@ -334,10 +377,11 @@ func codexTurnOpen(home string, now time.Time) bool {
 // sessionTurnTail is how much of a session file's end sessionTurnOpen reads.
 const sessionTurnTail = 512 << 10
 
-// sessionTurnOpen is whether the session file at path ends inside a turn.
-// A file that can't be read counts as open: a turn cut short costs more
-// than an app greyed a few seconds more.
-func sessionTurnOpen(path string) bool {
+// sessionTurnOpen is whether the session file at path ends inside a turn
+// started at since or later. A file that can't be read, or a turn whose
+// start can't be read, counts as open: a turn cut short costs more than
+// an app greyed a few seconds more.
+func sessionTurnOpen(path string, since time.Time) bool {
 	f, err := os.Open(path)
 	if err != nil {
 		return !errors.Is(err, fs.ErrNotExist)
@@ -354,7 +398,30 @@ func sessionTurnOpen(path string) bool {
 	}
 	started := bytes.LastIndex(b, []byte(`"type":"task_started"`))
 	ended := max(bytes.LastIndex(b, []byte(`"type":"task_complete"`)), bytes.LastIndex(b, []byte(`"type":"turn_aborted"`)))
-	return started > ended
+	if started <= ended {
+		return false
+	}
+	if since.IsZero() {
+		return true
+	}
+	at, ok := sessionLineTime(b, started)
+	return !ok || !at.Before(since.Add(-codexTurnSlack))
+}
+
+// sessionLineTime is the "timestamp" of the session file line holding
+// offset i of b, which Codex writes on every rollout line.
+func sessionLineTime(b []byte, i int) (time.Time, bool) {
+	line := b[bytes.LastIndexByte(b[:i], '\n')+1:]
+	if j := bytes.IndexByte(line, '\n'); j >= 0 {
+		line = line[:j]
+	}
+	var l struct {
+		Timestamp time.Time `json:"timestamp"`
+	}
+	if json.Unmarshal(line, &l) != nil || l.Timestamp.IsZero() {
+		return time.Time{}, false
+	}
+	return l.Timestamp, true
 }
 
 // codexAppGoneWait is how long RestartCodexApp waits for the app-servers
@@ -490,4 +557,41 @@ func RestartSwitchedCodexApp(ctx context.Context) error {
 	}
 	DismissCodexApp()
 	return nil
+}
+
+// RestartCodexAppWhenIdle ends the Codex app's own app-servers once, for a magpie
+// that won't be running to watch them (magpie uninstall): the app starts
+// a new one, which reads Codex's config as it is now. It waits up to wait
+// for a running Codex turn to end, and cuts none short: left says an
+// app-server was still on the old config when it gave up, or couldn't be
+// ended, so the user quits and opens the app.
+func RestartCodexAppWhenIdle(ctx context.Context, wait time.Duration) (ended int, left bool, err error) {
+	home := codexHome()
+	lctx, cancel := context.WithTimeout(ctx, codexAppListWait)
+	pids, err := codexAppServersOn(lctx, home)
+	cancel()
+	if err != nil || len(pids) == 0 {
+		return 0, false, err
+	}
+	until := time.Now().Add(wait)
+	since := codexServersSince(pids)
+	for codexTurnRunning(home, time.Now(), since) {
+		if time.Now().After(until) {
+			return 0, true, nil
+		}
+		select {
+		case <-ctx.Done():
+			return 0, true, ctx.Err()
+		case <-time.After(codexAppEvery):
+		}
+	}
+	for _, p := range pids {
+		if err := endCodexAppServer(p); err != nil {
+			log.Printf("codex: restarting the Codex app's app-server %d: %v", p, err)
+			left = true
+			continue
+		}
+		ended++
+	}
+	return ended, left, nil
 }
