@@ -6,6 +6,7 @@
 package guard
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -34,6 +35,28 @@ type Model struct {
 	ml  *coreml.Model // nil where CoreML isn't, or couldn't be made
 	// MLErr is why CoreML isn't used, on a Mac.
 	MLErr error
+	// mlFail is why CoreML's last read failed and bert.go read the window
+	// instead; nil once one doesn't.
+	mlFail atomic.Pointer[string]
+}
+
+// Backend is what reads the model now, as Settings › Privacy names it:
+// via "CoreML" on the device its compute plan puts most of the program
+// on ("Neural Engine", "GPU" or "CPU"; "" where the plan can't be read),
+// or bert.go on the CPU (via ""), and then on a Mac why not CoreML: it
+// couldn't be made, or its last read failed. Settings said "on the CPU"
+// while CoreML read every window (yyhhyyyyyy on Discord, 10-27).
+func (m *Model) Backend() (via, device string, err error) {
+	if m.ml == nil {
+		if !coreml.Available {
+			return "", "CPU", nil
+		}
+		return "", "CPU", m.MLErr
+	}
+	if e := m.mlFail.Load(); e != nil {
+		return "", "CPU", errors.New(*e)
+	}
+	return "CoreML", m.ml.Device, nil
 }
 
 // Span is what the model found: text[Start:End], a Label of its (email,
@@ -84,9 +107,13 @@ func Load(dir string) (*Model, error) {
 // and the window is long enough to gain by it, else over procs goroutines.
 func (m *Model) logits(ids []int, procs int) []float32 {
 	if m.ml != nil && len(ids) >= coremlMin {
-		if lg, err := coremlLogits(m.ml, m.net, ids); err == nil {
+		lg, err := coremlRead(m.ml, m.net, ids)
+		if err == nil {
+			m.mlFail.Store(nil)
 			return lg
 		}
+		e := err.Error()
+		m.mlFail.Store(&e)
 	}
 	return m.net.logits(ids, procs)
 }

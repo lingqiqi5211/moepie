@@ -32,11 +32,24 @@ func Wanted(st settings.Settings) bool {
 
 func options() redact.Options { return optionsCtx(context.Background()) }
 
-// optionsCtx is options with the model's wait ending with ctx.
+// routeKey holds where a request masked on ctx may go (WithRoute).
+type routeKey struct{}
+
+// WithRoute is ctx for masking a request that may go only to route (the
+// providers its model, the model's fallbacks or a routing group's members
+// are served by): a text sent on it before goes as it went there
+// (redact.Options.Route).
+func WithRoute(ctx context.Context, route string) context.Context {
+	return context.WithValue(ctx, routeKey{}, route)
+}
+
+// optionsCtx is options with the model's wait ending with ctx, for the
+// route ctx has (WithRoute).
 func optionsCtx(ctx context.Context) redact.Options {
 	st := settings.Shared()
 	o := redact.Options{Secrets: st.Redact, Personal: st.RedactPersonal, Kinds: st.RedactKinds, Words: st.RedactWords, WordsAnyCase: st.RedactWordsAnyCase, WordsWhole: st.RedactWordsWhole, Rules: st.RedactRules,
 		Actions: st.RedactActions, Allow: st.RedactAllow, Shape: st.RedactShape}
+	o.Route, _ = ctx.Value(routeKey{}).(string)
 	if (st.Redact || st.RedactPersonal) && ModelWanted(st) {
 		// until the model is on disk the rules mask alone, and nothing is
 		// held back for a download (it is started here)

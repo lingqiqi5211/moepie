@@ -136,8 +136,12 @@ type Status struct {
 	Error       string `json:"error,omitempty"`
 	// pf-serve, while it runs: where the model is, and how long it took
 	// to start
-	Running  bool   `json:"running,omitempty"`
-	Device   string `json:"device,omitempty"`
+	Running bool   `json:"running,omitempty"`
+	Device  string `json:"device,omitempty"`
+	// Via is the runtime AstrLink Guard runs on, "CoreML" on a Mac where
+	// it does (Device then the one its plan puts most of the model on, or
+	// ""); "" for magpie's own Go code on the CPU
+	Via      string `json:"via,omitempty"`
 	GPU      bool   `json:"gpu,omitempty"`
 	LoadMS   int    `json:"loadMs,omitempty"`
 	GPUError string `json:"gpuError,omitempty"`

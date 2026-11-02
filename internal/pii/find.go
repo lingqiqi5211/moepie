@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -62,6 +63,9 @@ type backend struct {
 	// sent are the texts and pieces a Bounded request went without the
 	// model's reading (by hash): what a request sent unread before.
 	sent sentSet
+	// queue are the requests waiting for turn, the least left to read
+	// first
+	queue queue
 }
 
 func (b *backend) size() int {
@@ -141,13 +145,25 @@ func (b *backend) find(ctx context.Context, texts []string) ([][]redact.Found, e
 		}
 		backlog = b.sent.mark(ks)
 	}
+	// how much of the texts this request has left for the model to read
+	left := func(got map[[32]byte][]redact.Found, miss []int, read int) int {
+		n, old := 0, 0
+		for _, u := range b.missing(texts, miss, got) {
+			if backlog[sha256.Sum256([]byte(u))] {
+				old += len(u)
+			} else {
+				n += len(u)
+			}
+		}
+		return n + min(old, max(0, backlogCap-read))
+	}
 	if ctx.Err() != nil {
 		return b.partial(ctx, texts)
 	}
 	if err := b.heldBack(); err != nil {
 		return nil, err
 	}
-	if !b.takeTurn(ctx) {
+	if !b.takeTurn(ctx, left(nil, miss, 0)) {
 		return b.partial(ctx, texts)
 	}
 	type result struct {
@@ -178,11 +194,13 @@ func (b *backend) find(ctx context.Context, texts []string) ([][]redact.Found, e
 					done <- result{nil, errWaitEnded}
 					return
 				}
-				// give way to a request waiting for the turn: it goes
-				// before the next chunk
+				// give way to a request waiting for the turn with less
+				// to read than this one has left: it goes before the
+				// next chunk
+				n := left(got, miss, read)
 				<-b.turn
 				held = false
-				if !b.takeTurn(ctx) {
+				if !b.takeTurn(ctx, n) {
 					done <- result{nil, errWaitEnded}
 					return
 				}
@@ -225,7 +243,7 @@ func (b *backend) find(ctx context.Context, texts []string) ([][]redact.Found, e
 				if backlog[k] {
 					read += len(p.s)
 				}
-				got[k] = within(found[0], p.at, p.at+len(p.s))
+				got[k] = spread(p.s, within(found[0], p.at, p.at+len(p.s)))
 				b.cache.put(k, got[k])
 			}
 			b.cache.mu.Unlock()
@@ -307,16 +325,98 @@ func (b *backend) partial(ctx context.Context, texts []string) ([][]redact.Found
 }
 
 // takeTurn waits for the model's turn while ctx lives, counted as
-// waiting; false when ctx ended first.
-func (b *backend) takeTurn(ctx context.Context) bool {
+// waiting, for a request with left bytes still to read; false when ctx
+// ended first. Of the requests waiting, the one with the least left takes
+// the turn next (the first to come of those with as little): a request of
+// a few lines goes before the next chunk of a long one, and of every
+// other long one waiting. Before, they took it in the order they came,
+// and a short request waited a chunk of each long one ahead of it: on a
+// 4-core CPU, a second or more apiece, past masking's default wait of 2s
+// with two ahead (wangwu25685333 on X, 10-29: requests of 1.4K tokens
+// waited 8.5s behind a fresh session's 31.5K, and their client gave up at
+// 20s).
+func (b *backend) takeTurn(ctx context.Context, left int) bool {
 	b.waiting.Add(1)
 	defer b.waiting.Add(-1)
-	select {
-	case b.turn <- struct{}{}:
-		return true
-	case <-ctx.Done():
-		return false
+	w := b.queue.add(left)
+	defer b.queue.remove(w)
+	for {
+		next, changed := b.queue.next(w)
+		if !next {
+			select {
+			case <-changed:
+				continue
+			case <-ctx.Done():
+				return false
+			}
+		}
+		select {
+		case b.turn <- struct{}{}:
+			return true
+		case <-changed:
+		case <-ctx.Done():
+			return false
+		}
 	}
+}
+
+// queue are the requests waiting for a backend's turn. Its zero value is
+// empty.
+type queue struct {
+	mu      sync.Mutex
+	seq     uint64
+	waiters map[*waiter]bool
+	// changed is closed when a request comes or goes, and made again
+	changed chan struct{}
+}
+
+// waiter is a request in a queue: left bytes to read, seq-th to come.
+type waiter struct {
+	left int
+	seq  uint64
+}
+
+// add puts a request with left bytes to read in q.
+func (q *queue) add(left int) *waiter {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.seq++
+	w := &waiter{left, q.seq}
+	if q.waiters == nil {
+		q.waiters = map[*waiter]bool{}
+	}
+	q.waiters[w] = true
+	q.changedLocked()
+	return w
+}
+
+// remove takes w out of q.
+func (q *queue) remove(w *waiter) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	delete(q.waiters, w)
+	q.changedLocked()
+}
+
+// changedLocked wakes those waiting on q to look again; q.mu is held.
+func (q *queue) changedLocked() {
+	if q.changed != nil {
+		close(q.changed)
+	}
+	q.changed = make(chan struct{})
+}
+
+// next says whether w is the one to take the turn next, and gives what
+// is closed when that may have changed.
+func (q *queue) next(w *waiter) (bool, <-chan struct{}) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for o := range q.waiters {
+		if o.left < w.left || o.left == w.left && o.seq < w.seq {
+			return false, q.changed
+		}
+	}
+	return true, q.changed
 }
 
 // waitErr is a request's that stopped waiting for the model.
@@ -368,7 +468,7 @@ func (b *backend) known(texts []string, got map[[32]byte][]redact.Found) (out []
 			miss = append(miss, i)
 			continue
 		}
-		out[i] = merge(all)
+		out[i] = spread(t, merge(all))
 		b.cache.put(sha256.Sum256([]byte(t)), out[i])
 	}
 	return out, miss
@@ -410,10 +510,11 @@ type span struct{ at, end int }
 
 // pieces cuts t into pieces of at most pieceSize, each after the first
 // beginning pieceOverlap before the one before ends. A piece ends after a
-// line's end in its second half, else after a space there, else at a
-// rune's start; the next begins after a line's end in the first half of
-// the overlap, else after a space there, else at a rune's start. A text of pieceSize
-// or less is one piece; an empty one none.
+// line's end in its second half, else after a space there (which one is
+// the text's own choice: landmark), else at a rune's start; the next
+// begins after a line's end in the first half of the overlap, else after
+// a space there, else at a rune's start. A text of pieceSize or less is
+// one piece; an empty one none.
 func pieces(t string) []span { return cut(t, pieceSize) }
 
 // cut is pieces, of at most size each.
@@ -431,10 +532,10 @@ func cut(t string, size int) []span {
 			return append(out, span{at, len(t)})
 		}
 		half := at + size/2
-		if i := strings.LastIndexByte(t[half:end], '\n'); i >= 0 {
-			end = half + i + 1
-		} else if i := strings.LastIndexByte(t[half:end], ' '); i >= 0 {
-			end = half + i + 1
+		if i := landmark(t, half, end, '\n'); i >= 0 {
+			end = i
+		} else if i := landmark(t, half, end, ' '); i >= 0 {
+			end = i
 		} else {
 			for end > half && !utf8.RuneStart(t[end]) {
 				end--
@@ -457,6 +558,92 @@ func cut(t string, size int) []span {
 		at = next
 	}
 }
+
+// landmark is where in t[from:to] a piece ends after c: of the places
+// after a c there, the one whose landmarkLen bytes before it hash least;
+// -1 where there is no c. The choice is the text's own, not its distance
+// from the piece's start, so a text edited before it (a line added to an
+// agent's memory, a name in its workspace changed) is cut at the same
+// places after the edit once one end meets an end of before, and those
+// pieces are known by hash. Before, a piece ended after the last c
+// there, and an edit that moved what followed by a few bytes moved every
+// piece after it: of a 40 KB system prompt's 13 pieces, a fresh session
+// of the same agent had 5 read again on average and all 13 at worst for
+// a line of it edited (wangwu25685333 on X, 10-29: 98.8s of a
+// 31.5K-token Hermes request on a 4-core CPU). Now 1.6 and 3 of 18.
+func landmark(t string, from, to int, c byte) int {
+	best, at := uint64(0), -1
+	for i := from; i < to; i++ {
+		if t[i] != c {
+			continue
+		}
+		e := i + 1
+		h := uint64(14695981039346656037) // FNV-1a
+		for _, b := range []byte(t[max(0, e-landmarkLen):e]) {
+			h ^= uint64(b)
+			h *= 1099511628211
+		}
+		if at < 0 || h < best {
+			best, at = h, e
+		}
+	}
+	return at
+}
+
+// landmarkLen is how much of the text before a place landmark hashes:
+// enough that two lines alike but for a word or a number differ.
+const landmarkLen = 48
+
+// spread is fs with each value they found (minSpread bytes or more) found
+// wherever else it is in t, as sure as the surest of its finds there, and
+// of its label. The model is less sure of a value the more often it has
+// read it in a text: an address on 400 lines alike was found on every
+// line, at 0.90 on some and 0.50 on most, and masking (0.8) left 346 of
+// them as they were (wangwu25685333 on X, 10-29: "a few of 400",
+// thought to be where the text was cut; the 400 were left alike with the
+// pieces cut elsewhere). A value found but not sure anywhere stays as
+// unsure as it was.
+func spread(t string, fs []redact.Found) []redact.Found {
+	type find struct {
+		label string
+		score float64
+	}
+	best := map[string]find{}
+	for _, f := range fs {
+		v := t[f.Start:f.End]
+		if len(v) < minSpread {
+			continue
+		}
+		if b, ok := best[v]; !ok || f.Score > b.score {
+			best[v] = find{f.Label, f.Score}
+		}
+	}
+	if len(best) == 0 {
+		return fs
+	}
+	out := slices.Clone(fs)
+	more := false
+	for v, b := range best {
+		for at := 0; ; {
+			i := strings.Index(t[at:], v)
+			if i < 0 {
+				break
+			}
+			out = append(out, redact.Found{Start: at + i, End: at + i + len(v), Label: b.label, Score: b.score})
+			more = true
+			at += i + len(v)
+		}
+	}
+	if !more {
+		return fs
+	}
+	return merge(out)
+}
+
+// minSpread is the shortest value spread finds again: what redact matches
+// a value known before at (minKnown), so a short number or a name's
+// first word isn't found all over a text.
+const minSpread = 8
 
 // merge puts a long text's spans from its pieces together: spans that
 // overlap (one found in two pieces, or cut by a piece's end in one and

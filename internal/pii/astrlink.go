@@ -17,7 +17,7 @@ import (
 // AstrLink Guard (QuantumNous/astrlink-guard, Apache-2.0) is the second
 // local model: a 37 MB int8 token classifier for Chinese and English,
 // run in magpie's own process by internal/pii/guard, on the CPU of every
-// system, with nothing native to download. Its files are fetched from
+// system and through CoreML on a Mac, with nothing native to download. Its files are fetched from
 // Hugging Face at the revision their sha256 were pinned at (the
 // publisher's own listing), and are loaded on the first request that
 // needs them and let go after idleAfter with none.
@@ -134,6 +134,11 @@ var gsrv struct {
 // spanFinder is the model, loaded (*guard.Model).
 type spanFinder interface {
 	Find(text string) []guard.Span
+}
+
+// backender is a model that says what reads it (guard.Model.Backend).
+type backender interface {
+	Backend() (via, device string, err error)
 }
 
 // guardLoad reads the model; a var for tests.
@@ -307,6 +312,12 @@ func (guardModel) Now() Status {
 	gsrv.mu.Lock()
 	if gsrv.m != nil {
 		s.Running, s.Device, s.LoadMS = true, "CPU", gsrv.loadMS
+		if b, ok := gsrv.m.(backender); ok {
+			var err error
+			if s.Via, s.Device, err = b.Backend(); err != nil {
+				s.GPUError = err.Error()
+			}
+		}
 	}
 	s.Failed, s.Loading = gsrv.failed, gsrv.loading
 	gsrv.mu.Unlock()

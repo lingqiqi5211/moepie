@@ -378,3 +378,54 @@ func TestStoppedRequestKeepsWhatWasRead(t *testing.T) {
 		t.Fatalf("got %v, want the history's Alice and nothing for the unread text", got)
 	}
 }
+
+// wangwu25685333 on X (10-29): requests of a few lines waited 8.5s for
+// the model behind a fresh session's long system prompt, one chunk of
+// each long request ahead of them. Now the one with the least left to
+// read goes next: a short request that comes while one long request is
+// on the model and another waits goes before either's next chunk.
+func TestShortRequestGoesBeforeLongOnes(t *testing.T) {
+	r := newReader(t, guardChunk)
+	gate := make(chan struct{})
+	r.during = func(n int) { <-gate }
+	// four texts of a chunk each
+	long := func(cs string) []string {
+		var out []string
+		for _, c := range cs {
+			out = append(out, strings.Repeat(string(c)+" ", guardChunk/2-8))
+		}
+		return out
+	}
+	first, second, short := long("abcd"), long("efgh"), "hi Alice, the build is green"
+	done := make(chan string, 3)
+	run := func(name string, texts []string) {
+		go func() {
+			if _, err := r.find(context.Background(), texts); err != nil {
+				t.Error(name, err)
+			}
+			done <- name
+		}()
+	}
+	asked := func() int { r.mu.Lock(); defer r.mu.Unlock(); return len(r.asked) }
+	run("first", first)
+	waitFor(t, "the first long request on the model", func() bool { return asked() == 1 })
+	run("second", second)
+	waitFor(t, "the second long request waiting", func() bool { return r.waiting.Load() == 1 })
+	run("short", []string{short})
+	waitFor(t, "the short request waiting", func() bool { return r.waiting.Load() == 2 })
+	for range 9 {
+		gate <- struct{}{}
+	}
+	for range 3 {
+		<-done
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.asked) != 9 || r.asked[1] != short {
+		var order []string
+		for _, s := range r.asked {
+			order = append(order, s[:min(8, len(s))])
+		}
+		t.Fatalf("read in the order %q: want the short request second", order)
+	}
+}

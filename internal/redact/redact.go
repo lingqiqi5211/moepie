@@ -55,6 +55,11 @@ type Options struct {
 	Kinds map[string]bool
 	// Model, where set, finds more in the texts to mask (model.go)
 	Model Model
+	// Route names where a request masked for a vendor may go (the gateway
+	// sets it: the providers a model, its fallbacks or a routing group's
+	// members are served by). A text sent on it before goes on it again
+	// as it went (sentSpans); on another route it is masked afresh.
+	Route string
 	// MinScore is the score the user has Model's finds need (Settings →
 	// Privacy's slider), which Model's own finds are held to already. A
 	// value only the model found, masked before at a lower score, isn't
@@ -83,7 +88,8 @@ type Options struct {
 	// found are the spans Model found, by text, for one request's texts
 	found map[string][]Found
 	// sent is masking for a vendor (Mask, MaskJSON): a text masked
-	// before has the known values it had then (sentKnownSpans)
+	// before on Route has the model's finds and the known values it had
+	// then (sentSpans)
 	sent bool
 }
 
@@ -163,7 +169,7 @@ var rules = append([]rule{
 	{kind: "TOKEN", re: regexp.MustCompile(`eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`), markers: []string{"eyJ"}, bound: tokenCh},
 	// the password of user:password@host, or of :password@host as a Redis
 	// URL has it with no user
-	{kind: "PASSWORD", re: regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://[^\s:@/?#"'<>]*:([^\s@/?#"'<>]{3,})@`), markers: []string{"://"}, ok: notAVariable},
+	{kind: "PASSWORD", re: regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://[^\s:@/?#"'<>]*:([^\s@/?#"'<>]{3,})@`), markers: []string{"://"}, ok: notAVariable, at: hiddenInURL},
 	// password = …, API_KEY: "…", as .env files and configs have them
 	{kind: "SECRET", re: regexp.MustCompile(`(?i)[A-Za-z0-9_.-]*(?:` + secretNames.pattern() + `)[A-Za-z0-9_.-]*` + quote + `[ \t]*[:=][ \t]*` + quote + `(` + secretCh + `{8,})`),
 		markers: secretNames.markers(), ok: secretValue, at: fieldAt},
@@ -301,8 +307,10 @@ func keyValue(v string) bool {
 // time.
 func keyAt(s string, a, b int) bool {
 	v := s[a:b]
-	if pathValue(v) {
-		return false // where a key is kept: 私钥 ~/.ssh/id_ed25519 (fieldvalue.go)
+	if pathValue(v) || versionValue(v) {
+		// where a key is kept: 私钥 ~/.ssh/id_ed25519, or a release's
+		// version: token 是 0.15.0-rc1 (fieldvalue.go)
+		return false
 	}
 	if keyValue(v) {
 		return true
@@ -405,6 +413,46 @@ func inUserinfo(s string, a int) bool {
 		k++ // a scheme starts with a letter
 	}
 	return k < j
+}
+
+// hiddenInURL says the password at s[a:b], in a URL's user:password@,
+// is hidden by masking it: it is not also written as it is elsewhere in
+// the same URL, as its user name, a part of its host or of its path. A
+// test database's URL often gives one word for all three:
+// postgresql://geodatafusion:geodatafusion@127.0.0.1:55432/geodatafusion
+// is the PostGIS test of the geodatafusion repo. Its password was masked
+// while the URL still had it twice as written, and once masked the word
+// was known (knownSpans): the project's folders, its crate, its .toml
+// and cargo test -p geodatafusion went to the vendor as a made-up word
+// for the rest of the run, as a password (xuanwo on X, 10-29: "很多项目名
+// 被识别成了 password", 26M masked in a day). postgres:postgres,
+// root:root and guest:guest are the same: anyone who reads the user
+// reads the password. A password not written elsewhere in its URL is
+// masked as before, whatever it looks like: app:geodatafusion@ masks it
+// there and, as known, wherever it is next.
+func hiddenInURL(s string, a, b int) bool {
+	pw := s[a:b]
+	i := strings.LastIndex(s[:a], "//")
+	if i < 0 || s[a-1] != ':' {
+		return true
+	}
+	if s[i+2:a-1] == pw {
+		return false // the user name
+	}
+	// the host and the path, to the URL's end
+	end := b + 1
+	for end < len(s) && !strings.ContainsRune(" \t\r\n\"'<>`\\)]}", rune(s[end])) {
+		end++
+	}
+	if b+1 > end {
+		return true
+	}
+	for _, part := range strings.FieldsFunc(s[b+1:end], func(r rune) bool { return strings.ContainsRune("/:.?#&=;,@", r) }) {
+		if part == pw {
+			return false
+		}
+	}
+	return true
 }
 
 // realEmail is whether v, matched as an address, is someone's. git@ is
@@ -988,10 +1036,15 @@ func mask(raw string, o Options, put func(kind, v string) string, escaped bool) 
 	}
 	// after the rules', so where a rule finds the same value it keeps the
 	// kind it has always had
-	found = append(found, modelSpans(raw, o)...) // the model was asked about raw
 	if o.sent {
-		found = append(found, sentKnownSpans(s, o)...)
+		// the model was asked about raw
+		now := modelSpans(raw, o)
+		kept := sentSpans(sentModel, raw, o, func() []span { return now })
+		learnLate(raw, now, kept, o, escaped)
+		found = append(found, kept...)
+		found = append(found, sentSpans(sentKnown, s, o, func() []span { return knownSpans(s, o) })...)
 	} else {
+		found = append(found, modelSpans(raw, o)...) // the model was asked about raw
 		found = append(found, knownSpans(s, o)...)
 	}
 	if escaped {
@@ -1002,6 +1055,33 @@ func mask(raw string, o Options, put func(kind, v string) string, escaped bool) 
 		noteScores(raw, found) // what is masked for a vendor, not a preview
 	}
 	return apply(raw, found, put, o)
+}
+
+// learnLate makes known what the model finds in raw now that it didn't
+// the first time raw was sent on o.Route (now, beside kept): raw goes as
+// it went, but a value in it the model has read since is masked in new
+// text, as it would be had raw been masked with it (known.go). Nothing
+// is told (o.Seen): it isn't masked here.
+func learnLate(raw string, now, kept []span, o Options, escaped bool) {
+	var late []span
+	for _, f := range now {
+		if !slices.ContainsFunc(kept, func(k span) bool { return k.start == f.start && k.end == f.end && k.kind == f.kind }) {
+			late = append(late, f)
+		}
+	}
+	if len(late) == 0 {
+		return
+	}
+	if escaped {
+		late = outsideEscapes(raw, late)
+	}
+	noteScores(raw, late)
+	o.Seen = nil
+	put := o.put()
+	if escaped {
+		put = unescapedPut(put)
+	}
+	apply(raw, late, put, o)
 }
 
 // unescapedView is s, JSON text, as long as s and read as the vendor reads
