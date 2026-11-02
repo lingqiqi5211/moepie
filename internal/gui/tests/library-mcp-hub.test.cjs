@@ -49,6 +49,8 @@ const fixture = (on, st = {}) => ({
   servers: [
     { name: "my-tools", transport: "stdio", command: "node", args: [`${HOME}/code/my-tools/index.js`], agents: ["claude", "codex", "claude-desktop", ...(st.cursorOn ? ["cursor"] : [])] },
     { name: "notes", transport: "stdio", command: "uvx", args: ["notes-mcp"], agents: ["claude", "codex", ...(st.cursorOn ? ["cursor"] : [])] },
+    // magpie's own: given to each agent as it is, and the hub says so
+    { name: "magpie-image", transport: "stdio", command: "/Applications/magpie.app/Contents/MacOS/magpie", args: ["mcp", "image"], agents: ["claude"] },
   ],
 });
 
@@ -175,10 +177,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal((await v.locator(".lib-hub .sub.wraps").textContent()).trim(), w("Each agent is given one server, magpie, in place of these. magpie runs each server once for all of them and hands each call to it, as server__tool. Restart an agent for it to read the change."));
         // what it serves: two servers, 2 tools each once checked, in Claude Code
         await page.waitForFunction((x) => document.querySelector("#view-library .lib-hubstats")?.textContent === x,
-          [w("{n} servers", { n: 2 }), w("{n} tools", { n: 4 }), w("in {agents}", { agents: "Claude Code" })].join(" · "));
+          [w("{n} servers", { n: 2 }), w("{n} tools", { n: 4 }), w("in {agents}", { agents: "Claude Code" }), w("{name} is given to each agent directly", { name: "magpie-image" })].join(" · "));
+        // the hub's mark is magpie's bird (the owner didn't like a made-up glyph)
+        assert.equal(await v.locator('.lib-hub > .lib-hubmark use[href="#bird"]').count(), 1);
         // the address any other app connects at
         const at = v.locator(".lib-hubat");
-        assert.equal((await at.locator(".name").textContent()).trim(), w("Other apps"));
+        // the row says what it is (the owner: "Other apps" over an address read as nonsense)
+        assert.equal((await at.locator(".name").textContent()).trim(), w("Hub address"));
         assert.equal((await at.locator(".lib-hubURL").textContent()).trim(), url);
         assert.equal((await at.locator(".lib-hubconnect").textContent()).trim(), w("Connect…"));
         const why = v.locator(".lib-hub-why");
@@ -205,7 +210,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         // one agent that can be: named, not counted
         assert.equal(await lead(), web ? w("{agent} uses the library's servers through magpie", { agent: "Claude Code" }) : w("{on} of {all} agents use the library's servers through magpie", { on: 1, all: 2 }));
         assert.equal((await sheet.locator(".lib-hubsub").textContent()).trim().replace(/\u00a0/g, " "),
-          [web ? w("Each server runs once, for all of them") : w("{n} more can be connected", { n: 1 }), w("{n} keep each server's own entry", { n: 2 })].join(" · "));
+          [web ? w("Each server runs once, for all of them") : w("{n} more can be connected", { n: 1 }), w("{n} keep each server's own entry", { n: 2 }), w("{name} is given to each agent directly", { name: "magpie-image" })].join(" · "));
+        assert.equal(await sheet.locator('.ehead > .lib-hubmark use[href="#bird"]').count(), 1);
         // a few agents: no search, nothing folded
         assert.equal(await sheet.locator(".lib-hubsearch, .lib-hubfolded, .lib-hubfold").count(), 0);
         const groups = () => sheet.locator(".lib-hubgrp").evaluateAll((gs) => gs.map((g) => [g.dataset.group, [...g.querySelectorAll(".lib-hubagent")].map((r) => r.dataset.agent)]));
@@ -306,6 +312,19 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const can = web ? 22 : 23, on = web ? 18 : 19;
         assert.equal(await lead(), w("{on} of {all} agents use the library's servers through magpie", { on, all: can }));
         assert.equal(await sheet.locator(".lib-hubsearch input").count(), 1);
+        // the owner: the glass and the placeholder sat above the field's
+        // middle. Both are centred in the box, the placeholder's own line too
+        const mid = await sheet.locator(".lib-hubsearch").evaluate((b) => {
+          const c = (r) => (r.top + r.bottom) / 2, box = b.getBoundingClientRect(), inp = b.querySelector("input");
+          const ir = inp.getBoundingClientRect(), cs = getComputedStyle(inp);
+          // where the text's line sits inside the input: its padding and line box
+          const line = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
+          const top = ir.top + parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop);
+          const inner = ir.height - parseFloat(cs.borderTopWidth) - parseFloat(cs.borderBottomWidth) - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+          return { box: c(box), glass: c(b.querySelector("svg").getBoundingClientRect()), input: c(ir), text: top + inner / 2, inTop: ir.top - box.top, inBottom: box.bottom - ir.bottom, line, inner };
+        });
+        for (const k of ["glass", "input", "text"]) assert.ok(Math.abs(mid[k] - mid.box) <= 0.5, `the search's ${k} is ${(mid[k] - mid.box).toFixed(2)}px off the box's middle: ${JSON.stringify(mid)}`);
+        assert.ok(mid.inTop >= 0 && mid.inBottom >= 0, `the input runs out of its box: ${JSON.stringify(mid)}`);
         assert.deepEqual(await sheet.locator(".lib-hubgrp").evaluateAll((gs) => gs.map((g) => [g.dataset.group, g.querySelectorAll(".lib-hubagent").length, g.querySelectorAll(".lib-hubfolded").length])),
           [["off", 4, 0], ["on", 0, 1], ["kept", 0, 1]]);
         assert.equal((await sheet.locator('.lib-hubgrp[data-group="on"] .lib-hubfolded .name').textContent()).trim(),

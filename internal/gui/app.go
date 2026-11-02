@@ -155,10 +155,10 @@ func (h *host) dock(s settings.Settings, shown bool) {
 	setDock(inDock(s, shown, full), shown)
 }
 
-// inDock: always, never, or while the window is shown, as s says, and while
-// it is full screen whatever s says (dockOnFullscreen).
+// inDock: always, never, or while the window is shown (the default), as s
+// says, and while it is full screen whatever s says (dockOnFullscreen).
 func inDock(s settings.Settings, shown, fullscreen bool) bool {
-	return s.Dock || s.DockWindow && shown || fullscreen
+	return s.Dock || !s.DockNever && shown || fullscreen
 }
 
 func (h *host) Quit() { h.app.Quit() }
@@ -401,8 +401,18 @@ func Run(version string, showMain bool, link string) error {
 				return
 			}
 			if served.Load() != nil {
-				if err := agent.EndCodexFailover(); err != nil {
+				ended, err := agent.EndCodexFailover()
+				if err != nil {
 					log.Println("codex failover:", err)
+				}
+				// the threads Codex has open keep the gateway's address
+				// they began with: a relay serves them there on Codex's
+				// own sign-in once the gateway has let go (codexrelay;
+				// idkatbro on X: 503 "Unknown error" till magpie reopened)
+				if ended {
+					if err := agent.RelayOpenCodex(); err != nil {
+						log.Println("codex relay:", err)
+					}
 				}
 			}
 			// the compactions magpie made in Codex's threads written as

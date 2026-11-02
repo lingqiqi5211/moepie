@@ -179,10 +179,9 @@ func sessionRoutes(mux *http.ServeMux, w Windows) {
 		list := sessions.List(sessions.All)
 		nativeKeys := make(map[string]bool, len(list))
 		for _, s := range list {
-			nativeKeys[s.Agent+"|"+s.ID] = true
-			// a copy of its conversation is the agent's own too
-			for _, id := range s.Copies {
-				nativeKeys[s.Agent+"|"+id] = true
+			// its copies' and subagents' ids among them
+			for _, k := range sessions.GatewayKeys(s) {
+				nativeKeys[k] = true
 			}
 		}
 		gateway := listedGateway(usage.GatewaySessions(time.Time{}, nativeKeys))
@@ -216,7 +215,7 @@ func sessionRoutes(mux *http.ServeMux, w Windows) {
 		// was copied through every size on the way, ~140 MB of eight (#2278)
 		out.Sessions = make([]sessionJSON, 0, len(list))
 		for _, s := range list {
-			j := sessionJSON{Session: s, Name: s.Agent, Icon: "generic", Via: vias.Of(s.Agent + "|" + s.ID)}
+			j := sessionJSON{Session: s, Name: s.Agent, Icon: "generic", Via: viaOf(vias, s)}
 			if a := agents[s.Agent]; a != nil {
 				j.Name, j.Icon = a.SharedName(), a.Icon
 			}
@@ -343,7 +342,7 @@ func sessionRoutes(mux *http.ServeMux, w Windows) {
 		if since.IsZero() {
 			since = s.Last
 		}
-		j.Via = usage.Vias(since.Add(-time.Minute)).Of(s.Agent + "|" + s.ID)
+		j.Via = viaOf(usage.Vias(since.Add(-time.Minute)), s)
 		j.Path = tilde(j.Path)
 		writeJSON(rw, j)
 	})
@@ -852,5 +851,16 @@ func openTerminal(command, label, choice string) error {
 	}
 	// Terminal has read it long before
 	time.AfterFunc(time.Minute, func() { os.Remove(f.Name()) })
+	return nil
+}
+
+// viaOf is what the gateway sent a session's calls to, under any key its
+// gateway record can carry (sessions.GatewayKeys: Raft's Pi says it is Pi).
+func viaOf(x usage.ViaIndex, s sessions.Session) []usage.Via {
+	for _, k := range sessions.GatewayKeys(s) {
+		if v := x.Of(k); v != nil {
+			return v
+		}
+	}
 	return nil
 }

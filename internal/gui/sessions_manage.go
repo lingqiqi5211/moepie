@@ -117,6 +117,9 @@ func sessionManageRoutes(mux *http.ServeMux, w Windows) {
 	// manage is the agents with sessions, and every session of ?agent=
 	// (the one with the most when none is named), and the trash.
 	mux.HandleFunc("GET /api/sessions/manage", func(rw http.ResponseWriter, r *http.Request) {
+		// the Codex app's list forgets the threads deleted before it
+		// was told of each delete, once a run
+		sessions.TidyCodexCatalog()
 		defer sessions.OneListing()()
 		looks := agentLooks()
 		out := struct {
@@ -216,7 +219,7 @@ func sessionManageRoutes(mux *http.ServeMux, w Windows) {
 			vias := usage.Vias(since.Add(-time.Minute))
 			for _, s := range list {
 				s.Path = tilde(s.Path)
-				out.Sessions = append(out.Sessions, managedJSON{Managed: s, Via: vias.Of(s.Agent + "|" + s.ID)})
+				out.Sessions = append(out.Sessions, managedJSON{Managed: s, Via: viaOf(vias, s.Session)})
 			}
 			sizes := sessions.GatewaySizes()
 			for _, g := range gateway {

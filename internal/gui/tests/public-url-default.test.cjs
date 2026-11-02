@@ -68,7 +68,12 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.doesNotMatch(await shown("#connect pre.snip"), /127\.0\.0\.1/);
         // in the app, the gateway's own address stays this computer's
         assert.equal(await shown("#gatewayLan .gw-url:first-child code"), LOCAL);
-        if (width >= 1100) assert.match(await shown("#sideGw span"), /127\.0\.0\.1:3999/);
+        // the sidebar's line, shared, names where other machines reach it
+        // (coeo91), this computer's in its tooltip
+        if (width >= 1100) {
+          assert.match(await shown("#sideGw span"), /magpie\.example\.com/);
+          assert.match(await page.locator("#sideGw").getAttribute("title"), /127\.0\.0\.1:3999/);
+        }
         await page.locator("#connectAddress").click();
         assert.match(await page.locator(".proto-menu .pm-item", { hasText: "magpie.example.com" }).textContent(), new RegExp(words[lang]));
         await fits("Gateway");

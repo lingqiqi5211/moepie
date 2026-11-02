@@ -3,6 +3,7 @@ package gui
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -290,8 +291,21 @@ func libraryRoutes(mux *http.ServeMux, w Windows) {
 		}
 		writeJSON(rw, v)
 	})
+	// distro: in that WSL distro, by rtk's own Linux installer run there
 	mux.HandleFunc("POST /api/library/rtk/install", func(rw http.ResponseWriter, r *http.Request) {
-		v, err := library.InstallRTK()
+		var in struct{ Distro string }
+		// {} or no body: this computer; a body that can't be read, nowhere
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+			http.Error(rw, "bad body", http.StatusBadRequest)
+			return
+		}
+		var v *library.RTKView
+		var err error
+		if in.Distro != "" {
+			v, err = library.InstallRTKIn(in.Distro)
+		} else {
+			v, err = library.InstallRTK()
+		}
 		if err != nil {
 			fail(rw, err)
 			return
@@ -550,6 +564,9 @@ func libraryRoutes(mux *http.ServeMux, w Windows) {
 			res, err = library.RemoveFoundSkill(in.Name)
 		case "skills/remove-found-some":
 			res, err = library.RemoveFoundSkills(in.Names)
+		case "skills/hand-over":
+			// out of ~/.agents/skills, into the library's own folder (tnt1223)
+			res, err = library.HandOverSkills(oneOrMore(in.Name, in.Names))
 		case "skills/use-library":
 			res, err = library.UseLibrarySkills(oneOrMore(in.Name, in.Names), in.Agent)
 		case "skills/how":

@@ -29,6 +29,16 @@ type tuneAdvice struct {
 	Setting agent.TuneSetting `json:"setting"`
 	Compact *tune.Compaction  `json:"compact,omitempty"`
 	TTL     *tune.TTL         `json:"ttl,omitempty"`
+	// Own is the model whose own Compact at (its provider's, or one set
+	// on it) is where Codex runs now, over Long conversations: putting a
+	// window in Long conversations doesn't move it (hoobnn on Discord: a
+	// card said "In use" for 170K beside "Now 430K")
+	Own *tuneOwn `json:"own,omitempty"`
+}
+
+type tuneOwn struct {
+	Model string `json:"model"`
+	Value int    `json:"value"`
 }
 
 type tuneAgent struct {
@@ -115,7 +125,7 @@ func adviseOf(by map[string][]tune.Call, days int, home string) tuneState {
 				continue
 			}
 			st := settings.Load()
-			window, told := codexWindow(calls, st, provider.Catalog(), provider.GroupFinder())
+			window, told, own := codexWindow(calls, st, provider.Catalog(), provider.GroupFinder())
 			// Long conversations' value is the setting; where Codex runs
 			// now is that as magpie tells it for these models (their
 			// windows, a provider's own Compact at)
@@ -126,7 +136,11 @@ func adviseOf(by map[string][]tune.Call, days int, home string) tuneState {
 			// a value the user chose is never past the last one offered
 			o := tune.CompactOpts{Min: 50000, Max: max(1000000, window, cur, st.CompactAt), Step: 10000, Window: window, Current: cur}
 			if r := tune.Compact(calls, o); r != nil {
-				ta.Advice = append(ta.Advice, tuneAdvice{Knob: agent.TuneCompact, Setting: s, Compact: r})
+				ad := tuneAdvice{Knob: agent.TuneCompact, Setting: s, Compact: r}
+				if own != "" && s.Source == agent.TuneLong && r.Current == told {
+					ad.Own = &tuneOwn{Model: own, Value: told}
+				}
+				ta.Advice = append(ta.Advice, ad)
 			}
 		}
 		out.Agents = append(out.Agents, ta)
@@ -135,8 +149,15 @@ func adviseOf(by map[string][]tune.Call, days int, home string) tuneState {
 }
 
 // codexWindow is the window Codex runs the calls' models to, and where
-// magpie has it compact them when its config.toml says nothing (told; 0
-// when that isn't known for every model). A model of magpie's catalog
+// magpie has it compact them when its config.toml says nothing (told: the
+// largest of the models magpie tells a window, 0 when it tells none). A
+// model outside the catalog, or one whose window magpie doesn't know,
+// leaves told to the others: it once made told 0 for the whole range, so
+// "Now" was guessed from the prompts instead, and the same setting read
+// 380K over 7 days and 430K today (hoobnn on Discord). own is the model
+// told comes from when that is its own threshold over Long conversations
+// (provider.CompactFor with a Compact at of its own set), which Long
+// conversations doesn't move. A model of magpie's catalog
 // has the window it is listed with, one the user typed or the vendor's,
 // and is told the threshold the user set on it, else Settings › Long
 // conversations (provider.CompactFor, as codexcat writes it). One whose
@@ -145,7 +166,7 @@ func adviseOf(by map[string][]tune.Call, days int, home string) tuneState {
 // compact at 750K was offered no more than 412K (zhemu on Discord).
 // Codex's own models, outside magpie's catalog, run to 272K or the
 // largest prompt seen, as before.
-func codexWindow(calls []tune.Call, st settings.Settings, entries []provider.Entry, find func(string) (provider.Group, []provider.Member, bool)) (window, told int) {
+func codexWindow(calls []tune.Call, st settings.Settings, entries []provider.Entry, find func(string) (provider.Group, []provider.Member, bool)) (window, told int, own string) {
 	byID := make(map[string]provider.Entry, len(entries))
 	for _, e := range entries {
 		byID[strings.ToLower(e.ID)] = e
@@ -154,30 +175,37 @@ func codexWindow(calls []tune.Call, st settings.Settings, entries []provider.Ent
 	for _, c := range calls {
 		peak[c.Model] = max(peak[c.Model], c.Prompt)
 	}
-	unknown, all := false, true
+	unknown := false
 	for m, p := range peak {
 		e, ok := byID[strings.TrimPrefix(m, "magpie/")]
 		switch {
 		case !ok:
-			window, all = max(window, 272000, p), false
+			window = max(window, 272000, p)
 		case e.Context <= 0:
-			unknown, all = true, false
+			unknown = true
 		default:
 			window = max(window, e.Context, p)
 			at := st.Working(e.Context)
 			if n := provider.CompactFor(st, e, find); n > 0 {
 				at = min(e.Context, n)
 			}
-			told = max(told, at)
+			// past what Long conversations has it at, with a size of the
+			// user's in Long conversations: the model's own Compact at
+			// (with none, a window the user typed gives way to one tune
+			// puts in, CompactFor's rule)
+			mine := st.CompactAt > 0 && at > st.Working(e.Context)
+			if at > told || at == told && own != "" && (!mine || e.ID < own) {
+				told, own = at, ""
+				if mine {
+					own = e.ID
+				}
+			}
 		}
 	}
 	if unknown {
 		window = 0
 	}
-	if !all {
-		told = 0
-	}
-	return window, told
+	return window, told, own
 }
 
 func tuneRoutes(mux *http.ServeMux) {

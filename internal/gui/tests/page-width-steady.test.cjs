@@ -9,6 +9,9 @@
 // default), and both engines draw the app's own thin bar, as the app does:
 // the Mac's 8px one and, with the platform said to be Windows, the 10px
 // one Windows and Linux get. A dialog's fields keep their bar's room too.
+// The bar's room comes out of the right padding (the owner: does the
+// clear bar make the sides uneven?), so the content sits as far from the
+// window's right edge, bar and all, as from its left.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -60,10 +63,11 @@ const onPlatform = async (browser, platform, viewport) => {
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) for (const platform of ["MacIntel", "Win32"]) {
   const launch = () => (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium", ignoreDefaultArgs: ["--hide-scrollbars"] }));
 
-  test(`${engine} ${platform}: no page narrows when it grows past the window`, async (t) => {
+  // 1600 wide, the pages that centre their content have more than 16px a side
+  for (const width of [1100, 1600]) test(`${engine} ${platform} ${width}: no page narrows when it grows past the window`, async (t) => {
     const browser = await launch();
     t.after(() => browser.close());
-    const page = await onPlatform(browser, platform, { width: 1100, height: 700 });
+    const page = await onPlatform(browser, platform, { width, height: 700 });
     page.setDefaultTimeout(6000);
     await page.route("**/*", serve("en"));
     await page.goto("http://magpie.test/?view=agents");
@@ -75,6 +79,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const before = await shown(page).catch(() => null);
       if (!before || before.id !== `view-${id}`) continue; // a page this fixture doesn't open
       tried++;
+      const sides = await page.evaluate((vid) => {
+        const v = document.getElementById(vid), cs = getComputedStyle(v), bar = v.offsetWidth - v.clientWidth;
+        return { left: parseFloat(cs.paddingLeft), right: parseFloat(cs.paddingRight) + bar, bar, wide: v.scrollWidth > v.clientWidth + 1 };
+      }, before.id);
+      assert(sides.bar > 0, `${id}: the page keeps its bar's room`);
+      assert(Math.abs(sides.left - sides.right) <= 0.5, `${id}: ${sides.left}px on the left, ${sides.right}px on the right (bar ${sides.bar}px)`);
+      assert(!sides.wide, `${id}: the page scrolls sideways`);
       // whatever opens in it: a block taller than the window, then gone
       const grown = await page.evaluate((vid) => {
         const v = document.getElementById(vid), b = document.createElement("div");

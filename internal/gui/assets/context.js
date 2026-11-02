@@ -304,7 +304,7 @@
   // to read goes in one tile with the part's other small ones; a part too
   // small for its items is one tile. Each tile: key (stays across draws),
   // kind, its item (it), the items it stands for (its), rect in px.
-  const TILE_MIN = 1500, TILE_MAX = 12, TILE_FLOOR = 700;
+  const TILE_MIN = 1500, TILE_MAX = 12, TILE_FLOOR = 700, TILE_SIDE = 16;
   // the look switch's marks: tiles, and a grid of cells
   const LOOK_MAP = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="1.5" y="2" width="5.5" height="12" rx="1.6"/><rect x="8.5" y="2" width="6" height="6.5" rx="1.6"/><rect x="8.5" y="10" width="6" height="4" rx="1.4"/></svg>';
   const LOOK_GRID = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">' +
@@ -328,7 +328,20 @@
       const lo = (sum * TILE_FLOOR) / Math.max(1, area);
       return vals.map((a) => ({ ...a, v: Math.max(a.v, lo) }));
     };
-    for (const r of squarify(floored(parts.map((x) => ({ v: x.tokens, x })), ur[2] * ur[3]), ...ur)) {
+    // and a part's tile is TILE_SIDE px across both ways: the floor is an
+    // area, and a part laid in a long row beside large ones met it as a
+    // strip (49 tokens of memory beside 70K: 190×4px, under the tiles' 3px
+    // gap, so it was hidden; AIGCFREE on Discord). One too thin has its
+    // value raised by as much and the parts are laid again.
+    const partVals = floored(parts.map((x) => ({ v: x.tokens, x })), ur[2] * ur[3]);
+    let partRects = squarify(partVals, ...ur);
+    for (let n = 0; n < 8; n++) {
+      const thin = partRects.filter((r) => Math.min(r.w, r.h) < TILE_SIDE);
+      if (!thin.length) break;
+      for (const r of thin) r.a.v *= (TILE_SIDE / Math.max(1, Math.min(r.w, r.h))) * 1.05;
+      partRects = squarify(partVals, ...ur);
+    }
+    for (const r of partRects) {
       const x = r.a.x;
       const items = (x.items || []).filter((it) => it.tokens > 0).sort((a, b) => b.tokens - a.tokens);
       const isum = items.reduce((s, it) => s + it.tokens, 0);
@@ -1409,7 +1422,12 @@
     const same = String(cur) === String(best);
     const saves = r.cost > 0 ? (r.cost - r.low) / r.cost : 0;
     const set = a.setting || {};
-    const applied = set.ours && String(set.value) === String(best);
+    // a model's own Compact at is where Codex runs, over Long conversations:
+    // the value put in there isn't "In use", and putting another in moves
+    // nothing (hoobnn on Discord: "In use" for 170K beside "Now 430K")
+    const own = a.own;
+    const held = !!(set.locked || own);
+    const applied = !own && set.ours && String(set.value) === String(best);
     const row = el("div", "ctx-tune-row" + (same || applied ? " done" : ""));
 
     const title = el("div", "ctx-tune-title");
@@ -1484,7 +1502,8 @@
     const note = el("div", "ctx-tune-src");
     title.after(note);
     if (set.locked) note.textContent = t("{name} is set and comes first", { name: set.locked });
-    else if (set.source == "long") note.textContent = t("Long conversations, shared by Codex and Claude Code");
+    else if (own) note.textContent = t("{model} compacts at its own {value}, which comes first", { model: own.model, value: fmtK(own.value) });
+    else if (set.source == "long") note.textContent = t("Long conversations, shared by Codex, Claude Code and Grok Build");
     else if (set.ours) note.textContent = t("Set by magpie");
     else if (set.value && a.compact && +set.value > a.compact.window && a.compact.window) note.textContent = t("You set {value}; the model's {window} comes first", { value: show(set.value), window: fmtK(a.compact.window) });
     else if (set.value) note.textContent = t("You set {value}", { value: show(set.value) });
@@ -1509,7 +1528,7 @@
       undo.onclick = () => send("undo");
       foot.append(undo);
     }
-    if (!same && !applied && !set.locked) {
+    if (!same && !applied && !held) {
       const go = el("button", "text primary", t("Use {value}", { value: show(best) }));
       go.type = "button";
       go.disabled = tuneBusy === key;
@@ -1517,7 +1536,7 @@
       go.onclick = () => send("apply", best);
       foot.append(go);
     }
-    if (lean && !set.locked) {
+    if (lean && !held) {
       const go = el("button", "text primary", t("Use {value}", { value: show(lean.value) }));
       go.type = "button";
       go.disabled = tuneBusy === key;
@@ -1530,7 +1549,7 @@
     // a window of the reader's own (#1860), from the same replay: each
     // value's tokens past the leanest and compactions, both estimates
     const pts = (a.compact && a.compact.curve) || [];
-    if (pts.length > 1 && !set.locked) {
+    if (pts.length > 1 && !held) {
       const other = el("button", "text ctx-tune-pick", t("Other window…"));
       other.type = "button";
       other.disabled = tuneBusy === key;

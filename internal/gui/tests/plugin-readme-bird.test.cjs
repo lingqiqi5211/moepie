@@ -3,7 +3,9 @@
 // of the skeleton's lines while they pulse (it bounced down them until
 // 10-30, a frame of script each). When the README comes the bird flies off
 // and the box goes. With reduced motion nothing moves, and the box goes at
-// once.
+// once. A README read once shows at once when its page opens again, no
+// loader, and is read again behind it: a README changed since takes its
+// place (the owner, 10-30).
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -53,8 +55,9 @@ async function open(browser, reduced) {
   page.setDefaultTimeout(5000);
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  let release;
-  const next = new Promise((r) => { release = r; });
+  let release, next;
+  const pend = () => { next = new Promise((r) => { release = r; }); };
+  pend();
   await page.route("**/*", server(() => next));
   await page.goto("http://magpie.test/?view=plugins");
   await page.locator("#view-plugins .pm-find input").fill("copilot");
@@ -63,7 +66,7 @@ async function open(browser, reduced) {
   await page.waitForLoadState("networkidle");
   await card.locator(".pm-sum").click();
   await page.locator("#modal .pm-bounce").waitFor();
-  return { page, errors, release };
+  return { page, errors, release, pend };
 }
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
@@ -123,6 +126,28 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     release({ readme: readme(3), updated: "2026-09-01T00:00:00Z" });
     await page.locator("#modal .pm-md p", { hasText: "Paragraph 2." }).waitFor();
     assert.equal(await page.locator("#modal .pm-bounce").count(), 0, "the box goes at once");
+    assert.deepEqual(errors, []);
+  });
+
+  test(engine + ": a README read once shows at once when its page opens again, and a newer one takes its place", async (t) => {
+    const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
+    t.after(() => browser.close());
+    const { page, errors, release, pend } = await open(browser, false);
+    release({ readme: readme(3), updated: "2026-09-01T00:00:00Z" });
+    await page.locator("#modal .pm-md p", { hasText: "Paragraph 2." }).waitFor();
+    await page.waitForFunction(() => !document.querySelector("#modal .pm-bounce"), null, { timeout: 2000 });
+    await page.locator("#modal .bar button.text", { hasText: "Close" }).click();
+    await page.waitForFunction(() => !document.querySelector("#modal .pm-md"));
+    // open again: the read waits, and the README is there already
+    pend();
+    await page.locator('.pm-card[data-pkg="opencode-copilot-auth"] .pm-sum').click();
+    await page.locator("#modal .pm-md p", { hasText: "Paragraph 2." }).waitFor({ timeout: 500 });
+    assert.equal(await page.locator("#modal .pm-bounce").count(), 0, "no loader for a README read once");
+    // the README changed since: the new one takes its place, still birdless
+    release({ readme: readme(5), updated: "2026-10-29T00:00:00Z" });
+    await page.locator("#modal .pm-md p", { hasText: "Paragraph 4." }).waitFor();
+    assert.equal(await page.locator("#modal .pm-md").count(), 1, "one README, the new one");
+    assert.equal(await page.locator("#modal .pm-bounce").count(), 0, "no loader for a README already read");
     assert.deepEqual(errors, []);
   });
 }

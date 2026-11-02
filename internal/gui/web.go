@@ -383,11 +383,16 @@ func webCompressed(next http.Handler) http.Handler {
 // gzipETag ends the ETag of a gzipped response.
 const gzipETag = "-gzip"
 
-// compressible: text, scripts, JSON and SVG; not PNG, WebP, ICO or JPEG.
+// compressible: text, scripts, JSON and SVG; not PNG, WebP, ICO or JPEG,
+// and not an event stream, which gzip holds back until a block fills (a
+// plugin page's service streams a chat's tokens, servePageService).
 func compressible(ct string) bool {
 	ct = strings.ToLower(strings.TrimSpace(ct))
 	if i := strings.IndexByte(ct, ';'); i >= 0 {
 		ct = strings.TrimSpace(ct[:i])
+	}
+	if ct == "text/event-stream" {
+		return false
 	}
 	return strings.HasPrefix(ct, "text/") || strings.HasSuffix(ct, "javascript") ||
 		strings.HasSuffix(ct, "json") || ct == "image/svg+xml"

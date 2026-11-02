@@ -129,6 +129,9 @@ func updateDue(s settings.Settings, last, now time.Time) bool {
 
 func (u *updater) start() {
 	u.place(runtime.GOOS, update.GUI)
+	if u.bundle != "" {
+		go update.ForgetOldStaging(u.bundle) // #3965
+	}
 	go func() {
 		time.Sleep(5 * time.Second) // let the app settle first
 		for {

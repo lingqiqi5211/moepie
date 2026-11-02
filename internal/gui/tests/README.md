@@ -494,6 +494,13 @@ posts `subagent_effort`.
 scrolled: its fields hide, the head keeps the base URL and a copy button, the
 head stays where it was, and the fold is remembered across a reload.
 
+`gateway-models-open-steady.test.cjs` opens the Gateway page's folded models,
+with the open list running past the window, in both engines, en and zh, the
+window and magpie web: Connect's head and the models' keep their place and
+height, every head on the page keeps its height, and folded again the head
+is back where it was. A view is a flex column and shrank every head of a set
+height once it overflowed (the owner, 10-29).
+
 `sse-body.test.cjs` opens streamed replies in the Gateway page's recent
 calls (Anthropic Messages, Chat Completions with `[DONE]`, OpenAI Responses cut
 before it completed): the response body reads as each event's data

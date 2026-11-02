@@ -445,6 +445,22 @@ func pluginListings(ctx context.Context) []pluginListingJSON {
 	return out
 }
 
+// pluginAgents are the suggested agent plugins not installed, by name.
+// One installed and turned off is installed: Plugins turns it on.
+func pluginAgents(ctx context.Context) []string {
+	have := map[string]bool{}
+	for _, e := range plugin.Load().Plugins {
+		have[plugin.Name(e.Spec)] = true
+	}
+	out := []string{}
+	for _, l := range plugin.Market(ctx) {
+		if l.Kind == "agent" && !have[l.Package] {
+			out = append(out, l.Name)
+		}
+	}
+	return out
+}
+
 // npmIcons puts the picture each package gives (magpie.icon) as the page
 // can show it, kept here as a GitHub-tagged plugin's is: a data URI or an
 // https URL isn't sent on to the page. One not kept by wait is left out.
@@ -527,6 +543,11 @@ func pluginRoutes(mux *http.ServeMux, w Windows) {
 	// suggested, at once, then what npm says of the packages named
 	mux.HandleFunc("GET /api/plugins/listings", func(rw http.ResponseWriter, r *http.Request) {
 		writeJSON(rw, map[string]any{"listings": pluginListings(r.Context())})
+	})
+	// the agents a suggested plugin adds that aren't installed here: the
+	// Agents page's Install another agent says Plugins has them
+	mux.HandleFunc("GET /api/plugins/agents", func(rw http.ResponseWriter, r *http.Request) {
+		writeJSON(rw, pluginAgents(r.Context()))
 	})
 	// repositories on GitHub tagged magpie-plugin: nobody's list, shown
 	// apart as not reviewed, installed from the repository
@@ -765,7 +786,11 @@ func pluginRoutes(mux *http.ServeMux, w Windows) {
 				fail(rw, err)
 				return
 			}
-			writeJSON(rw, provider.SignInState{Agent: id, State: "done", User: pp.Name})
+			// no account named: the provider's name as its user was taken
+			// for an account's by Hide accounts, and blurred wherever it
+			// showed (lileo0668 on Discord); the page names the sign-in
+			// by its subscription
+			writeJSON(rw, provider.SignInState{Agent: id, State: "done"})
 			return
 		}
 		st, err := provider.StartPluginSignInWith(in.Provider, in.Method, in.Inputs, provider.SignInOptions{Proxy: in.Proxy, User: in.User})
