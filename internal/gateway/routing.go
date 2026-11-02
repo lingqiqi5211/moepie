@@ -166,6 +166,12 @@ const (
 	creditRest  = 30 * time.Minute // out of credit: until someone tops it up
 	quotaRest   = 15 * time.Minute // out of quota, with no word of when it resets
 	longestWait = time.Hour        // the most a vendor's own "try again at" is trusted
+	// chatgptCreditRest is how long a ChatGPT account out of its credits
+	// sits out when neither the refusal nor its reading says when it can
+	// answer again: its credits come with the plan, by the month, and its
+	// own allowance is back as its five hours renew (PaulT on Discord: a
+	// credits-only account was asked every half hour, 402 each time)
+	chatgptCreditRest = 5 * time.Hour
 	// longestQuota is the most an account out of quota, or failing with a
 	// window full, sits out, when it says when it's back: a week's window,
 	// and a day over
@@ -300,6 +306,9 @@ const (
 	// failFloor: the request asked for a shorter reply than the provider
 	// gives, and is sent again asking for the least it takes
 	failFloor = "floor"
+	// failSight: the model turned an image away (imageRefused), and is
+	// asked again with the request's images described (refuseSight)
+	failSight = "sight"
 	// failUpdate: the upstream turned away the configuration_update items
 	// a changed effort went as (#617), and the request is sent again
 	// without them
@@ -605,17 +614,19 @@ func (r Rest) asksAt(now time.Time) time.Time {
 // renewed lifts the rests of a subscription account whose windows were
 // just started again (a Codex reset spent, or a reading finding a window
 // it was full in full no more): out of quota no longer. Only its rests out
-// of quota, or failed with a window full ("window"), are lifted; one for a
-// rate limit, its credit or a verification stays. Told agent "", it is a
-// key (provider.KeyAllowanceID) whose windows a reading found full no
-// more — its limit raised, or its usage reset — and its rest out of them
-// is lifted; a key's other rests aren't noted by it.
+// of quota, or failed with a window full ("window"), are lifted, and a
+// ChatGPT account's out of its credits, which it needs no more with its
+// window back; one for a rate limit, another's credit or a verification
+// stays. Told agent "", it is a key (provider.KeyAllowanceID) whose
+// windows a reading found full no more — its limit raised, or its usage
+// reset — and its rest out of them is lifted; a key's other rests aren't
+// noted by it.
 func renewed(agent, user string) {
 	restingUntil.Lock()
 	defer restingUntil.Unlock()
 	now := time.Now()
 	for k, r := range restingUntil.note {
-		if r.agent == agent && strings.EqualFold(r.user, user) && (r.Why == failQuota || r.By == "window") {
+		if r.agent == agent && strings.EqualFold(r.user, user) && (r.Why == failQuota || r.By == "window" || r.Why == failCredit && agent == "codex") {
 			delete(restingUntil.m, k)
 			delete(restingUntil.note, k)
 			liftedLocked(k, now)
@@ -1090,6 +1101,28 @@ func (s *Server) restAfterMarked(c candidate, status int, header http.Header, bo
 	switch why {
 	case failCredit:
 		d, r.By, guessed = creditRest, "credit", true
+		if a := c.p.Account; a != nil && a.UsageAgent() == "codex" {
+			// a ChatGPT account out of the credits its plan gives: they
+			// come again with the plan, and the account answers again
+			// once its own window renews, whichever comes first. Until the
+			// time the refusal names, else the window its reading has
+			// full (read whatever the credits it said it held: they are
+			// what ran out), else a while; a reading that finds the window
+			// renewed lifts it (renewed)
+			al, _ := c.allowance()
+			if w := resetsAt(body, now); w > 0 {
+				d, r.By = w, "resets"
+			} else if w := resetsNoted(header, now); w > 0 {
+				d, r.By = w, "resets"
+			} else if t := al.Full(c.model, provider.SpentShareOf(c.p.Routing), now); !t.IsZero() {
+				d, r.By = t.Sub(now), "window"
+			} else if w := retryAfter(header, now); w > chatgptCreditRest {
+				d, r.By = w, "retry-after"
+			} else {
+				d = chatgptCreditRest
+			}
+			d, guessed = min(d, longestMonthly), false
+		}
 	case failQuota:
 		if c.onCredits() {
 			// a Codex account that holds credits refused as out of its

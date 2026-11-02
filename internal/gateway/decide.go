@@ -734,7 +734,9 @@ func withFixedEffort(proto provider.Protocol, body []byte, effort string) []byte
 			v.Reasoning = map[string]any{}
 		}
 		v.Reasoning["effort"] = effort
-		return withFields(body, map[string]any{"reasoning": v.Reasoning})
+		// and the agent's last change of effort mid-thread, which an
+		// upstream reading the items would take over the top's
+		return withEffortUpdated(withFields(body, map[string]any{"reasoning": v.Reasoning}), effort)
 	case provider.Anthropic:
 		var v struct {
 			Thinking *struct {

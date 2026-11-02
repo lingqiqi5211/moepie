@@ -2334,12 +2334,23 @@ func (h *holdWriter) scan() {
 	}
 }
 
-// keepHeldAfter is how long a stream held for its reasoning waits before
-// its agent is first kept alive, as long as a stream with nothing in it
-// is held where its agent can't be (holdLongest); a refusal after it still
-// goes to another account,
-// whose stream follows the comments in the same response.
-var keepHeldAfter = holdLongest
+// keepHeldAfter is how long a held stream waits before its agent is first
+// kept alive (keepAlive): the stream's 200, then a comment every
+// keepHeldEvery. A refusal after it still goes to another account, whose
+// stream follows the comments in the same response. It was holdLongest,
+// 15s, and a proxy between the agent and magpie that hangs up on a
+// request with nothing back for about 10s ended every turn whose vendor
+// took longer to its first event: Codex on Windows sends its requests for
+// 127.0.0.1 through the system proxy a Clash-style app sets, "127.*" in
+// its bypass list notwithstanding (codexProxyFor), and they ended 499
+// (mrten_95615 on Discord). A failure before it is still a status, its
+// Retry-After with it.
+var keepHeldAfter = 3 * time.Second
+
+// keepHeldEvery is the longest a held stream's agent goes without a
+// comment once it has its 200, under keepaliveEvery: the same proxy waits
+// for bytes, not for events.
+var keepHeldEvery = 5 * time.Second
 
 // keptAlive is what a request's held streams have sent its agent ahead of
 // a reply: the stream's headers and SSE comments, nothing of the reply.
@@ -2377,7 +2388,7 @@ func (a *keptAlive) tooQuiet(d time.Duration) bool {
 }
 
 // keepAlive tells the agent of a stream held past keepHeldAfter for its
-// reasoning that it goes on, every keepaliveEvery: held for up to
+// reasoning that it goes on, every keepHeldEvery: held for up to
 // holdThinking (4 minutes), the agent heard nothing at all, and Alma's
 // idle timeout for a reasoning model, 240s, ended the turn first (#751). A
 // comment is no event in any protocol, so another account may still answer
@@ -2386,7 +2397,7 @@ func (h *holdWriter) keepAlive() {
 	a := h.alive
 	// a Gemini stream has none, as geminiEncoder.keepalive: agy fails on
 	// the comment ("invalid stream chunk: : keepalive", #934)
-	if a == nil || a.proto == provider.Gemini || time.Since(a.at) < keepaliveEvery {
+	if a == nil || a.proto == provider.Gemini || time.Since(a.at) < min(keepaliveEvery, keepHeldEvery) {
 		return
 	}
 	if !a.sent {
@@ -2658,7 +2669,7 @@ var watchEvery = time.Second
 // slot of its key's or account's (MaxConcurrency) or for room in its
 // minute (MaxRPM), before anything is sent to the vendor: past
 // keepHeldAfter it is sent the stream's 200 and SSE comments
-// (keepAlive), every keepaliveEvery for as long as the wait lasts, as a
+// (keepAlive), every keepHeldEvery for as long as the wait lasts, as a
 // try's held stream is. A wait of up to 2 minutes for the minute, or
 // QueueWait's for a slot, sent the agent nothing at all, which an agent's
 // or a proxy's timeout for its headers ended first (coeo91 on Discord:

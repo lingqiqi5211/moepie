@@ -313,6 +313,32 @@ func Drawers(p provider.Provider) []catalog.Model {
 	return slices.DeleteFunc(out, func(m catalog.Model) bool { return p.ModelKind(m.ID) == provider.KindVideo })
 }
 
+// OfferedDrawers are Drawers less those the user unticked in p's editor
+// (provider.HiddenDrawers, 321sssrt on X): the image models a list offers
+// to pick from and Automatic picks among. A request that names a hidden
+// one still draws with it (resolveDrawing reads Drawers), as does a
+// Settings › Images pick of one made before it was hidden.
+func OfferedDrawers(p provider.Provider) []catalog.Model {
+	ms := Drawers(p)
+	if len(p.HiddenDrawers) == 0 {
+		return ms
+	}
+	return slices.DeleteFunc(slices.Clone(ms), func(m catalog.Model) bool { return p.DrawerHidden(m.ID) })
+}
+
+// DrawerHidden is whether ref (provider/model), a model Settings › Images
+// names, is one the user unticked in its provider's editor: it still draws,
+// and the Settings row says it is hidden. A ChatGPT account's other GPT
+// Image names stand for its one (ListedDrawer).
+func DrawerHidden(ref string) bool {
+	pid, id, ok := strings.Cut(ListedDrawer(ref), "/")
+	if !ok {
+		return false
+	}
+	p, err := provider.Find(pid)
+	return err == nil && p.DrawerHidden(id)
+}
+
 // kindModel is p's model id, one the user said makes images or videos
 // (provider.SetModelKind), as its list names it.
 func kindModel(p provider.Provider, id string) catalog.Model {
@@ -338,7 +364,8 @@ func AutoDrawer() string {
 			// with its model picked or named
 			continue
 		}
-		for _, m := range Drawers(p) {
+		// one unticked in its editor isn't Automatic's choice
+		for _, m := range OfferedDrawers(p) {
 			if drawsCodex(p) && m.ID != codexDrawer {
 				// Codex CLI draws with gpt-image-2 only; a plan may be
 				// refused the others (chatgpt.com: 403, #545)
@@ -1081,7 +1108,7 @@ func (s *Server) sendWith(ctx context.Context, p provider.Provider, method, url,
 	} else {
 		// Google's API keys go in their own header
 		req.Header.Set("x-goog-api-key", p.Key)
-		for k, v := range p.Headers {
+		for k, v := range p.SentHeaders(ctx) {
 			catalog.PutUserHeader(req.Header, k, v)
 		}
 	}

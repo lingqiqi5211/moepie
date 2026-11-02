@@ -33,6 +33,10 @@ type rItem struct {
 	// tool_search_output: the tools Codex's search found, which the model
 	// may call from then on
 	Tools []rTool `json:"tools,omitempty"`
+	// configuration_update's: an effort changed mid-thread
+	Reasoning *struct {
+		Effort string `json:"effort"`
+	} `json:"reasoning,omitempty"`
 	// reasoning
 	Summary          []rText `json:"summary,omitempty"`
 	EncryptedContent string  `json:"encrypted_content,omitempty"`
@@ -399,6 +403,13 @@ func readResponsesFor(body []byte, facts, keepInstructions bool) (*Request, erro
 					continue
 				}
 				r.Messages = append(r.Messages, Message{Role: role, Parts: parts})
+			case it.Type == "configuration_update":
+				// the agent changed its effort mid-thread: the last
+				// change is the one the turn is asked at (effortUpdated)
+				if q.Reasoning != nil && it.Reasoning != nil && it.Reasoning.Effort != "" {
+					r.Effort = effortOf(it.Reasoning.Effort)
+					r.ThinkOff = strings.EqualFold(strings.TrimSpace(it.Reasoning.Effort), "none")
+				}
 			case it.Type == "agent_message":
 				// MultiAgentV2 hands a subagent its task, and agents their
 				// messages to each other, as this item: what it says is the

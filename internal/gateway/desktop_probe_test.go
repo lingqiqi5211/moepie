@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -376,4 +378,117 @@ func TestWithThinkingEnabled(t *testing.T) {
 			t.Errorf("withThinkingEnabled(%s) changed it", in)
 		}
 	}
+}
+
+// Claude Desktop's check goes to the model the user chose in its own
+// model menu, kept in Claude-3p's cowork_account_settings.json
+// (__model_selector_state), not to the first model listed: cybercaius
+// on Discord (v0.1.2033) had DeepSeek in the Code tab and Cowork off,
+// and the check as Desktop started went to another provider's model.
+// The menu the last session ran on comes first; a choice magpie no
+// longer serves, or no file, leaves it to the first listed.
+func TestClaudeDesktopProbeToChosenModel(t *testing.T) {
+	claude := &fake{t: t, reply: sse(
+		`event: message_start`+"\n"+`data: {"type":"message_start","message":{"id":"m","type":"message","role":"assistant","model":"claude-haiku-5-5","content":[],"usage":{"input_tokens":1,"output_tokens":0}}}`,
+		`event: message_stop`+"\n"+`data: {"type":"message_stop"}`)}
+	ds := &fake{t: t, reply: deepseekReply}
+	kimi := &fake{t: t, reply: deepseekReply}
+	up := setup(t, provider.Anthropic, claude)
+	du := httptest.NewServer(ds)
+	t.Cleanup(du.Close)
+	ku := httptest.NewServer(kimi)
+	t.Cleanup(ku.Close)
+	for _, p := range []provider.Provider{
+		{ID: "leee", Name: "leee", Key: "k", Anthropic: up.URL, Models: []string{"claude-haiku-5-5"}},
+		{ID: "deepseek", Name: "DeepSeek", Key: "k", Chat: du.URL + "/v1", Models: []string{"deepseek-v4-flash"}},
+		{ID: "kimi", Name: "Kimi", Key: "k", Chat: ku.URL + "/v1", Models: []string{"kimi-k3"}},
+	} {
+		if err := provider.Save(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// leee's haiku is listed first: Desktop's default
+	if err := provider.SetModelOrder("claude-desktop", []string{"leee/claude-haiku-5-5", "deepseek/deepseek-v4-flash", "kimi/kimi-k3"}); err != nil {
+		t.Fatal(err)
+	}
+	idOf := func(id string) string {
+		t.Helper()
+		for _, e := range provider.Catalog() {
+			if e.ID == id {
+				return DesktopID(e)
+			}
+		}
+		t.Fatalf("%s not in the catalog", id)
+		return ""
+	}
+	haiku, dsID, kimiID := idOf("leee/claude-haiku-5-5"), idOf("deepseek/deepseek-v4-flash"), idOf("kimi/kimi-k3")
+	root := t.TempDir()
+	old := desktopSelectorRoots
+	desktopSelectorRoots = func() []string { return []string{root} }
+	t.Cleanup(func() { desktopSelectorRoots = old })
+	dir := filepath.Join(root, "local-agent-mode-sessions", "c774b2e6", "00000000")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	choose := func(state string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, "cowork_account_settings.json"), []byte(`{"__created_at":1,"__model_selector_state":`+state+`}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pick := func(m string) {
+		desktopPicked.Lock()
+		desktopPicked.model, desktopPicked.from = m, desktopPickedPath()
+		desktopPicked.Unlock()
+	}
+	pick("")
+	srv := New()
+	probe := `{"model":"` + haiku + `","max_tokens":1,"messages":[{"role":"user","content":"."}]}`
+	check := func(want *fake, wantModel, why string) {
+		t.Helper()
+		claude.got, ds.got, kimi.got = nil, nil, nil
+		req := httptest.NewRequest("POST", "/v1/messages", strings.NewReader(probe))
+		req.Header.Set("x-api-key", Token+"-claude-desktop")
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh) Claude/2.7032.0 Chrome/140.0 Electron/38.0")
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != 200 {
+			t.Fatalf("%s: probe %d %s", why, rec.Code, rec.Body.String())
+		}
+		for _, f := range []*fake{claude, ds, kimi} {
+			if f != want && f.got != nil {
+				t.Fatalf("%s: the check went elsewhere (%s)", why, f.got)
+			}
+		}
+		if want == claude {
+			if claude.got == nil {
+				t.Fatalf("%s: the check didn't reach leee", why)
+			}
+			return
+		}
+		if modelOf(want.got) != wantModel {
+			t.Fatalf("%s: the check reached %q, want %q", why, modelOf(want.got), wantModel)
+		}
+	}
+
+	// no menu chosen yet: the first listed, as before
+	check(claude, "", "no choice")
+	// the reporter's: DeepSeek in the Code tab, Cowork left on its default
+	choose(`{"code":{"model":"` + dsID + `"}}`)
+	check(ds, "deepseek-v4-flash", "Code tab on DeepSeek")
+	// by the id with Claude Code's "[1m]" too
+	choose(`{"code":{"model":"` + dsID + `[1m]"},"chat":{"model":"` + haiku + `"}}`)
+	check(ds, "deepseek-v4-flash", "Code tab on DeepSeek [1m]")
+	// two menus: the Code tab's, unless the last session ran on the other
+	choose(`{"cowork":{"model":"` + kimiID + `"},"code":{"model":"` + dsID + `"}}`)
+	check(ds, "deepseek-v4-flash", "Code before Cowork")
+	pick(kimiID)
+	check(kimi, "kimi-k3", "the last session's menu first")
+	pick("")
+	// a choice magpie no longer serves leaves it to the first listed
+	choose(`{"code":{"model":"anthropic/magpie-0000000001"}}`)
+	check(claude, "", "unserved choice")
+	// a half-written file is no choice
+	choose(`{"code":{"model":"` + dsID)
+	check(claude, "", "unparsed file")
 }

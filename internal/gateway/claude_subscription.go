@@ -715,16 +715,6 @@ func (b *subscriptionBridge) startRun(ctx context.Context, req *Request, model, 
 		"magpie": map[string]any{"command": exe, "args": []string{"claude-mcp-helper", callbackPath, toolsPath}},
 	}})
 	args := claudeCLIArgs(model, string(mcpConfig), req.Effort, req.WebSearch)
-	if req.leanPrompt {
-		// in a file of the run's own: instructions can be longer than
-		// Windows lets a command line be
-		systemPath := filepath.Join(tmp, "system.md")
-		if err := os.WriteFile(systemPath, []byte(leanSystem(req)), 0o600); err != nil {
-			cleanup()
-			return nil, nil, err
-		}
-		args = append(args, "--system-prompt-file", binary.file(systemPath))
-	}
 	if req.ThinkOff {
 		// the client turned thinking off, as Claude Code's auto mode
 		// classifier and its small asks do: a run at Claude Code's own
@@ -747,6 +737,21 @@ func (b *subscriptionBridge) startRun(ctx context.Context, req *Request, model, 
 	if !client {
 		work, err = claudeWorkDir()
 		req.envElsewhere = clientNamedWorkDir(req) != ""
+		// a caller on another computer that names no folder: Claude Code's
+		// environment is this computer's, and the tools run on the
+		// caller's (packinggoods on Discord: a Mac client of a Windows
+		// gateway had its commands wrapped in PowerShell)
+		req.envUnknown = !req.envElsewhere && req.remoteCaller
+	}
+	if req.leanPrompt {
+		// in a file of the run's own: instructions can be longer than
+		// Windows lets a command line be
+		systemPath := filepath.Join(tmp, "system.md")
+		if err := os.WriteFile(systemPath, []byte(leanSystem(req)), 0o600); err != nil {
+			cleanup()
+			return nil, nil, err
+		}
+		args = append(args, "--system-prompt-file", binary.file(systemPath))
 	}
 	var sessions []string
 	switch {
@@ -2742,7 +2747,7 @@ func renderClaudePrompt(req *Request) ([]map[string]any, error) {
 	var blocks []map[string]any
 	var text strings.Builder
 	// a lean run has them as its system prompt (leanSystem)
-	if !req.leanPrompt && (req.System != "" || req.ToolChoice == "required" || strings.HasPrefix(req.ToolChoice, "name:")) {
+	if !req.leanPrompt && (req.System != "" || req.ToolChoice == "required" || strings.HasPrefix(req.ToolChoice, "name:") || envNote(req) != "") {
 		text.WriteString("<external_system_instructions>\n")
 		system := withoutBillingHeader(req.System)
 		pos := 0
@@ -2761,9 +2766,7 @@ func renderClaudePrompt(req *Request) ([]map[string]any, error) {
 			}
 		}
 		text.WriteString(system[pos:])
-		if req.envElsewhere {
-			text.WriteString(envElsewhereNote)
-		}
+		text.WriteString(envNote(req))
 		text.WriteString(toolChoiceAsk(req))
 		text.WriteString("\n</external_system_instructions>\n\n")
 		// The caller's instructions are a block of their own, marked for the
@@ -2865,6 +2868,33 @@ func renderClaudePrompt(req *Request) ([]map[string]any, error) {
 // app and no vendor: it goes to the vendor with the prompt.
 const envElsewhereNote = "\n\nThe environment these instructions describe (working directory, platform, OS, shell, git status) is the one every tool runs in. Where an environment given before them differs, go by these instructions; nothing has changed and there is no need to check."
 
+// envElsewhereLeanNote is envElsewhereNote for a lean run, whose
+// instructions are its system prompt: Claude Code gives its environment
+// after them, in the run's first message, not before.
+const envElsewhereLeanNote = "\n\nThe environment these instructions describe (working directory, platform, OS, shell, git status) is the one every tool runs in. Where an environment given elsewhere in this conversation differs, go by these instructions; nothing has changed and there is no need to check."
+
+// envUnknownNote follows the caller's instructions when the caller is on
+// another computer and names no folder: Claude Code's environment (its
+// platform, OS, shell and folder) is the gateway's, which no tool runs
+// on, and a model told only that one wrapped the caller's commands in the
+// gateway's shell. It names no app and no vendor.
+const envUnknownNote = "\n\nThe environment given elsewhere in this conversation (its working directory, platform, OS and shell) is not the one the tools run on: don't take a platform, shell or path for a tool call from it."
+
+// envNote is what a run is told after the caller's instructions of where
+// its tools run: "" for a run in the caller's own folder, or for a caller
+// on this computer that names none.
+func envNote(req *Request) string {
+	switch {
+	case req.envElsewhere && req.leanPrompt:
+		return envElsewhereLeanNote
+	case req.envElsewhere:
+		return envElsewhereNote
+	case req.envUnknown:
+		return envUnknownNote
+	}
+	return ""
+}
+
 func toolChoiceAsk(req *Request) string {
 	switch {
 	case req.ToolChoice == "required":
@@ -2878,10 +2908,11 @@ func toolChoiceAsk(req *Request) string {
 // leanSystem is a lean run's system prompt (ClaudeLeanPrompt): the
 // caller's instructions without the client Claude Code's billing line, as
 // renderClaudePrompt tells them to a run that keeps Claude Code's own,
-// with its tool choice. Claude Code still puts its billing line and its
+// with where its tools run (envNote) and its tool choice. Claude Code
+// still puts its billing line and its
 // identity line before it, and marks it for the cache itself.
 func leanSystem(req *Request) string {
-	return strings.TrimSpace(withoutBillingHeader(req.System) + toolChoiceAsk(req))
+	return strings.TrimSpace(withoutBillingHeader(req.System) + envNote(req) + toolChoiceAsk(req))
 }
 
 // historyChunk is how many messages of the history renderClaudePrompt puts
@@ -4443,6 +4474,9 @@ func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request, from 
 	// a client that places its own cache marks keeps Claude Code's prompt:
 	// its system marks are placed in the run's first message (#1717)
 	req.leanPrompt = name == "Claude Code" && req.clientCache == nil && settings.Load().ClaudeLeanPrompt
+	// the tools of a caller on another computer run there, not where
+	// Claude Code runs (envUnknownNote)
+	req.remoteCaller = !local(r)
 	if req.Format != nil && req.Format.schema() == nil {
 		// --json-schema takes a schema only: any JSON object is asked for
 		// in words

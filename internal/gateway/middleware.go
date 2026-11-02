@@ -21,6 +21,9 @@ import (
 // magpie's to read.
 func (s *Server) serveAgent(w http.ResponseWriter, r *http.Request, from provider.Protocol, body []byte) {
 	withGatewaySession(w, r)
+	// the agent's own turn, which the user's model for requests masking
+	// would change is for (maskRouteFor)
+	r = agentTurn(r)
 	// a Responses request naming the response it follows is given the
 	// conversation whole before anything reads it (prev_response.go)
 	w, r, body, kept := previousResponse(w, r, from, body)
@@ -98,9 +101,11 @@ func triedOn(ctx context.Context, p provider.Provider, model string, body []byte
 // onProvider on one runtime, and the gateway died of "concurrent map read
 // and map write" (#3695). Nor does the hooks' ctx describe them: a
 // description's body is Chat and a search's Anthropic, whatever
-// ctx.protocol names, and ctx.model and ctx.stream are the agent's.
+// ctx.protocol names, and ctx.model and ctx.stream are the agent's. Nor
+// is it the agent's turn, which a model set for requests masking would
+// change takes (maskRouteFor): it is masked as magpie's own asks are.
 func ownAsk(ctx context.Context) context.Context {
-	return context.WithValue(ctx, triedKey{}, []gwmw.Tried(nil))
+	return context.WithValue(context.WithValue(ctx, triedKey{}, []gwmw.Tried(nil)), agentTurnKey{}, false)
 }
 
 // middlewareWanted: plugins.json has a JS middleware on, so plugins/middleware

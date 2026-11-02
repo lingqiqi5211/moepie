@@ -175,6 +175,13 @@ type Request struct {
 	// Windows with Claude Code in WSL), so the run's own prompt describes
 	// another machine than the one the tools run on (envElsewhereNote).
 	envElsewhere bool
+	// envUnknown: the caller is on another computer (remoteCaller) and its
+	// instructions name no working directory, so the run's own prompt
+	// describes a machine no tool runs on, and nothing says which does
+	// (envUnknownNote).
+	envUnknown bool
+	// remoteCaller: the request came from another computer (not local).
+	remoteCaller bool
 	// hourMarks has the cache marks magpie adds on Anthropic's Messages
 	// (anthropicBody) last an hour: a Responses client's (Codex's), whose
 	// turns are often more than five minutes apart and whose own vendor
