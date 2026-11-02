@@ -43,6 +43,8 @@ var Vars = []string{
 	// Pi and its forks (OmO, Senpi), whose profile and config are apart
 	"PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR", "PI_CONFIG_DIR", "PI_PROFILE",
 	"OMO_CODING_AGENT_DIR", "SENPI_CODING_AGENT_DIR",
+	// Raft (slock), whose agents keep their Pi sessions in its folder
+	"SLOCK_HOME",
 	"PRIME_AGENT_CODING_AGENT_DIR",
 	// StepCode: config root resolution and folder overrides
 	"STEP_CODING_AGENT_DIR", "STEPCODE_CONFIG_DIR",

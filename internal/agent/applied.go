@@ -842,6 +842,18 @@ func (a *Agent) reconnect(now map[string]string) (bool, error) {
 			return false, nil
 		}
 	}
+	// joined first, where the agent can be (Codex signed in with ChatGPT),
+	// as the switch connects it the first time: its own models stay
+	// through magpie beside the one put back. Put back on a routing group
+	// alone, Codex was beside its sign-in and not joined, so picking one
+	// of its own on the Agents page took it off magpie, every OpenAI model
+	// then said direct, and after a group again they said via magpie
+	// though a pick still went straight to OpenAI (NancyTom18 on X)
+	if a.Join != nil {
+		if _, err := a.Join(); err != nil {
+			return true, err
+		}
+	}
 	// the models on magpie first, as Connect sets them (setting Gemini
 	// CLI's model signs it in through magpie, which its sign-in field
 	// can't), then the rest that aren't so by then

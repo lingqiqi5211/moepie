@@ -187,6 +187,12 @@ type Agent struct {
 	// its sign-in only as it opens, sends nothing on it till it is opened
 	// again (MasterYi on Discord).
 	AppOut func() bool
+	// HoldMatters reports Codex takes magpie's models beside a ChatGPT
+	// sign-in, so that magpie is its provider while the Codex app holds
+	// the account (out), or is that already: what the app holds is read
+	// for it even with Codex switched off in magpie
+	// (provider.CodexHoldMatters).
+	HoldMatters func() bool
 	// SideModel is the model Codex is set to when it is one of magpie's,
 	// picked beside its ChatGPT sign-in (by the base URL, magpie not its
 	// provider), "" otherwise: the gateway answers the Codex app's hidden

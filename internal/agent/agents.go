@@ -52,6 +52,13 @@ func init() {
 	// and when Codex is connected or disconnected, or its route otherwise
 	// changes, so a running app sends where its config now says
 	provider.CodexAppRoute = codexAppRoute
+	// and what the Codex app holds is read while Codex takes magpie's
+	// models beside its sign-in, Codex switched off in magpie or not
+	provider.CodexHoldMatters = func() bool {
+		home, _ := homes()
+		a := codex(home)
+		return a.HoldMatters != nil && a.HoldMatters()
+	}
 }
 
 // codexAppRoute is where Codex's config sends it, as the app-server reads
@@ -84,6 +91,10 @@ func codexAppRoute() (route string, out, known bool) {
 	}
 	t, _ := edit.GetTOMLTable(a.Path, "model_providers."+magpieID)
 	b.WriteString("magpie.base_url=" + t["base_url"] + "\n")
+	// and whether it requires OpenAI auth, which decides whether the app
+	// has its ChatGPT account at all (openaiAuth in codex.go): read as the
+	// app-server starts, like the rest
+	b.WriteString("magpie.requires_openai_auth=" + t["requires_openai_auth"] + "\n")
 	if out {
 		b.WriteString("out\n")
 	}
@@ -100,6 +111,10 @@ var others = []*Agent{
 	// ("pi-desktop/0.1.0"), it is told apart from Pi by that name, which
 	// Pi's "pi-" would take otherwise (#1966, dgmico)
 	{ID: "pi-desktop", Name: "PI-Desktop", Icon: "pi", UA: []string{"pi-desktop"}},
+	// Raft (slock's raft-computer) runs Pi in each of its agents' folders;
+	// Sessions lists those as Raft's (internal/sessions/raft.go), while
+	// their requests say "pi (…)" and are Pi's
+	{ID: "raft", Name: "Raft", Icon: "generic"},
 }
 
 // Clients is everyone whose requests the gateway knows by name: every
@@ -583,8 +598,8 @@ func objectPairs(raw []byte) orderedJSON {
 }
 
 // piModelJSON is one of magpie's models as an entry of Pi's models.json.
-// native asks it on the API its provider speaks natively (a model's own
-// api and baseUrl); without it the model is left on the provider's
+// native selects the model's preferred gateway API (its own api and
+// baseUrl); without it the model is left on the provider's
 // openai-completions (Pencil, pencil.go).
 func piModelJSON(m catalog.Model, gw string, native bool) map[string]any {
 	// reasoning lets Pi offer its thinking levels for the model: as
@@ -611,11 +626,24 @@ func piModelJSON(m catalog.Model, gw string, native bool) map[string]any {
 		if gateway.AdaptiveThinking(m.ID) {
 			e["compat"] = map[string]any{"forceAdaptiveThinking": true}
 		}
+	case slices.Contains(m.APIs, string(provider.Gemini)):
+		e["api"], e["baseUrl"] = "google-generative-ai", gw+"/v1beta"
 	}
 	if m.Images {
 		e["input"] = []string{"text", "image"}
 	}
 	if levels := piThinkingLevels(m.Efforts, e["api"] == "anthropic-messages" && gateway.ThinksOnlyWhenAsked(m.ID)); levels != nil {
+		// on google-generative-ai Pi resolves a level through the map to
+		// one of Gemini's four (pi-ai's resolveGoogleThinkingLevel) and
+		// throws before sending on any other name, so a level the model
+		// calls something else (xhigh, max) is hidden there (#3282)
+		if e["api"] == "google-generative-ai" {
+			for l, v := range levels {
+				if s, ok := v.(string); ok && l != "off" && !slices.Contains([]string{"minimal", "low", "medium", "high"}, strings.ToLower(s)) {
+					levels[l] = nil
+				}
+			}
+		}
 		e["thinkingLevelMap"] = levels
 	}
 	// without it Pi takes every model for a 128K one, and compacts

@@ -322,7 +322,7 @@ func noteFrom(src Source, root string, cands []Candidate) int {
 			// git checkout), and an edited one stays only grouped.
 			if dir := skillDir(s.Name); s.Source == nil && !linked(dir) && sameTree(dir, filepath.Join(root, filepath.FromSlash(c.Path))) {
 				s.Source = &Source{Kind: "github", Repo: src.Repo, Ref: src.Ref, Path: c.Path}
-				s.Hash, s.Commit, s.From = hashDir(dir), "", ""
+				s.Hash, s.Own, s.Commit, s.From = hashDir(dir), ownHash(dir), "", ""
 				l.seenAt(src.Repo, src.Ref, c.Path)
 				forgetCheck(s.Name)
 				bound++
@@ -378,7 +378,7 @@ func RegroupSkills() (int, error) {
 			continue
 		}
 		fetched++
-		noted += noteFrom(src, root, candidates(root, ""))
+		noted += noteFrom(src, root, candidates(root, "", srcFolder(src)))
 		os.RemoveAll(root)
 	}
 	if fetched == 0 && first != nil {

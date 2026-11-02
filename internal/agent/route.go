@@ -213,8 +213,8 @@ func magpieModels(agent string) []catalog.Model {
 			yes := true
 			m.ImageInput = &yes
 		}
-		// APIs is the one to ask it on for the gateway to relay the request
-		// as it is. A group's members may each want another, so a group has
+		// APIs is the preferred client protocol, preserving the vendor's
+		// own content where possible. A group's members may differ, so a group has
 		// one only when every member is served best on Responses (#1594,
 		// ObsidianArch02): Pi, omp, droid and dsh then ask it there, and a
 		// GPT group's tool-call arguments stream as the member sends them
@@ -222,6 +222,16 @@ func magpieModels(agent string) []catalog.Model {
 		if e.Group == "" {
 			if n := e.Provider.Native(e.Model); n != "" {
 				m.APIs = []string{string(n)}
+			} else {
+				// Gemini clients also reach Code Assist and Google plugins
+				// through the gateway's Gemini API, with translation as needed.
+				apis := e.Provider.APIs(e.Model)
+				for _, pr := range e.Provider.Speaks() {
+					if (pr == provider.Gemini || pr == provider.CodeAssist) && (apis == nil || slices.Contains(apis, pr)) {
+						m.APIs = []string{string(provider.Gemini)}
+						break
+					}
+				}
 			}
 		} else if allResponses(members(e.ID)) {
 			m.APIs = []string{string(provider.Responses)}
