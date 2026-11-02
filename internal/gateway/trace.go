@@ -255,6 +255,16 @@ func groupRef(g provider.Group, ms []provider.Member) *GroupRef {
 	return ref
 }
 
+// SeatPrice is what a weighed one's model costs on it at the request's
+// time, as Cheapest first went by it: a million tokens each, in the
+// catalog's dollars, Peak when that is its vendor's peak-hour price.
+type SeatPrice struct {
+	Input     float64 `json:"input"`
+	Output    float64 `json:"output"`
+	CacheRead float64 `json:"cacheRead,omitempty"`
+	Peak      bool    `json:"peak,omitempty"`
+}
+
 // Weighed is one account or key as routing weighed it.
 type Weighed struct {
 	ID       string  `json:"id"` // what rests after a failure
@@ -290,6 +300,7 @@ type Weighed struct {
 	Free     bool              `json:"free,omitempty"`     // its model costs nothing there (free first)
 	LateTTFT float64           `json:"lateTtft,omitempty"` // speed first: its ms to the first token lately, 0 if not measured (speed.go)
 	LateTPS  float64           `json:"lateTps,omitempty"`  // speed first: its tokens a second lately, 0 if not told
+	Price    *SeatPrice        `json:"price,omitempty"`    // cheapest first: what its model costs on it now, nil if not known
 	Turn     bool              `json:"turn,omitempty"`     // in turn: it was this one's turn
 	Fit      int               `json:"fit,omitempty"`      // keyFit
 	Speaks   provider.Protocol `json:"speaks,omitempty"`   // a key made for one protocol only
@@ -517,6 +528,9 @@ func weighed(c candidate, p provider.Provider, wg weighing, fallback bool, from 
 	}
 	if sp, ok := wg.speed[c.restID()]; ok {
 		w.LateTTFT, w.LateTPS = math.Round(sp[0]), math.Round(sp[1]*10)/10
+	}
+	if pr, ok := wg.price[c.restID()]; ok {
+		w.Price = &SeatPrice{Input: pr.in, Output: pr.out, CacheRead: pr.cache, Peak: pr.peak}
 	}
 	if sinks(p.Sink, p.Routing) {
 		markSunk(&w, c)

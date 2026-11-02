@@ -9,9 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tidwall/gjson"
 	"github.com/yetone/magpie/internal/provider"
+	"github.com/yetone/magpie/internal/usage"
 )
 
 // relayNeedsCacheKey answers as CyberCaius's AnyRouter did a request
@@ -227,12 +229,22 @@ func TestClaudeDesktopProbeAsksNoClassifier(t *testing.T) {
 	if a.last == "" || r.Rule == nil || r.Rule.Classified == nil || !strings.Contains(r.Rule.Classified.Error, "Claude Desktop's connection check") {
 		t.Fatalf("not answered by the group's first member, or the trace doesn't say why: %q %+v", a.last, r.Rule)
 	}
+	// The Routing page shows the id Desktop named (its first listed model
+	// when none is Claude-named), not the model chosen in the
+	// conversation, so the row says it is the check (cybercaius on
+	// Discord: "requested deepseek-flash" while gpt-6.1-sol answered).
+	if r.Kind != KindDesktopCheck || usage.PurposeOf(r.Kind) != "kind:connection_check" {
+		t.Fatalf("the check is recorded as kind %q (%s), not %q", r.Kind, usage.PurposeOf(r.Kind), KindDesktopCheck)
+	}
 	// a user's turn through the same group is still classified
 	if code, body := send(`{"model":"group/r","max_tokens":32000,"stream":true,"messages":[{"role":"user","content":"add a unit test for the parser"}]}`); code != 200 {
 		t.Fatalf("turn: %d %s", code, body)
 	}
 	if c.n() != 1 {
 		t.Fatalf("a user's turn asked the classifier %d times", c.n())
+	}
+	if k := lastRoute(s).Kind; k != "" {
+		t.Fatalf("a user's turn is recorded as kind %q", k)
 	}
 }
 
@@ -430,17 +442,25 @@ func TestClaudeDesktopProbeToChosenModel(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// the menus are written at the hour, a turn sent at a minute past or
+	// before it: no two of them in one tick of the file system's clock
+	hour := time.Now().Add(-time.Hour).Truncate(time.Second)
+	file := filepath.Join(dir, "cowork_account_settings.json")
 	choose := func(state string) {
 		t.Helper()
-		if err := os.WriteFile(filepath.Join(dir, "cowork_account_settings.json"), []byte(`{"__created_at":1,"__model_selector_state":`+state+`}`), 0o600); err != nil {
+		if err := os.WriteFile(file, []byte(`{"__created_at":1,"__model_selector_state":`+state+`}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(file, hour, hour); err != nil {
 			t.Fatal(err)
 		}
 	}
-	pick := func(m string) {
+	pickAt := func(m string, at time.Time) {
 		desktopPicked.Lock()
-		desktopPicked.model, desktopPicked.from = m, desktopPickedPath()
+		desktopPicked.model, desktopPicked.from, desktopPicked.at = m, desktopPickedPath(), at
 		desktopPicked.Unlock()
 	}
+	pick := func(m string) { pickAt(m, hour.Add(time.Minute)) }
 	pick("")
 	srv := New()
 	probe := `{"model":"` + haiku + `","max_tokens":1,"messages":[{"role":"user","content":"."}]}`
@@ -484,6 +504,20 @@ func TestClaudeDesktopProbeToChosenModel(t *testing.T) {
 	check(ds, "deepseek-v4-flash", "Code before Cowork")
 	pick(kimiID)
 	check(kimi, "kimi-k3", "the last session's menu first")
+	// the reporter's (v0.1.2212): a chat on DeepSeek, then the Code tab
+	// switched to Kimi while Cowork stays on DeepSeek; the check follows
+	// the switch, not the turn sent before it
+	pickAt(dsID, hour.Add(-time.Minute))
+	choose(`{"code":{"model":"` + kimiID + `"},"cowork":{"model":"` + dsID + `"}}`)
+	check(kimi, "kimi-k3", "Code tab switched off the last session's model")
+	// a session switched to Kimi after the menu was set to DeepSeek: the
+	// model the user is on now
+	choose(`{"code":{"model":"` + dsID + `"}}`)
+	pick(kimiID)
+	check(kimi, "kimi-k3", "a turn after the menu was set")
+	// such a turn on a model magpie no longer serves leaves it to the menu
+	pick("anthropic/magpie-0000000001")
+	check(ds, "deepseek-v4-flash", "a newer turn on an unserved model")
 	pick("")
 	// a choice magpie no longer serves leaves it to the first listed
 	choose(`{"code":{"model":"anthropic/magpie-0000000001"}}`)

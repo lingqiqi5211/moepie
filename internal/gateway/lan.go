@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -352,6 +353,19 @@ func lanGuard(next http.Handler) http.Handler {
 			http.Error(w, "magpie isn't shared on the local network", http.StatusForbidden)
 			return
 		}
+		// the key page itself is the same bytes for everyone, so it is
+		// opened before the key it asks for is typed; its data isn't
+		if remote && keyPageOpen(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// a link the image server handed out opens with its own token
+		// and no key (imageTokenAsked); the handler judges the token, and
+		// refuses one that opens nothing as a request without a key
+		if remote && imageTokenAsked(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if remote || managedKey(r) {
 			var ok bool
 			r, ok = identifyCaller(w, r)
@@ -497,10 +511,25 @@ func callerGuard(next http.Handler) http.Handler {
 func identifyCaller(w http.ResponseWriter, r *http.Request) (*http.Request, bool) {
 	var who access.Identity
 	ok := false
+	var refused *access.Refused
 	for _, k := range callerKeys(r) {
-		if who, ok = access.Authenticate(k); ok {
+		var err error
+		if who, err = access.Check(k); err == nil {
+			ok = true
 			break
 		}
+		if refused == nil {
+			errors.As(err, &refused)
+		}
+	}
+	if !ok && refused != nil {
+		// an expired key, or one its issuer no longer lets in, is told so
+		// on every route, from this computer too: a sandbox's agent on
+		// loopback holding a key that has run out is not let on as one
+		// with no key, which would hand it everything its key held it from
+		log.Printf("refused %s %s from %s: %s", r.Method, r.URL.Path, r.RemoteAddr, refused.Why)
+		writeError(w, provider.Chat, http.StatusUnauthorized, refused.Why)
+		return r, false
 	}
 	if !ok && !local(r) {
 		if over, retry := tooManyAuthFails(); over {
@@ -553,10 +582,14 @@ func appendUsage(r *http.Request, rec usage.Record) {
 		rec.Subagent, rec.ParentAgent = subagentOf(r.Header)
 	}
 	who := access.Caller(r.Context())
-	rec.CallerKeyID, rec.CallerKeyName = who.KeyID, who.KeyName
+	rec.CallerKeyID, rec.CallerKeyName, rec.CallerIssuerID = who.KeyID, who.KeyName, who.IssuerID()
 	rec.Local = local(r)
 	if r.Context().Value(observedKey{}) != nil {
 		rec.Watched = true
+	}
+	if !rec.IsProbe() {
+		// a request an MCP tool call made: its row names the model (mcpUse)
+		mcpUseOf(r.Context()).used(rec.Provider, rec.Model)
 	}
 	budget.Append(rec)
 }

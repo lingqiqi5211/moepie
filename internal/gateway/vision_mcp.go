@@ -59,7 +59,7 @@ var visionMCPSchema = map[string]any{
 }
 
 func (s *Server) visionMCP(w http.ResponseWriter, r *http.Request) {
-	serveMCP(w, r, "magpie's image recognition", visionMCPBody, s.visionMCPCall)
+	serveMCP(w, r, "magpie's image recognition", "magpie-vision", visionMCPBody, s.visionMCPCall)
 }
 
 // visionMCPCall answers one request: its result, or its JSON-RPC error.
@@ -131,9 +131,9 @@ func (s *Server) visionMCPRun(r *http.Request, image, prompt string) (string, er
 	ctx := context.WithValue(r.Context(), describeForKey{}, describeFor{call: &CallFor{Agent: callerOf(r).agent, Missing: VisionMissing(), MCP: true}})
 	var said string
 	if prompt == "" {
-		said, err = s.describe(ctx, model, src)
+		said, _, err = s.describe(ctx, model, src)
 	} else {
-		said, err = s.askVisionWith(ctx, model, src, visionAskSystem, prompt)
+		said, _, err = s.describeWith(ctx, model, src, visionAskSystem, prompt)
 	}
 	if err != nil {
 		if r.Context().Err() == nil {

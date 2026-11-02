@@ -1079,14 +1079,18 @@ func restingOf(c candidate) (Rest, bool) {
 // exhausted" for the moment it switched upstreams, and every request,
 // the agent's retry first, was answered from its 15-minute rest. A
 // subscription account isn't held so: its resets may be spent for it
-// (autoReset), and its windows are read again as it is planned.
+// (autoReset), and its windows are read again as it is planned. Nor is a
+// model of another computer's magpie (Rest.there): that magpie holds its
+// own rests, and the user may have changed what it serves since
+// (zaidu259434 on X: a group there moved off a spent vendor, and its
+// refusal was still given here until the time it named).
 func quotaHeld(cs []candidate) (Rest, time.Time, bool) {
 	var first Rest
 	var back time.Time
 	now := time.Now()
 	for i, c := range cs {
 		r, ok := restingOf(c)
-		if !ok || c.p.Account != nil || r.Why != failQuota && r.Why != failCredit || !quotaStatus(r.Status) || r.said == "" {
+		if !ok || c.p.Account != nil || r.there || r.Why != failQuota && r.Why != failCredit || !quotaStatus(r.Status) || r.said == "" {
 			return Rest{}, time.Time{}, false
 		}
 		at := r.asksAt(now)
@@ -1235,7 +1239,7 @@ func restOf(id string) (Rest, bool) {
 
 // quotaWords are how vendors say "out of quota" or "slow down" when their
 // status code doesn't: some answer 400 or 403 with it.
-var quotaWords = regexp.MustCompile(`(?i)quota|insufficient|balance|credit|billing|out of budget|budget (exceeded|exhausted)|exceeded|rate.?limit|usage.?limit|limit.?reached|hit your .*limit|limit.{0,24}resets|too many requests|overloaded|余额|额度|欠费|限流|频率|套餐|用量|上限`)
+var quotaWords = regexp.MustCompile(`(?i)quota|insufficient|balance|credit|billing|out of budget|budget (exceeded|exhausted)|exceeded|rate.?limit|usage.?limit|limit.?reached|hit your .*limit|limit.{0,24}resets|too many requests|overloaded|余额|额度|欠费|限流|频率|频繁|速率|套餐|用量|上限`)
 
 // quotaSaid is whether an error's words, with no status to go by, say
 // out of quota or slow down: quotaWords, unless they say the conversation
@@ -1631,10 +1635,38 @@ func passing(status int, header http.Header, body []byte, again int) (time.Durat
 		return wait, again < lastRetries
 	case status == 429:
 		// a relay's 429 often says nothing of when (#503: "负载已饱和，请稍
-		// 后再试"); a plan used up or no money left won't clear in seconds
-		return wait, again < rateRetries && failure(status, body) == failRate && !creditWords.Match(wordsOf(body))
+		// 后再试"); a plan used up or no money left won't clear in seconds,
+		// nor an account's token wall (walled)
+		return wait, again < rateRetries && failure(status, body) == failRate && !creditWords.Match(wordsOf(body)) && !walled(body)
 	}
 	return 0, false
+}
+
+// wallCodes are the error codes a vendor gives a 429 for an account's
+// own token throughput used up, a bucket that refills slowly over minutes
+// (plugins#512, cycocyco): SenseTime Raccoon's user_model_rate_limited,
+// "您的模型请求频率超限，请稍后重试", with no Retry-After. It reads as a
+// rate limit and rests as one, a minute and longer each time it comes
+// back (rateRest), but no moment clears it: the same-one retries and a
+// patience's rounds sent the whole request again eight times in 38s, each
+// one drawing on the bucket it waited for. The next account is asked, or
+// the agent has the error at once.
+var wallCodes = map[string]bool{"user_model_rate_limited": true}
+
+// walled says whether body is a refusal whose error.code is one of
+// wallCodes: the code where the vendor puts it, not the words anywhere in
+// the body (a prompt or a message quoting it).
+func walled(body []byte) bool {
+	var e struct {
+		Error struct {
+			Code json.RawMessage `json:"code"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &e) != nil {
+		return false
+	}
+	var code string
+	return json.Unmarshal(e.Error.Code, &code) == nil && wallCodes[code]
 }
 
 // withRoom is, of the candidates left, those another member than c's may
@@ -2233,10 +2265,15 @@ func (h *holdWriter) keptQuiet() bool {
 
 // refusesAfterThinking tells whether a model's vendor may end a reply that
 // has only reasoned with its safety filter's refusal: Claude's stop_reason
-// refusal, OpenAI's content_filter or bio_policy, Gemini's SAFETY (#248).
-// Anybody else's reasoning — GLM's, DeepSeek's, Kimi's… — is shown as it
-// comes: held, GLM on a ZCode account through a group showed Claude Code
-// its thinking only once the text began, all at once (悠悠哥 on Discord).
+// refusal, OpenAI's content_filter or bio_policy, Gemini's SAFETY (#248),
+// and DeepSeek's content_filter: deepseek-v4.1-flash on WorkBuddy reasoned
+// for 5s and then ended content_filter with nothing said (the plugin takes
+// out the filter's canned line), and with its reasoning let through the
+// group's next member was never asked and DeepSeek Harness failed "The
+// model refused to complete the request" (itspig, plugins #540).
+// Anybody else's reasoning — GLM's, Kimi's… — is shown as it comes: held,
+// GLM on a ZCode account through a group showed Claude Code its thinking
+// only once the text began, all at once (悠悠哥 on Discord).
 func refusesAfterThinking(model string) bool {
 	if modelFamily(model) != "" {
 		return true
@@ -2245,7 +2282,7 @@ func refusesAfterThinking(model string) bool {
 	if i := strings.LastIndex(m, "/"); i >= 0 {
 		m = m[i+1:]
 	}
-	return strings.HasPrefix(m, "gemini")
+	return strings.HasPrefix(m, "gemini") || strings.HasPrefix(m, "deepseek")
 }
 
 // scan reads the held stream's events so far: an error before any content
@@ -2925,6 +2962,12 @@ var filterReasons = map[string]string{
 	"IMAGE_SAFETY":            "safety",
 }
 
+// finishFailed is what a 200 stream the vendor ends with finish_reason
+// "error" (#2471) says of itself, in the failure the hold keeps: the turn
+// failed, as the word says, and the group's next member answers it, while
+// taken for content it reached the agent and the try stood as a success.
+const finishFailed = `the reply ended with finish_reason "error"`
+
 // refusedNote is what a refusal is noted as: the vendor's own reason.
 func refusedNote(reason string) string {
 	return "safety filter: " + reason
@@ -3220,6 +3263,14 @@ func streamEvent(ev []byte) (kind, status int, msg string) {
 			if c.FinishReason != nil {
 				if r, ok := filterReasons[*c.FinishReason]; ok {
 					return refusal(r)
+				}
+				if *c.FinishReason == "error" {
+					// WorkBuddy's and a DeepSeek harness's word for a turn
+					// it failed, not finished (#2471): the failure an error
+					// event is, held for the group's next candidate, where
+					// taken for content it went to the agent and the try
+					// stood as a success
+					return eventError, streamStatus(finishFailed), finishFailed
 				}
 				return eventContent, 0, ""
 			}

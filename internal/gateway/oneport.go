@@ -28,6 +28,9 @@ var clientPrefixes = []string{
 	"/models", "/chat/completions", "/responses", "/messages",
 	"/images", "/embeddings", "/rerank", "/audio", "/videos",
 	"/muse-code/models", CodexPath, AlphaSearchPath, "/mcp",
+	// the key page (KeyPagePath): a key's holder opens it at the address
+	// they give their agents
+	KeyPagePath,
 }
 
 // ClientPath: p is one of the gateway's client routes, which `magpie web`

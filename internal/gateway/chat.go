@@ -541,7 +541,7 @@ func buildChat(r *Request, model, host string, rejectTemp bool) []byte {
 		out["service_tier"] = r.Tier
 	}
 	if r.MaxTokens > 0 {
-		if strings.HasSuffix(host, "openai.com") {
+		if provider.OpenAIHost(host) {
 			out["max_completion_tokens"] = r.MaxTokens
 		} else {
 			out["max_tokens"] = r.MaxTokens

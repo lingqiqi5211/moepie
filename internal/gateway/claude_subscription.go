@@ -3146,10 +3146,18 @@ func renderCachedParts(blocks []map[string]any, text *strings.Builder, parts []P
 		case Image:
 			blocks = imageBlocks(blocks, text, p)
 		}
-		if cached && p.cache != "" {
+		// A client block ends its rendered block even without a mark of its
+		// own: the mark a client put on this position last round has moved
+		// on with the conversation's growth, and with the boundary merged
+		// into the next marked block Anthropic's prefix check — which looks
+		// back over block boundaries, not into them — finds the old write
+		// no more and the whole history is written again (#3835)
+		if cached && (p.cache != "" || p.block) {
 			blocks = closeBlocks(blocks, text)
 			text.Reset()
-			blocks[len(blocks)-1]["cache_control"] = cacheMark(p.cache)
+			if p.cache != "" {
+				blocks[len(blocks)-1]["cache_control"] = cacheMark(p.cache)
+			}
 		}
 	}
 	return blocks
@@ -4461,6 +4469,13 @@ func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request, from 
 	var err error
 	if name == "Claude Code" && wantsClientCache(r, from) {
 		req, err = parseAnthropicRequest(body, true)
+	} else if name == "Claude Code" && classifierClientCache(from, body) {
+		// the classifier never asked for its marks through magpie's
+		// header: a set the bridge can't keep (a TTL order Anthropic
+		// would refuse) goes the default way, as before, not refused
+		if req, err = parseAnthropicRequest(body, true); err != nil {
+			req, err = parse(from, body)
+		}
 	} else {
 		req, err = parse(from, body)
 	}

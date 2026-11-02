@@ -107,6 +107,8 @@ func TestTranslatedThinkingOffRefused(t *testing.T) {
 		// MiniMax's and Volcengine Ark's wordings (#1141)
 		`invalid params, model \"MiniMax-M3.1-Flash-Preview\" requires adaptive thinking; thinking.type=\"disabled\" (including reasoning.effort=none) is not allowed (2013)`,
 		"thinking.type `disabled` is not supported by this model Request id: 0217",
+		// Kimi Code's K3.1 (ZCode sends no thinking at all, #3739)
+		`Kimi Code (China): K3.1 Pro does not support disabled thinking mode. Please enable thinking and try again, or choose another model.`,
 		// Sub2API's gpt-6.1-sol reads disabled as reasoning effort none (#1465)
 		`gpt-6.1-sol does not support reasoning effort \"none\"; use low, medium, high, xhigh or max`,
 		// #699's Chinese, escaped as \uXXXX the way a relay's
@@ -148,5 +150,61 @@ func translatedThinkingOffRefused(t *testing.T, refusal string) {
 		if r := lastRoute(s); len(r.Tries) != 1 || r.Tries[0].Effort != "low" {
 			t.Errorf("turn %d: tries %+v, want it logged at low", turn+1, r.Tries)
 		}
+	}
+}
+
+// Kimi Code's K3.1 Pro refuses reasoning off on its Chat endpoint too, in
+// the words its Messages endpoint uses (#3739), with no levels named. A
+// Chat client's reasoning_effort none, relayed, and a Responses client's
+// effort none, translated to Chat, are asked again at the model's lowest,
+// and at it from the start after that; another 400 goes back as it came.
+func TestKimiChatThinkingOffRefused(t *testing.T) {
+	const refusal = `{"error":{"message":"Kimi Code (China): K3.1 Pro does not support disabled thinking mode. Please enable thinking and try again, or choose another model.","type":"invalid_request_error"}}`
+	for _, c := range []struct{ name, path, body string }{
+		{"relayed", "/v1/chat/completions", `{"model":"m1","stream":true,"messages":[{"role":"user","content":"hi"}],"reasoning_effort":"none"}`},
+		{"translated", "/v1/responses", `{"model":"m1","stream":true,"input":"hi","reasoning":{"effort":"none"}}`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var sent []string
+			f := &fake{t: t, reply: chatHi}
+			f.refuse = func(b []byte) (int, string) {
+				var v struct {
+					Effort string `json:"reasoning_effort"`
+				}
+				json.Unmarshal(b, &v)
+				sent = append(sent, v.Effort)
+				if v.Effort == "none" {
+					return 400, refusal
+				}
+				return 0, ""
+			}
+			setup(t, provider.Chat, f)
+			// Kimi Code's catalog gives its toggled models none
+			// (reasoningOffProviders), as models.dev lists K3.1 Pro
+			if err := provider.SetModelEfforts("fake/m1", []string{"none", "low", "high"}); err != nil {
+				t.Fatal(err)
+			}
+			s := New()
+			for turn, want := range []string{"none,low", "low"} {
+				sent = nil
+				rec := httptest.NewRecorder()
+				s.Handler().ServeHTTP(rec, httptest.NewRequest("POST", c.path, strings.NewReader(c.body)))
+				if rec.Code != 200 {
+					t.Fatalf("turn %d: %d %s", turn+1, rec.Code, rec.Body)
+				}
+				if strings.Join(sent, ",") != want {
+					t.Errorf("turn %d: reasoning_effort sent %v, want %s", turn+1, sent, want)
+				}
+			}
+			f.refuse = func([]byte) (int, string) {
+				return 400, `{"error":{"message":"Kimi Code (China): max_tokens is too large","type":"invalid_request_error"}}`
+			}
+			f.calls = 0
+			rec := httptest.NewRecorder()
+			s.Handler().ServeHTTP(rec, httptest.NewRequest("POST", c.path, strings.NewReader(c.body)))
+			if rec.Code != 400 || f.calls != 1 {
+				t.Errorf("another 400: %d after %d calls", rec.Code, f.calls)
+			}
+		})
 	}
 }

@@ -243,6 +243,7 @@ func (s *Server) probed(key string, until time.Time, err error, now time.Time) {
 	delete(restProbes.m, key)
 	restingUntil.Lock()
 	lifted := restingUntil.m[key].Equal(until)
+	ladder := lifted && ladderRest(restingUntil.note[key])
 	if lifted {
 		delete(restingUntil.m, key)
 		delete(restingUntil.note, key)
@@ -251,6 +252,9 @@ func (s *Server) probed(key string, until time.Time, err error, now time.Time) {
 	}
 	restingUntil.Unlock()
 	restProbes.Unlock()
+	if ladder {
+		saveRests()
+	}
 	if lifted {
 		log.Printf("gateway: %s answered again; its rest is lifted", key)
 		unsink(key)

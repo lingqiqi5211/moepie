@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"slices"
 
@@ -156,12 +157,53 @@ func gatewayQuery(req *Request) string {
 // gatewayOrigin exposes provenance, never credentials or peer addresses.
 // Forwarded traffic remains remote even when the administrator trusts its
 // proxy for authentication: that trust does not establish conversation ownership.
+//
+// The sharing key magpie made itself is "magpie-key" only when it comes
+// from this computer (ownComputer): that is where magpie writes it into
+// the owner's own agents. The same key is listed under Gateway keys with
+// a Copy button and offered to connect other computers, so it can be in a
+// friend's hands too, and from anywhere else it stays "gateway-key", as
+// every other gateway key does — one the owner made for someone else, a
+// value a user brought, or one that didn't authenticate. A plugin can then
+// serve the owner's own agents without serving a friend's key
+// (plugins#526). Plugins that trust only "local" see both as not local.
 func gatewayOrigin(r *http.Request) string {
-	if access.Caller(r.Context()).KeyID != "" || managedKey(r) {
+	if who := access.Caller(r.Context()); who.KeyID != "" && who.Default && ownComputer(r) {
+		return "magpie-key"
+	} else if who.KeyID != "" || managedKey(r) {
 		return "gateway-key"
 	}
-	if local(r) && !slices.ContainsFunc(forwardHeaders, func(h string) bool { return r.Header.Get(h) != "" }) {
+	if local(r) && !forwarded(r) {
 		return "local"
 	}
 	return "remote"
+}
+
+func forwarded(r *http.Request) bool {
+	return slices.ContainsFunc(forwardHeaders, func(h string) bool { return r.Header.Get(h) != "" })
+}
+
+// ownComputer: r's connection was made on this computer, where magpie
+// writes the sharing key into agents (agent.keyAt): loopback (a WSL
+// distro on the WSL network is mapped to it by lanGuard), one of this
+// computer's own addresses (an agent calling MAGPIE_ADDR beyond loopback),
+// or a WSL distro's address under NAT calling this computer's network
+// address. Never a request with forwarding headers, a trusted proxy's
+// included, nor one through magpie web's page port.
+func ownComputer(r *http.Request) bool {
+	if forwarded(r) || viaPagePort(r) {
+		return false
+	}
+	if local(r) {
+		return true
+	}
+	a, ok := peerAddr(r)
+	if !ok {
+		return false
+	}
+	if ownAddr(a) {
+		return true
+	}
+	ip := net.IP(a.AsSlice())
+	return slices.ContainsFunc(WSLNets(), func(n *net.IPNet) bool { return n.Contains(ip) })
 }

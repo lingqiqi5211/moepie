@@ -96,6 +96,14 @@ func searchFor(ctx context.Context) *CallFor {
 	return f
 }
 
+// magpieSearches is whether magpie answers a client's web search for p
+// though p searches the web by itself: Settings' SearchAll, while magpie
+// can search for it. Never for magpie's own searcher request, which is
+// the provider's search.
+func magpieSearches(ctx context.Context, p provider.Provider) bool {
+	return !searching(ctx) && settings.Load().SearchAll && canSearchFor(p)
+}
+
 // searchesItself says whether the provider searches the web by itself when
 // asked on this API.
 func searchesItself(p provider.Provider, proto provider.Protocol) bool {
@@ -245,13 +253,14 @@ func partSearcher(p provider.Provider) bool {
 }
 
 // searchHosts are the APIs that search by themselves: OpenAI's, xAI's,
-// DeepSeek's, Zhipu's and Z.ai's web_search tool (Zhipu's on its Responses
-// API only, DeepSeek's on its Responses and Anthropic APIs: their Chat APIs
-// have no such tool), Anthropic's web_search_20250305 (DeepSeek's Anthropic
+// DeepSeek's, Zhipu's, Z.ai's and Volcengine Ark's web_search tool
+// (Zhipu's and Ark's on their Responses APIs only, DeepSeek's on its
+// Responses and Anthropic APIs: their Chat APIs have no such tool; Ark's
+// in the shape forArkSearch gives it), Anthropic's web_search_20250305 (DeepSeek's Anthropic
 // API runs it too, answering web_search_tool_result blocks, #669),
 // OpenRouter's web plugin, Gemini's googleSearch.
 var searchHosts = map[provider.Protocol][]string{
-	provider.Responses: {"api.openai.com", "api.x.ai", "api.deepseek.com", "open.bigmodel.cn", "api.z.ai"},
+	provider.Responses: {"api.openai.com", "api.x.ai", "api.deepseek.com", "open.bigmodel.cn", "api.z.ai", arkHost},
 	provider.Anthropic: {"api.anthropic.com", "api.deepseek.com"},
 	provider.Chat:      {"openrouter.ai"},
 	provider.Gemini:    {"generativelanguage.googleapis.com"},
@@ -274,8 +283,8 @@ func searchAsked(proto provider.Protocol, body []byte) bool {
 // that doesn't search by itself. What is known of the provider is asked
 // first: Codex offers web_search on every turn, and each relayed turn was
 // parsed whole to learn it, for a provider that searches by itself.
-func searchedForIt(p provider.Provider, from provider.Protocol, model string, body []byte) bool {
-	return (from == provider.Chat && !p.IsRemoteMagpie() || !searchesModel(p, from, model)) && searchAsked(from, body)
+func searchedForIt(ctx context.Context, p provider.Provider, from provider.Protocol, model string, body []byte) bool {
+	return (from == provider.Chat && !p.IsRemoteMagpie() || !searchesModel(p, from, model) || magpieSearches(ctx, p)) && searchAsked(from, body)
 }
 
 // searcher is the model magpie searches with: the one Settings names, while

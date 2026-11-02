@@ -57,6 +57,28 @@ func TestHeadersCarryTheSession(t *testing.T) {
 	}
 }
 
+// ${subagentId} in a header is the Claude Code subagent the request is
+// of, as in extraBody (yetone/magpie#2937): "" on the conversation's own
+// turns, never the literal.
+func TestHeadersCarryTheSubagent(t *testing.T) {
+	f := &fake{t: t, reply: responsesReply, ctype: "application/json"}
+	setup(t, provider.Responses, f)
+	withHeaders(t, "fake", map[string]string{"X-Route": "${sessionId}/${subagentId}"})
+	for agent, want := range map[string]string{"": "sess-1/", "worker-a": "sess-1/worker-a"} {
+		head := map[string]string{"x-claude-code-session-id": "sess-1"}
+		if agent != "" {
+			head["x-claude-code-agent-id"] = agent
+		}
+		code, body := postWith(t, "/v1/responses", `{"model":"m1","input":"hi"}`, head)
+		if code != 200 {
+			t.Fatalf("status %d: %s", code, body)
+		}
+		if got := f.head.Get("X-Route"); got != want {
+			t.Errorf("agent %q: X-Route %q, want %q", agent, got, want)
+		}
+	}
+}
+
 // Without a session header, the header's id is the one extraBody gets:
 // derived from the first user message, the same every turn, never the
 // literal.

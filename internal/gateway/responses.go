@@ -486,6 +486,17 @@ func readResponsesFor(body []byte, facts, keepInstructions bool) (*Request, erro
 				if part.Text != "" || part.Sealed != nil || part.Signature != "" {
 					r.Messages = append(r.Messages, Message{Role: "assistant", Parts: []Part{part}})
 				}
+			case it.Type == "web_search_call" && it.Action != nil && strings.TrimSpace(it.Action.Query) != "":
+				// where a search ran in the turn: magpie's own search round
+				// for a Claude reply is put back (searchRoundsBack), and
+				// otherwise it goes, as before
+				var hits []Hit
+				for _, s := range it.Action.Sources {
+					if s.URL != "" {
+						hits = append(hits, Hit{URL: s.URL})
+					}
+				}
+				r.Messages = append(r.Messages, Message{Role: "assistant", Parts: []Part{{Kind: Search, ID: it.ID, Text: it.Action.Query, Hits: hits}}})
 			}
 		}
 	}
@@ -588,7 +599,77 @@ func readResponsesFor(body []byte, facts, keepInstructions bool) (*Request, erro
 			}
 		}
 	}
+	r.Messages = searchRoundsBack(r.Messages, searchTool(r.Tools).Name)
 	return r, nil
+}
+
+// searchRoundsBack puts back the search rounds magpie ran for a Claude
+// reply (searchRounds), which its client keeps only as web_search_call
+// items. Claude wrote the thinking before a search in a message that
+// ended with magpie's web_search call, and what it wrote after the
+// result in a message of its own; told as one message, the thinking
+// blocks of the latest assistant message aren't where Claude wrote them,
+// and an upstream that checks them refuses the turn: Claude on Bedrock
+// answered 400 "thinking or redacted_thinking blocks in the latest
+// assistant message cannot be modified", and Codex retried it until the
+// stream gave up (oreoft on Discord). An assistant message with Claude's
+// signed thinking is split at each search into the call and its result,
+// the query and the pages found, as what the search said was never kept.
+// A search with no Claude thinking beside it is left out, as before.
+func searchRoundsBack(msgs []Message, name string) []Message {
+	if !slices.ContainsFunc(msgs, func(m Message) bool { return slices.ContainsFunc(m.Parts, isSearch) }) {
+		return msgs
+	}
+	out := make([]Message, 0, len(msgs))
+	n := 0
+	for _, m := range msgs {
+		if !slices.ContainsFunc(m.Parts, isSearch) {
+			out = append(out, m)
+			continue
+		}
+		if m.Role != "assistant" || !slices.ContainsFunc(m.Parts, claudeSigned) {
+			m.Parts = slices.DeleteFunc(slices.Clone(m.Parts), isSearch)
+			if len(m.Parts) > 0 {
+				out = append(out, m)
+			}
+			continue
+		}
+		var cur []Part
+		for _, p := range m.Parts {
+			if !isSearch(p) {
+				cur = append(cur, p)
+				continue
+			}
+			n++
+			id := p.ID
+			if id == "" {
+				id = fmt.Sprintf("call_search_back_%d", n)
+			}
+			args, _ := json.Marshal(map[string]string{"query": p.Text})
+			result := "Searched the web for: " + p.Text
+			if len(p.Hits) > 0 {
+				result += "\nPages found:"
+				for _, h := range p.Hits {
+					result += "\n- " + h.URL
+				}
+			}
+			cur = append(cur, Part{Kind: ToolCall, ID: id, Name: name, Args: args})
+			out = append(out, Message{Role: "assistant", Parts: cur},
+				Message{Role: "user", Parts: []Part{{Kind: ToolResult, CallID: id, Text: result}}})
+			cur = nil
+		}
+		if len(cur) > 0 {
+			out = append(out, Message{Role: "assistant", Parts: cur})
+		}
+	}
+	return mergeTurns(out)
+}
+
+func isSearch(p Part) bool { return p.Kind == Search }
+
+// claudeSigned is thinking Claude signed, or its redacted_thinking.
+func claudeSigned(p Part) bool {
+	return p.Kind == Thinking && (p.SignedBy == sealAnthropic && p.Signature != "" || p.sealedBy(sealAnthropic))
 }
 
 // toolCallItem is a Responses input item that makes a tool call, and
@@ -883,6 +964,55 @@ func pairToolItems(body []byte) []byte {
 			out = append(out, synthetic...)
 			synthetic = nil
 		}
+	}
+	if len(out) == len(input) {
+		return body
+	}
+	q["input"], _ = marshalPlain(out)
+	encoded, err := marshalPlain(q)
+	if err != nil {
+		return body
+	}
+	return encoded
+}
+
+// withoutSearchCalls is a Responses request with its input's
+// web_search_call items left out, for a relay to a provider that doesn't
+// run web search itself (relaySearchCalls). Such a provider turns the
+// request into chat for its model, and a web_search_call becomes an
+// assistant tool call that no tool message answers: Command Code's
+// Provider API answered Codex's summary request for a thread that had
+// searched (52 function calls and their outputs, 8 web searches magpie
+// ran for the model) 400 "An assistant message with 'tool_calls' must be
+// followed by tool messages responding to each 'tool_call_id'"
+// (mxmllln on Discord, deepseek-v4-flash-vision-exp). A turn offering
+// web_search is translated for magpie's search and leaves them out there
+// already (searchedForIt, searchRoundsBack); a request with no web_search
+// offered — Codex's compaction, magpie's summary request, a turn with
+// search off — was relayed with them. The item holds the query and the
+// pages, never what they said, and the reply after it says what was
+// found, so nothing the model read is lost.
+func withoutSearchCalls(body []byte) []byte {
+	if !bytes.Contains(body, []byte(`"web_search_call"`)) {
+		return body
+	}
+	var q map[string]json.RawMessage
+	if decodeJSONView(body, &q) != nil {
+		return body
+	}
+	input, isList := inputList(q["input"])
+	if !isList {
+		return body
+	}
+	out := make([]json.RawMessage, 0, len(input))
+	for _, raw := range input {
+		var it struct {
+			Type string `json:"type"`
+		}
+		if decodeJSONView(raw, &it) == nil && it.Type == "web_search_call" {
+			continue
+		}
+		out = append(out, raw)
 	}
 	if len(out) == len(input) {
 		return body
