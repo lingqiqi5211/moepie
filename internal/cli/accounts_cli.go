@@ -17,6 +17,7 @@ import (
 	"github.com/yetone/magpie/internal/agent"
 	"github.com/yetone/magpie/internal/proc"
 	"github.com/yetone/magpie/internal/provider"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // accountsCmd: `magpie accounts [agent] [--json]`, `magpie accounts add <agent>`,
@@ -218,6 +219,12 @@ func accountsCmd(args []string) error {
 			fmt.Println(green.Render("✓"), "magpie now uses", args[3], "for", id)
 			return nil
 		}
+		if id == "codex" && provider.CodexNoAccount != nil && provider.CodexNoAccount() {
+			// Codex's provider takes no ChatGPT account: nothing running
+			// goes by it, and nothing needs a restart
+			fmt.Println(green.Render("✓"), id, "is now signed in as", args[3], muted.Render("· Codex's provider takes no ChatGPT account, so nothing needs restarting"))
+			return nil
+		}
 		fmt.Println(green.Render("✓"), id, "is now signed in as", args[3], muted.Render("· sessions already running keep their account until restarted"))
 		if id == "codex" {
 			if was := provider.CodexDaemonStale(); was != "" {
@@ -358,7 +365,7 @@ func accountRows(ls []provider.Login, now time.Time) []accountRow {
 	for _, l := range ls {
 		r := accountRow{Agent: l.Agent, User: l.User, Plan: l.Plan, Active: l.Active, On: l.On, Windows: []quotaSpan{}, Lapsed: l.Lapsed}
 		r.Seat = provider.SeatNameOf(l.Agent, l.User)
-		r.Alias = cmp.Or(provider.AccountNameOf(l.Agent, l.User), r.Seat)
+		r.Alias = cmp.Or(provider.AccountLabelOf(l.Agent, l.User), r.Seat)
 		for user, q := range usage[l.Agent] {
 			if !strings.EqualFold(user, l.User) {
 				continue
@@ -480,12 +487,20 @@ func addAccount(agentID string) error {
 			return fmt.Errorf("sign-in didn't finish: %s", st.Error)
 		}
 	}
-	fmt.Println("Finish signing in in your browser. If it didn't open, go to:")
+	linkOnly := settings.Load().SignInLinkOnly
+	if linkOnly {
+		// the user keeps sign-in pages to a browser of their own
+		fmt.Println("Open this link in the browser you sign in with:")
+	} else {
+		fmt.Println("Finish signing in in your browser. If it didn't open, go to:")
+	}
 	fmt.Println(faint.Render(st.URL))
 	if st.Code != "" {
 		fmt.Println("and confirm the code", st.Code)
 	}
-	openInBrowser(st.URL)
+	if !linkOnly {
+		openInBrowser(st.URL)
+	}
 	ctx, stop := interruptContext()
 	defer stop()
 	if st.PasteCallback || st.PasteCode {

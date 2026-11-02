@@ -56,6 +56,16 @@ type Server struct {
 	// a sync never carries it, and one coming in neither takes it away nor
 	// puts another computer's of that name in its place (carry.go).
 	Local bool `json:"local,omitempty"`
+	// Plugin is the plugin (plugin.Name) whose tools the server is: the
+	// gateway serves them at its URL, and the hub calls the plugin itself
+	// (plugin_tools.go)
+	Plugin string `json:"plugin,omitempty"`
+	// Hub is how the MCP hub (Library.MCPHub) gives the server: "" shares
+	// it through the hub's one entry, as every server was before;
+	// HubDirect keeps it the agents' own entry, written as with the hub
+	// off, for a server that reads its project from the folder it is
+	// started in, or keeps a session's state (#4382, cuipengcx90).
+	Hub string `json:"hub,omitempty"`
 
 	// startupWrote is the startup_timeout_sec magpie last wrote in the
 	// entry being written, 0 for none: one the entry has otherwise is the
@@ -113,6 +123,13 @@ func (s *Server) check() error {
 		s.Command, s.Args, s.Env = "", nil, nil
 	default:
 		return fmt.Errorf("%s: unknown transport %q", s.Name, s.Transport)
+	}
+	switch s.Hub {
+	case "", "shared":
+		s.Hub = ""
+	case HubDirect:
+	default:
+		return fmt.Errorf("%s: unknown hub policy %q: shared or direct", s.Name, s.Hub)
 	}
 	// magpie signs in only to a streamable HTTP server
 	if s.Transport != "http" {

@@ -55,6 +55,9 @@ type Library struct {
 	// which hands each call on to the library's servers ticked for it, in
 	// place of their own entries (#2679, mcp_hub.go)
 	MCPHub bool `json:"mcpHub,omitempty"`
+	// PluginsOffered are the plugins (plugin.Name) given a server of their
+	// tools, for one the user removed not to come back (plugin_tools.go)
+	PluginsOffered []string `json:"pluginsOffered,omitempty"`
 	// SeenSkills are, by repository and ref ("owner/repo@ref"), the
 	// folders of skills there the page has offered: picked or not at
 	// install, or set aside after a check. A check offers only the others

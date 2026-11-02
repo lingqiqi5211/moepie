@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/yetone/magpie/internal/proc"
 )
 
 // WindowSpec is what a plugin adds to magpie's window: its page
@@ -297,7 +299,11 @@ func htmlInside(dir, rel string) (string, bool) {
 }
 
 // inside is rel joined to dir, if that stays inside dir: no "..", no
-// absolute path, and no symbolic link out of it.
+// absolute path, and no link out of it. Both sides are resolved with
+// proc.RealPath, which follows a Windows junction as well as a symlink:
+// filepath.EvalSymlinks gives up on a path through a junction since Go
+// 1.23, and a config dir under Scoop's persist junction lost every page
+// (#4265).
 func inside(dir, rel string) (string, bool) {
 	rel = strings.TrimSpace(rel)
 	if rel == "" || filepath.IsAbs(rel) || strings.HasPrefix(rel, "/") || strings.Contains(rel, `\`) {
@@ -308,11 +314,11 @@ func inside(dir, rel string) (string, bool) {
 		return "", false
 	}
 	full := filepath.Join(dir, clean)
-	realDir, err := filepath.EvalSymlinks(dir)
+	realDir, err := proc.RealPath(dir)
 	if err != nil {
 		return "", false
 	}
-	real, err := filepath.EvalSymlinks(full)
+	real, err := proc.RealPath(full)
 	if err != nil {
 		return "", false
 	}

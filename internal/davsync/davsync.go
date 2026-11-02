@@ -828,12 +828,18 @@ func hashes(b backup.Bundle) map[string]string {
 	if b.Plugins != nil && len(*b.Plugins) > 0 { // as before them, without one
 		providers = append(providers, map[string][]plugin.Entry{"plugins": *b.Plugins})
 	}
+	lib := b.Library
+	if lib != nil && lib.Subagents != nil && len(*lib.Subagents) == 0 { // as before them, without one
+		c := *lib
+		c.Subagents = nil
+		lib = &c
+	}
 	return map[string]string{
 		"providers": h(providers),
 		"settings":  settingsHash,
 		"profiles":  h(orEmpty(b.Profiles)),
 		"agents":    h(orEmpty(b.Agents)),
-		"library":   h(b.Library),
+		"library":   h(lib),
 	}
 }
 

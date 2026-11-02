@@ -3,6 +3,7 @@ package library
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"slices"
 
@@ -137,6 +138,10 @@ func syncSteps(all, gone []*Target, b *backups, res *Result) []func(*Library) {
 // first operations after opening magpie took seconds (#1624, Hipple).
 // It lets go after each agent's part, for whatever waits to go first.
 func Sync() (*Result, error) {
+	// a plugin's tools, a server of their own (plugin_tools.go)
+	if _, err := adoptPluginTools(); err != nil {
+		log.Printf("library: giving plugin tools a server: %v", err)
+	}
 	res := &Result{Changed: []string{}, Problems: []Problem{}}
 	b := newBackups()
 	var all, gone []*Target
@@ -236,11 +241,11 @@ func (l *Library) syncMCP(t *Target, b *backups, res *Result) {
 		// nor is a gone agent given the hub anew
 		hub = nil
 		if l.MCPHub && slices.Contains(a.MCP, HubEntry) && l.server(HubEntry) == nil &&
-			slices.ContainsFunc(l.MCP, func(s *Server) bool { return slices.Contains(s.Agents, id) && inHub(s) }) {
+			slices.ContainsFunc(l.MCP, func(s *Server) bool { return slices.Contains(s.Agents, id) && inHub(s, id) }) {
 			hub = hubServerFor(t)
 		}
 	}
-	hubbed := func(s *Server) bool { return hub != nil && inHub(s) }
+	hubbed := func(s *Server) bool { return hub != nil && inHub(s, id) }
 	var mine []string
 	for _, name := range a.MCP {
 		if s := l.server(name); s != nil && slices.Contains(s.Agents, id) && t.MCP.supports(s) == nil && !hubbed(s) {
@@ -292,7 +297,9 @@ func (l *Library) syncMCP(t *Target, b *backups, res *Result) {
 		if !t.MCP.WSL {
 			s = npxDirect(s)
 		}
-		if run {
+		// a server the user keeps direct is started by Codex itself, in
+		// the thread's folder (#4382): magpie would start it from home
+		if run && s.Hub != HubDirect {
 			if via, spec, ok := runVia(s, base); ok {
 				if res.run == nil {
 					res.run = map[string]runSpec{}
@@ -524,10 +531,22 @@ func readView(problems []Problem, glance bool) (*View, error) {
 	if err != nil {
 		return nil, err
 	}
+	// a plugin's tools, a server of their own (plugin_tools.go): saved,
+	// and given to the agents by a sync of their own
+	if l.adoptPlugins() {
+		if err := l.save(); err != nil {
+			return nil, err
+		}
+		go func() {
+			if _, err := Sync(); err != nil {
+				log.Printf("library: syncing after plugin tools: %v", err)
+			}
+		}()
+	}
 	// the agents are found once for the whole read: finding them looks
 	// through every agent's folders, in WSL too (#1624)
 	targets, asleep := targetsAsleep(false)
-	v := &View{Agents: []AgentView{}, Servers: []ServerView{}, Skills: []SkillView{}, FoundSkills: []FoundSkill{}, Instructions: l.instructionsView(targets), Dir: Dir(), Backups: BackupDir(), CopySkills: l.CopySkills, MCPHub: l.MCPHub, HubPath: gateway.HubMCPPath, Partial: glance}
+	v := &View{Agents: []AgentView{}, Servers: []ServerView{}, Skills: []SkillView{}, FoundSkills: []FoundSkill{}, Instructions: l.instructionsView(targets, asleep), Dir: Dir(), Backups: BackupDir(), CopySkills: l.CopySkills, MCPHub: l.MCPHub, HubPath: gateway.HubMCPPath, Partial: glance}
 	for _, t := range targets {
 		av := AgentView{ID: t.Agent.ID, Name: t.Agent.Name, Icon: t.Agent.Icon, Instructions: t.Instructions, Skills: t.Skills,
 			SkillsAlso: t.SkillsAlso, Note: t.Note, MCPVia: t.MCPVia, ProjectSkills: ProjectSkillsDir(t.Agent.ID), ProjectMCP: ProjectMCPFile(t.Agent.ID),
@@ -614,8 +633,8 @@ func readView(problems []Problem, glance bool) (*View, error) {
 		}
 		v.Servers = append(v.Servers, sv)
 	}
-	v.Hooks, v.HookAgents = l.hooksView(append(slices.Clone(targets), gone...), of)
-	v.Subagents, v.SubagentAgents = l.subagentsView(targets, of)
+	v.Hooks, v.HookAgents = l.hooksView(append(slices.Clone(targets), gone...), asleep, of)
+	v.Subagents, v.SubagentAgents = l.subagentsView(targets, asleep, of)
 	tr := &tracer{}
 	for _, s := range l.Skills {
 		sv := SkillView{Name: s.Name, Agents: append([]string{}, s.Agents...), Icon: skillIcon(s), Problems: of("skill:" + s.Name), Repo: tr.repoOf(s), OffHere: s.OffHere}
@@ -706,6 +725,10 @@ func SaveServer(old string, s Server) (*Result, error) {
 			// the tools turned off stay, the editor not sending them
 			if s.DisabledTools == nil {
 				s.DisabledTools = l.MCP[i].DisabledTools
+			}
+			// a plugin's server stays the plugin's, and on this computer
+			if p := l.MCP[i].Plugin; p != "" && s.Plugin == "" {
+				s.Plugin, s.Local = p, true
 			}
 			l.MCP = slices.Delete(l.MCP, i, i+1)
 			if old != s.Name {

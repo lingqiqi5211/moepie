@@ -48,6 +48,15 @@ func relaysAny() bool {
 // given it. Only a streamable HTTP server is relayed: an SSE one's stream
 // names the address to post to, which would have to be rewritten.
 func through(s *Server, base string) *Server {
+	if s.Plugin != "" {
+		// a plugin's tools, which the gateway serves itself
+		c := *s
+		c.URL = pluginURL(base, s.Plugin)
+		if k := agent.KeyAt(base); k != gateway.Token {
+			c.Headers = map[string]string{"Authorization": "Bearer " + k}
+		}
+		return &c
+	}
 	if s.Transport != "http" || !mcpauth.SignedIn(s.Name, s.URL) {
 		return s
 	}
