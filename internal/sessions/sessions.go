@@ -137,6 +137,11 @@ type Session struct {
 	Unpriced int     `json:"unpriced"` // models that spent tokens but have no known price
 	Resume   string  `json:"resume"`   // the command that picks the session up again
 	Path     string  `json:"path"`     // its (main) file
+	// App is the agent the session ran in when it isn't the one whose files
+	// hold it: claude-desktop for a Claude Code session Claude Desktop's Code
+	// tab ran (its entrypoint, desktopEntrypoint). Usage counts the session
+	// under App; the key, resume and transcript stay Agent's.
+	App string `json:"app,omitempty"`
 	// Carry are the other agents that can carry the session on, reading its
 	// file as it is (carry.go)
 	Carry []Carry `json:"carry,omitempty"`
@@ -184,6 +189,8 @@ const All = 5000
 
 // state is what one file's parse has come to, enough to read on from Off.
 type state struct {
+	// the agent whose file it is, for its parseVersions
+	Agent                 string            `json:"agent,omitempty"`
 	Codex                 *codexUsageState  `json:"-"`
 	Claude                *claudeUsageState `json:"claude,omitempty"`
 	DBRevision            string            `json:"db_revision,omitempty"`
@@ -213,6 +220,9 @@ type state struct {
 	// Days is Models again, split by the local date each message was
 	// written on: a session that runs past midnight counts on both days.
 	Days named[*day] `json:"days,omitempty"`
+	// Claude Code: the entrypoint its first line naming one says, which
+	// tells a session Claude Desktop's Code tab ran (desktopEntrypoint)
+	Entry string `json:"entry,omitempty"`
 	// Claude Code: the message last counted, whose later lines repeat it,
 	// and the day it was counted on
 	Msg      string `json:"msg,omitempty"`
@@ -1046,11 +1056,23 @@ func CachePath() string { return filepath.Join(filepath.Dir(catalog.CachePath())
 // 26: Grok Build's tool calls and skills.
 // 27: Factory Droid's skills (its Skill tool and /<name> prompts).
 // 28: OpenCode 2's, Cline's and dsh's tool calls and skills.
-const cacheVersion = 28
+// 29: Claude Code's entrypoint (Entry), Desktop's Code tab apart.
+//
+// A change to how one agent's files are read raises that agent's
+// parseVersions instead: a raise of cacheVersion reads every file of every
+// agent again, minutes of CPU for a long history after each update (#2278).
+const cacheVersion = 29
+
+// parseVersions is cacheVersion for one agent's parses, 0 when not listed:
+// raised, the parses of that agent's files kept by an older magpie are read
+// again, and the rest stand.
+var parseVersions = map[string]int{}
 
 type cacheFile struct {
-	Version int               `json:"version"`
-	Zone    string            `json:"zone"` // the time zone its days are dates in
+	Version int    `json:"version"`
+	Zone    string `json:"zone"` // the time zone its days are dates in
+	// Parsers is parseVersions as the parses were made
+	Parsers map[string]int    `json:"parsers,omitempty"`
 	Files   map[string]*state `json:"files"`
 }
 
@@ -1086,7 +1108,7 @@ func loadCache() {
 // row are folded into the latest, and one is written saveGap after the
 // last at the soonest.
 func saveCache() {
-	snap := save{cacheFile{Version: cacheVersion, Zone: zone(), Files: savable()}, CachePath()}
+	snap := save{cacheFile{Version: cacheVersion, Zone: zone(), Parsers: parseVersions, Files: savable()}, CachePath()}
 	saving.Lock()
 	defer saving.Unlock()
 	saving.next = &snap
@@ -1211,6 +1233,7 @@ func writeCache(c *save) {
 func refresh(want, all []file) {
 	defer func() { trimSummaryRevisions(time.Now()) }()
 	var todo, waits []file
+	named := false
 	for _, f := range want {
 		if f.cold {
 			continue // in a stopped WSL distro: what was read of it stands
@@ -1230,6 +1253,13 @@ func refresh(want, all []file) {
 			// publish closed a nil channel (#2932)
 			parsing[f.path] = make(chan struct{})
 			todo = append(todo, f)
+		} else if s.Agent != f.agent && parsing[f.path] == nil {
+			// kept by a magpie that didn't name the agent: named now, so
+			// a raise of another agent's parseVersions keeps it
+			n := *s
+			n.Agent = f.agent
+			cache[f.path] = &n
+			named = true
 		}
 	}
 	if len(waits) > 0 {
@@ -1251,7 +1281,7 @@ func refresh(want, all []file) {
 	}
 	trimSummaryRevisions(time.Now())
 	if len(todo) == 0 {
-		if gone {
+		if gone || named {
 			saveCache()
 		}
 		return
@@ -1298,6 +1328,11 @@ func refresh(want, all []file) {
 				j.parsed = parseWith(j.f, j.old, calls)
 				end()
 				release()
+				if j.parsed.Agent != j.f.agent {
+					n := *j.parsed // a parser may hand back old, which readers hold
+					n.Agent = j.f.agent
+					j.parsed = &n
+				}
 				if (j.parsed.Claude != nil && !windows[j.f.path]) || (j.parsed.Claude == nil && !recentRevision(j.parsed.Mod, j.parsed.revisionWeight(), time.Now())) {
 					j.parsed = j.parsed.withoutRevisions()
 				}
@@ -1675,6 +1710,9 @@ func assembleListed(fs []file, price func(string) *catalog.Price, codexTitle fun
 			if first == "" {
 				first = st.First
 			}
+			if s.Agent == "claude" && s.App == "" && desktopEntrypoint(st.Entry) {
+				s.App = "claude-desktop"
+			}
 			s.Convs = append(s.Convs, st.Convs...)
 		}
 		if s.Agent == "codex" && st.CodexNickname != "" {
@@ -1786,9 +1824,11 @@ func parse(f file, old *state) *state { return parseWith(f, old, nil) }
 // parseWith is parse with calls, when not nil, reading the file's calls on
 // the same pass.
 func parseWith(f file, old *state, calls *callsRide) *state {
-	if calls != nil {
-		defer calls.release()
-	}
+	defer func() {
+		if calls != nil {
+			calls.release()
+		}
+	}()
 	// Summary caches contain aggregates only. After a restart, a changed
 	// Codex file rebuilds its transient response index from the source.
 	if f.agent == "codex" && old != nil && old.Codex == nil {
@@ -1823,6 +1863,10 @@ func parseWith(f file, old *state, calls *callsRide) *state {
 	line := func(b []byte, _, _ int64) bool {
 		parser.line(s, b, f.main)
 		return true
+	}
+	if calls != nil && s.Off != 0 {
+		calls.release() // the summary reads on from where it was
+		calls = nil
 	}
 	if calls != nil {
 		head, line = calls.ride(head, line)
@@ -2241,6 +2285,40 @@ func (z *zstdFile) Close() error {
 	return z.f.Close()
 }
 
+// lastIndex is bytes.LastIndex(b, key), found going forward. LastIndex
+// goes back a byte at a time (Rabin-Karp), and over Claude Code's lines,
+// one holding a tool's whole output, it was ~8 s of a first start's CPU
+// on a 14 GB history (#2278); Index skips ahead with the CPU's vector
+// instructions. The line's tail is looked at first, where Claude Code
+// writes the timestamp.
+func lastIndex(b, key []byte) int {
+	const tail = 1 << 10
+	if len(key) == 0 {
+		return len(b)
+	}
+	if len(b) > tail {
+		if i := forwardLast(b[len(b)-tail:], key); i >= 0 {
+			return len(b) - tail + i
+		}
+	}
+	return forwardLast(b, key)
+}
+
+// forwardLast is the last key in b, found by Index from each one before;
+// even a 1 KB tail took LastIndex ~1 µs.
+func forwardLast(b, key []byte) int {
+	last := -1
+	for off := 0; off < len(b); {
+		i := bytes.Index(b[off:], key)
+		if i < 0 {
+			break
+		}
+		last = off + i
+		off = last + 1
+	}
+	return last
+}
+
 // tsAt reads the time of a line from its first (or last) "timestamp" key,
 // without decoding the rest of it.
 func tsAt(b []byte, last bool) time.Time {
@@ -2248,7 +2326,7 @@ func tsAt(b []byte, last bool) time.Time {
 	// Search only the requested end; the last timestamp is the line's own.
 	var i int
 	if last {
-		i = bytes.LastIndex(b, key)
+		i = lastIndex(b, key)
 	} else {
 		i = bytes.Index(b, key)
 	}
@@ -2317,7 +2395,11 @@ func priceOf(s settings.Settings, model string) (catalog.Price, bool) {
 		return catalog.Price{}, false
 	}
 	if pid, rest, ok := strings.Cut(m, "/"); ok {
-		if pr, ok := provider.EffectivePriceIn(s, pid, rest); ok {
+		// without a rate window's rate (#2463): a session sums its calls by
+		// model, not by time, so the window of the hour it is read in
+		// would price all of them at it, and the same session read 3× at
+		// the peak and 1× off it
+		if pr, ok, _ := provider.BasePriceIn(s, pid, rest); ok {
 			return pr, true
 		}
 	}

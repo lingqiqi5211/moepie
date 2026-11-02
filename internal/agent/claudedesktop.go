@@ -133,9 +133,9 @@ func claudeDesktop(home string) *Agent {
 		},
 		Notice: func() string {
 			if desktopWiredAny(ps) {
-				return noticeClaudedesktop1.String()
+				return noticeClaudedesktop1.String() + " " + noticeClaudedesktop3.String()
 			}
-			return noticeClaudedesktop2.String()
+			return noticeClaudedesktop2.String() + " " + noticeClaudedesktop4.String()
 		},
 		Check: func() string {
 			if !desktopWiredAny(ps) {
@@ -177,6 +177,14 @@ func claudeDesktop(home string) *Agent {
 				// its Code tab is Claude Code, told what Desktop's ids for
 				// magpie's models can do while that one runs on magpie
 				_ = claude(home).Sync()
+				// and a running distro's, which a Code tab session with
+				// WSL as its host runs on (a stopped one is written on
+				// the round after it starts)
+				for _, a := range wslAgents() {
+					if strings.HasPrefix(a.ID, "claude@wsl:") && a.Sync != nil {
+						_ = a.Sync()
+					}
+				}
 				return nil
 			},
 			Options: func(map[string]string) []Option {
@@ -999,4 +1007,11 @@ func desktopEmpty(b []byte) bool {
 var (
 	noticeClaudedesktop1 = newNotice("Claude Desktop reads this at start-up — quit and reopen it to run on magpie (Code and Cowork, no Anthropic sign-in).")
 	noticeClaudedesktop2 = newNotice("Claude Desktop reads this at start-up — quit and reopen it to sign in with Anthropic again.")
+	// Desktop's 3p mode runs in a userData of its own (Claude-3p, chosen in
+	// its main process before the window opens), so the chats, projects and
+	// Code sessions of the Anthropic sign-in in Claude/ aren't shown there.
+	// magpie never touches Claude/'s data; off brings them back
+	// (xgddm88 on X: 之前的工程和会话记录全没了).
+	noticeClaudedesktop3 = newNotice("Chats and projects from your Anthropic sign-in stay in Desktop's own profile, not shown on magpie; nothing is deleted, and turning this off brings them back.")
+	noticeClaudedesktop4 = newNotice("Your chats and projects from before are back there.")
 )

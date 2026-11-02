@@ -611,10 +611,10 @@ func claudeIn(at place) *Agent {
 	spell := provider.ClaudeSpelled
 	model := jsonGet(path, "model")
 	// routed: on magpie's gateway, or on a proxy to it where magpie has
-	// answered (#1985), which a pick keeps (gwAt)
-	routed := func() bool { u := env("ANTHROPIC_BASE_URL"); return u == at.gw() || surelyMagpie(u, at.gw()) }
+	// answered (#1985, claudeProxied), which a pick keeps (gwAt)
+	routed := func() bool { u := env("ANTHROPIC_BASE_URL"); return u == at.gw() || claudeProxied(at, path, u) }
 	gwAt := func() string {
-		if u := env("ANTHROPIC_BASE_URL"); u != at.gw() && surelyMagpie(u, at.gw()) {
+		if u := env("ANTHROPIC_BASE_URL"); claudeProxied(at, path, u) {
 			return u
 		}
 		return at.gw()
@@ -1009,11 +1009,37 @@ func claudeIn(at place) *Agent {
 		stash(map[string]string{pickerKey: "1"})
 		return edit.SetJSON(path, edit.KV{Path: "modelPicker", Value: map[string]any{"options": rows}})
 	}
+	// pickerRefs are the models writePicker lists in /model, as it lists
+	// them ("[1m]" on a 1M one), none while the picker is the user's.
+	// Claude Code runs a model picked there on the window it was told, and
+	// beside a Claude main it was told none: a routing group of a 500K GPT
+	// and a 1M Claude picked in /model ran at Claude Code's own 200K
+	// (young02036 on Discord)
+	pickerRefs := func() []string {
+		if _, has := edit.GetJSON(path, "modelPicker"); has && !pickerOurs() {
+			return nil
+		}
+		mark1M := claude1M()
+		var refs []string
+		for _, o := range viaMagpie("claude", "") {
+			refs = append(refs, mark1M(o.Value))
+		}
+		return refs
+	}
 	// writeCaps says what magpie's models can do, the ones in models first;
 	// Claude Desktop's ids too while it runs on magpie, its Code tab being
 	// Claude Code on this settings.json
 	desktopOn := func() bool {
-		return at.id == "" && at.sys == nil && desktopWiredAny(desktopSets(desktopdir.OS, at.home, os.Getenv))
+		// a distro's: Claude Desktop on Windows runs a Code tab session
+		// whose host is WSL on the distro's Claude Code, which reads
+		// ${CLAUDE_CONFIG_DIR:-$HOME/.claude} there (4.29.0's remote
+		// probe), not Windows' settings.json, and is handed the same
+		// mythos-magpie id and no window; only Windows' Desktop wired
+		// tells (young02036 on Discord: 500K group at "/ 200k" in WSL)
+		if at.sys != nil {
+			return desktopWiredAny(desktopSetsHere())
+		}
+		return at.id == "" && desktopWiredAny(desktopSets(desktopdir.OS, at.home, os.Getenv))
 	}
 	// Desktop's Explore compatibility flag has its own ownership: taking
 	// Claude Code off magpie must leave it while Desktop still needs it.
@@ -1100,8 +1126,8 @@ func claudeIn(at place) *Agent {
 	// desktopPlan is what writeWindow writes while Claude Desktop is on
 	// magpie (claudePlan, #2025): the models its Code tab runs Claude Code
 	// on, and while Claude Code itself is on magpie (main set) its main
-	// model and tiers', each with its own window under the
-	// largest. A model Claude Code knows as Claude's has its own window.
+	// model's, tiers' and those /model offers (pickerRefs), each with its
+	// own window under the largest. A model Claude Code knows as Claude's has its own window.
 	desktopPlan := func(main string, tiers map[string]string) (top, def int, entries map[string]int) {
 		s := settings.Load()
 		// the user's own top-level autoCompactWindow
@@ -1151,6 +1177,8 @@ func claudeIn(at place) *Agent {
 			for _, t := range claudeTiers {
 				refs = append(refs, tiers[t])
 			}
+			// and the models /model offers, each of which it may run on
+			refs = append(refs, pickerRefs()...)
 			for _, v := range refs {
 				m, _ := tierAt(v)
 				bare := strings.TrimSuffix(m, "[1m]")
@@ -1185,6 +1213,36 @@ func claudeIn(at place) *Agent {
 		top, entries = claudePlan(models, base, theirs)
 		return top, def, entries
 	}
+	// pickerApart says the main is one of Claude's own models (or a group
+	// of them), which Anthropic runs to its own window, magpie tells
+	// Claude Code no window for the rest (claudeWindow 0), and /model
+	// offers a model of magpie's whose window is known: picked there, it
+	// would run at Claude Code's own 200K, so each gets its own through
+	// desktopPlan. A model Claude Code takes for 1M by its "[1m]", or
+	// knows as Claude's, has its own already. Any other main is as
+	// before: one whose window is told serves a /model pick too, and one
+	// of no known window keeps the last.
+	pickerApart := func(main string, tiers map[string]string) bool {
+		m, _ := tierAt(main)
+		bare := strings.TrimSuffix(m, "[1m]")
+		if main == "" || !claudeModel(bare) && !provider.ClaudeGroup(bare) || claudeWindow(main, tiers) > 0 {
+			return false
+		}
+		window := map[string]int{}
+		for _, m := range magpieModels("claude") {
+			window[m.ID] = m.Context
+		}
+		for _, v := range pickerRefs() {
+			m, _ := tierAt(v)
+			if strings.HasSuffix(m, "[1m]") || claudeModel(m) || provider.ClaudeGroup(m) {
+				continue
+			}
+			if window[m] > 0 {
+				return true
+			}
+		}
+		return false
+	}
 	// writeWindow tells Claude Code the window of the models it runs on
 	// (claudeWindow). While Claude Desktop runs on magpie too, it is the
 	// largest of theirs and each model below it gets its own
@@ -1203,7 +1261,7 @@ func claudeIn(at place) *Agent {
 			forget(windowKey)
 			return dropBudgets()
 		}
-		if (desktopOn() || claudeLongMain(main) && claudeWindow(main, tiers) > 0) && (env(claudeCompactEnv) == "" || compactOurs()) {
+		if (desktopOn() || claudeLongMain(main) && claudeWindow(main, tiers) > 0 || pickerApart(main, tiers)) && (env(claudeCompactEnv) == "" || compactOurs()) {
 			top, def, entries := desktopPlan(main, tiers)
 			if top <= 0 {
 				return dropWindow()
@@ -2031,6 +2089,14 @@ func claudeIn(at place) *Agent {
 			return claudeSignIns()
 		},
 	})
+	// a write asks a proxy in front of magpie first (claudeAsk): each
+	// field's Set, Sync and Unwire. Follow writes only once routed, so a
+	// first look there leaves it for the next one, as reads do.
+	ask := func() { claudeAsk(at, path, env("ANTHROPIC_BASE_URL")) }
+	for i := range fields {
+		s := fields[i].Set
+		fields[i].Set = func(v string) error { ask(); return s(v) }
+	}
 
 	var self *Agent
 	self = &Agent{
@@ -2043,6 +2109,7 @@ func claudeIn(at place) *Agent {
 		// installed, on Anthropic's endpoint, where this brings back the
 		// endpoint, token and model the user had
 		Unwire: func() error {
+			ask()
 			was, err := unroute()
 			if err != nil {
 				return err
@@ -2070,6 +2137,7 @@ func claudeIn(at place) *Agent {
 		// the catalog's models, with their levels, as Claude Code is told
 		// them, while magpie's are the ones it has
 		Sync: func() error {
+			ask()
 			if !routed() {
 				return desktopOnly()
 			}
@@ -2154,17 +2222,26 @@ func claudeIn(at place) *Agent {
 			if !isMagpie(get()) {
 				return ""
 			}
+			getEnv := func(k string) (string, bool) { return edit.GetJSON(path, "env."+k) }
+			// an address that isn't the gateway's is asked whether it is
+			// magpie behind a proxy (#1985) only while what Claude Code
+			// sends is for magpie (claudeKeyed): with a key of the user's
+			// own it is their endpoint, told as it is, never asked (#3480)
+			keyed := claudeKeyed(at, path)
 			// an administrator's settings win over the user's
 			managed := claudeManaged()
 			if at.sys != nil {
 				managed = at.sys("/etc/claude-code/managed-settings.json")
 			}
-			if u, _ := edit.GetJSON(managed, "env.ANTHROPIC_BASE_URL"); u != "" && u != at.gw() && !reachesMagpie(u, at.gw()) {
+			if u, _ := edit.GetJSON(managed, "env.ANTHROPIC_BASE_URL"); u != "" && u != at.gw() && !(keyed && reachesMagpie(u, at.gw())) {
 				return "Claude Code's managed settings (" + at.native(managed) + ") set ANTHROPIC_BASE_URL to " + u + ", which wins over magpie's"
 			}
-			getEnv := func(k string) (string, bool) { return edit.GetJSON(path, "env."+k) }
-			if off := wiringOff("Claude Code", path, getEnv, "ANTHROPIC_BASE_URL", at.gw()); off != "" {
-				return off
+			if keyed {
+				if off := wiringOff("Claude Code", path, getEnv, "ANTHROPIC_BASE_URL", at.gw()); off != "" {
+					return off
+				}
+			} else if u, _ := getEnv("ANTHROPIC_BASE_URL"); u != at.gw() {
+				return whatsOff("Claude Code", path, "ANTHROPIC_BASE_URL", u, at.gw())
 			}
 			if why := claudeCloud(at, path); why != "" {
 				return why
@@ -2635,7 +2712,7 @@ func ClassifierStandIn(agent, model string) string {
 func claudeClassifierIn(at place, model string) string {
 	path := filepath.Join(at.claudeDir(), "settings.json")
 	env := func(k string) string { v, _ := edit.GetJSON(path, "env."+k); return provider.ClaudeRead(v) }
-	if u := env("ANTHROPIC_BASE_URL"); u != at.gw() && !surelyMagpie(u, at.gw()) {
+	if u := env("ANTHROPIC_BASE_URL"); u != at.gw() && !claudeProxied(at, path, u) {
 		return ""
 	}
 	if env(claudeAutoModeEnv) != "" {
@@ -2661,13 +2738,13 @@ func claudeClassifierIn(at place, model string) string {
 	return followAt("sonnet", bare(main), effort)
 }
 
-func claudeStandIn(path, model string) string { return claudeStandInAt(path, model, gateway.URL()) }
+func claudeStandIn(path, model string) string { return claudeStandInAt(here(""), path, model) }
 
-// claudeStandInAt is claudeStandIn for a Claude Code that reaches the
-// gateway at gw.
-func claudeStandInAt(path, model, gw string) string {
+// claudeStandInAt is claudeStandIn for the Claude Code at a place, which
+// reaches the gateway at its own address.
+func claudeStandInAt(at place, path, model string) string {
 	env := func(k string) string { v, _ := edit.GetJSON(path, "env."+k); return provider.ClaudeRead(v) }
-	if u := env("ANTHROPIC_BASE_URL"); u != gw && !surelyMagpie(u, gw) {
+	if u := env("ANTHROPIC_BASE_URL"); u != at.gw() && !claudeProxied(at, path, u) {
 		return ""
 	}
 	// the model Claude Code is set to itself, by that id, is its own pick
@@ -2692,6 +2769,55 @@ func claudeStandInAt(path, model, gw string) string {
 		}
 	}
 	return main
+}
+
+// claudeKeyed says what the Claude Code at a place (its settings at path)
+// sends is for magpie: a key the gateway takes (keyHolds, as Check asks of
+// it), or none where it keeps its claude.ai sign-in through magpie, which
+// magpie set (claude.login) on a Claude Code it wired (wired_at, which
+// Disconnect forgets) where the gateway takes any key (signInHere).
+func claudeKeyed(at place, path string) bool {
+	if tok, _ := edit.GetJSON(path, "env.ANTHROPIC_AUTH_TOKEN"); tok != "" {
+		return keyHolds(tok, at.gwKey())
+	}
+	st := stashLoad()
+	return at.gwKey() == gateway.Token && st[at.key("claude.login")] == "claudeai" && st[at.key("claude"+wiredAt)] != ""
+}
+
+// claudeProxied says u, the base URL the Claude Code at a place (its
+// settings at path) has in place of the gateway's, is a proxy to it where
+// magpie has answered (#1985, surelyMagpie). It is asked only where it can
+// be another way to magpie (proxyBase), and only while Claude Code sends
+// it what is for magpie (claudeKeyed): with a key of the user's own, u is
+// their endpoint. zhangt2333 (#3480) never connected Claude Code, and the
+// Agents page's reads of it sent GET / about every 30s to the endpoint in
+// its settings.
+func claudeProxied(at place, path, u string) bool {
+	_, ok := claudeProxyBase(at, path, u)
+	return ok && surelyMagpie(u, at.gw())
+}
+
+// claudeProxyBase is where claudeProxied asks whether magpie answers: u's
+// proxyBase, while Claude Code sends it what is for magpie (claudeKeyed).
+func claudeProxyBase(at place, path, u string) (string, bool) {
+	base, ok := proxyBase(u, at.gw())
+	if !ok || u == at.gw() {
+		return "", false
+	}
+	return base, claudeKeyed(at, path)
+}
+
+// claudeAsk is what each write to the Claude Code at a place does first:
+// the proxy claudeProxied would ask about is asked now where magpie hasn't
+// answered there yet (magpieAsked). Every write reads routed, and the first
+// one in a magpie just started, the CLI's, read a proxy not asked yet as
+// no: a pick wrote 127.0.0.1 over it, the sync a provider added runs
+// turned the auto mode review back on, Disconnect left magpie in and
+// forgot the endpoint the user had (#1985).
+func claudeAsk(at place, path, u string) {
+	if base, ok := claudeProxyBase(at, path, u); ok {
+		magpieAsked(base)
+	}
 }
 
 // claudeMain is the model a Claude Code routed through magpie runs on, as

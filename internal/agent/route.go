@@ -193,13 +193,20 @@ func magpieModels(agent string) []catalog.Model {
 	// a model magpie describes images to takes them (provider.Described)
 	seen := provider.Described != nil && provider.Described()
 	st, find := settings.Load(), provider.GroupFinder()
-	priceOf := provider.EntryPricer(st, find)
+	priceOf := provider.AgentPricer(st, find)
 	members := func(id string) []provider.Member {
 		_, ms, _ := find(id)
 		return ms
 	}
 	for i, e := range shown {
-		m := catalog.Model{ID: e.ID, Name: labels[i], Provider: firstOf(e.Provider.Catalogs()), Efforts: e.Efforts, Images: e.Images || seen, ImageInput: e.ImageInput, Context: e.Context, Output: e.Output, OutputSet: e.OutputSet, AgentsV2: e.AgentsV2, Reasoning: e.Thinks()}
+		efforts := e.Efforts
+		if agent == "codex" {
+			// the levels Codex's picker offers, a model magpie has no
+			// word on included (provider.CodexEfforts)
+			efforts = provider.CodexEfforts(e)
+		}
+		m := catalog.Model{ID: e.ID, Name: labels[i], Provider: firstOf(e.Provider.Catalogs()), Efforts: efforts, Images: e.Images || seen, ImageInput: e.ImageInput, Context: e.Context, Output: e.Output, OutputSet: e.OutputSet, AgentsV2: e.AgentsV2, Reasoning: e.Thinks(),
+			AlwaysThinks: e.AlwaysThinks, DynamicTools: e.DynamicTools, DefaultEffort: e.DefaultEffort}
 		// where Codex and Claude Code compact it (#876): a threshold the
 		// user set on the model or on its provider, else a window they
 		// typed whole (#1809), else the one for every model, which codexcat

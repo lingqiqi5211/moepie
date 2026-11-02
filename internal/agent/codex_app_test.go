@@ -3,9 +3,11 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -94,5 +96,62 @@ func TestRestartSwitchedCodexAppSays(t *testing.T) {
 	restartSwitchedApp = func(context.Context) error { return nil }
 	if err := RestartSwitchedCodexApp(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// When the Windows Codex app starts no app-server in place of the one
+// magpie ended (its stdout held open by a process that one started), it
+// can't send till it is quit and opened again (蛋仔 on Discord, 10-30):
+// magpie does that, to the OpenAI.Codex package's ChatGPT.exe only, by
+// its AppUserModelID. macOS isn't reopened unasked.
+func TestCodexAppReopenedOnWindows(t *testing.T) {
+	restartSandbox(t)
+	restartOnWindows = true
+	appCloseWait, appBackWait, appTrayGrace = time.Second, time.Second, 10*time.Millisecond
+	const image = `C:\Program Files\WindowsApps\OpenAI.Codex_26.1021.3705.0_x64__2p2nqsd0c76g0\app\ChatGPT.exe`
+	start := time.Now().Add(-time.Hour)
+	alive := true
+	winProcs = func(name string) []winProc {
+		if !strings.EqualFold(name, "ChatGPT.exe") {
+			return nil
+		}
+		// the ChatGPT chat app beside it, always running
+		ps := []winProc{{pid: 50, parent: 4, image: `C:\Program Files\WindowsApps\OpenAI.ChatGPT-Desktop_1.2025.1.0_x64__2p2nqsd0c76g0\app\ChatGPT.exe`, start: start}}
+		if alive {
+			ps = append(ps,
+				winProc{pid: 10, parent: 4, image: image, start: start, aumid: "OpenAI.Codex_2p2nqsd0c76g0!App"},
+				winProc{pid: 11, parent: 10, image: image, start: start.Add(time.Second)})
+		}
+		return ps
+	}
+	winShown = func([]int) bool { return false } // in the tray
+	var did []string
+	winClose = func(pids []int) error { did = append(did, fmt.Sprint("close ", pids)); return nil }
+	winEnd = func(pid int) error { did = append(did, fmt.Sprint("end ", pid)); alive = false; return nil }
+	winLaunch = func(p winProc) error { did = append(did, "open "+p.aumid); alive = true; return nil }
+
+	if open, known := codexAppOpen(context.Background()); !open || !known {
+		t.Fatalf("open %v, known %v", open, known)
+	}
+	if err := codexAppReopen(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"close [10 11]", "end 10", "open OpenAI.Codex_2p2nqsd0c76g0!App"}; !slices.Equal(did, want) {
+		t.Fatalf("did %q, want %q", did, want)
+	}
+
+	// quit meanwhile: nothing to do, it starts one as it opens
+	alive, did = false, nil
+	if open, known := codexAppOpen(context.Background()); open || !known {
+		t.Fatalf("quit: open %v, known %v", open, known)
+	}
+	if err := codexAppReopen(context.Background()); err != nil || did != nil {
+		t.Fatalf("quit: %v, did %q", err, did)
+	}
+
+	restartOnWindows = false
+	alive = true
+	if err := codexAppReopen(context.Background()); err == nil || did != nil {
+		t.Fatalf("not Windows: %v, did %q", err, did)
 	}
 }

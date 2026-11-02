@@ -30,6 +30,55 @@ type Stats struct {
 	// line — and a session whose last line is a setting or a fork's seed,
 	// written long after its last call, was listed but not counted.
 	Keys []string `json:"keys"`
+	// gateway are the sessions magpie knows only from the gateway's
+	// records (MergeExternalStats), the most recently active first. They
+	// are kept apart from Sessions, which the merge copied whole to add
+	// them: ~10 MB over a full history beside the Sessions it was copied
+	// from, kept for each range (#2278).
+	gateway []Summary
+	// shift is the days added to a session's days for the range's: the
+	// gateway's history can start before Sessions' From.
+	shift int
+}
+
+// eachSession calls f with Sessions and the gateway's, the most recently
+// active first, a Sessions one first of two as recent.
+func (st *Stats) eachSession(f func(*Summary)) {
+	i, j := 0, 0
+	for i < len(st.Sessions) || j < len(st.gateway) {
+		if j == len(st.gateway) || i < len(st.Sessions) && !st.gateway[j].Last.After(st.Sessions[i].Last) {
+			f(&st.Sessions[i])
+			i++
+		} else {
+			f(&st.gateway[j])
+			j++
+		}
+	}
+}
+
+// AllSessions is every session st counts, the gateway's among them, in
+// eachSession's order, each with its days in the range's: a copy, for a
+// reader that wants them as one list.
+func (st Stats) AllSessions() []Summary {
+	out := make([]Summary, 0, len(st.Sessions)+len(st.gateway))
+	st.eachSession(func(s *Summary) { out = append(out, st.shifted(*s)) })
+	return out
+}
+
+// shifted is s with its days in the range's.
+func (st Stats) shifted(s Summary) Summary {
+	if st.shift == 0 {
+		return s
+	}
+	s.Days = slices.Clone(s.Days)
+	for j := range s.Days {
+		s.Days[j] += st.shift
+	}
+	s.perDay = slices.Clone(s.perDay)
+	for j := range s.perDay {
+		s.perDay[j].day += st.shift
+	}
+	return s
 }
 
 // Summary is one session's share of a range.
@@ -272,6 +321,20 @@ func statsKept(ranges []int, now time.Time, wantNative bool) ([]Stats, map[strin
 	return out, keptStats.native
 }
 
+// appsOf is the agent each session ran in, by key, where it isn't the one
+// whose files hold it (Session.App): a Claude Code session Claude Desktop's
+// Code tab ran is Desktop's, as its calls are (claudeCallLine), though its
+// transcript is in Claude Code's own folder.
+func appsOf(files []file) map[string]string {
+	out := map[string]string{}
+	for _, f := range files {
+		if st := cache[f.path]; f.main && f.agent == "claude" && st != nil && desktopEntrypoint(st.Entry) {
+			out[f.key] = "claude-desktop"
+		}
+	}
+	return out
+}
+
 // statsOfRange is one range's Stats from what statsReadAll read, with the
 // locks it holds. listed is every session as listed, by key, or nil to
 // assemble the range's own.
@@ -317,6 +380,7 @@ func statsOfRange(days int, today time.Time, files []file, copies map[string]str
 		perDate          []dayShare
 	}
 	shares := map[string]*share{}
+	apps := appsOf(files)
 	for _, f := range files {
 		if f.mod.Before(since) || (copies[f.key] != "" && copied[f.path] == nil) {
 			continue
@@ -335,6 +399,7 @@ func statsOfRange(days int, today time.Time, files []file, copies map[string]str
 		if cwd == "" {
 			cwd = st.Cwd
 		}
+		agent := cmp.Or(apps[f.key], f.agent)
 		for date, d := range st.Days.all() {
 			if date == "" || date < from || date > out.To {
 				continue
@@ -343,14 +408,14 @@ func statsOfRange(days int, today time.Time, files []file, copies map[string]str
 				if t.zero() {
 					continue
 				}
-				k := uk{date, f.agent, cwd, model}
+				k := uk{date, agent, cwd, model}
 				u := use[k]
 				u.add(t)
 				use[k] = u
 				dates[date] = true
 			}
 			if d.Active > 0 {
-				k := ak{date, f.agent, cwd}
+				k := ak{date, agent, cwd}
 				a := act[k]
 				if a == nil {
 					a = &act0{}
@@ -502,7 +567,7 @@ func statsOfRange(days int, today time.Time, files []file, copies map[string]str
 		}
 		setSessionCodexIdentity(&s, identities)
 		setSessionCodexTaskTitle(&s, taskTitles)
-		sum := Summary{Key: key, Agent: s.Agent, ID: s.ID, Cwd: cmp.Or(folder[key], s.Cwd), Title: clip(s.Title, titleKept),
+		sum := Summary{Key: key, Agent: cmp.Or(s.App, s.Agent), ID: s.ID, Cwd: cmp.Or(folder[key], s.Cwd), Title: clip(s.Title, titleKept),
 			Nickname: s.Nickname,
 			Last:     s.Last, Role: s.Role, ParentSession: s.ParentSession, RootSession: s.RootSession, Priced: true, Active: sh.active / 1000, Models: []string{}, Days: []int{},
 			Prompts: sh.prompts, Replies: sh.replies, tools: countsOf(sh.tools, nil), skills: countsOf(sh.skills, sh.skillLast)}
@@ -663,29 +728,30 @@ func (st Stats) Overview(agent, model, cwd string, n int) Overview {
 	// the sessions are pointed to, not copied: a Summary is ~400 bytes, and
 	// the Sessions page's poll copied all of them four times, ~1.5 GB in
 	// two minutes over 34k sessions while an agent worked (#2278)
-	in := make([]*Summary, 0, len(st.Sessions))
-	spent := make([]int, 0, len(st.Sessions))
-	for i := range st.Sessions {
-		s := &st.Sessions[i]
+	all := len(st.Sessions) + len(st.gateway)
+	in := make([]*Summary, 0, all)
+	spent := make([]int, 0, all)
+	st.eachSession(func(s *Summary) {
 		if agent != "" && s.Agent != agent || cwd != "" && s.Cwd != cwd || model != "" && !slices.Contains(s.Models, model) {
-			continue
+			return
 		}
 		in = append(in, s)
 		spent = append(spent, s.Input+s.Output)
 		for _, d := range s.Days {
-			if d >= 0 && d < len(out.Days) {
+			if d += st.shift; d >= 0 && d < len(out.Days) {
 				out.Days[d]++
 			}
 		}
 		for _, pd := range s.perDay {
-			if d := pd.day; d >= 0 && d < len(out.Days) {
+			if d := pd.day + st.shift; d >= 0 && d < len(out.Days) {
 				out.Messages[d] += pd.messages
 				out.Output[d] += pd.output
 			}
 		}
-	}
+	})
 	out.Shape = shapes(in)
-	out.Tools = toolUse(in, first, n)
+	// a session's days are after the day st.shift days after From
+	out.Tools = toolUse(in, first.AddDate(0, 0, st.shift), n)
 	out.Skills = skillUse(in, n)
 	out.Count = len(in)
 	if len(spent) > 0 {
@@ -708,7 +774,7 @@ func (st Stats) Overview(agent, model, cwd string, n int) Overview {
 		}
 		out.Top[by] = make([]Summary, k)
 		for i, s := range top[:k] {
-			out.Top[by][i] = *s
+			out.Top[by][i] = st.shifted(*s)
 		}
 	}
 	return out

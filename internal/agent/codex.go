@@ -593,7 +593,18 @@ func codexIn(at place) *Agent {
 	// (uses_openai_actor_authorization); no sign-in at all would have the
 	// app ask for one. A sign-in read that says nothing leaves the table
 	// as it is.
+	//
+	// requires_openai_auth = false is never magpie's (it writes true or
+	// nothing): the user wrote it, to have the Codex app on magpie with no
+	// ChatGPT account of its own (蛋仔 on Discord), and it stays.
+	ownNoAuth := func() bool {
+		t, _ := edit.GetTOMLTable(path, "model_providers."+magpieID)
+		return t["requires_openai_auth"] == "false"
+	}
 	openaiAuth := func() (want, known bool) {
+		if ownNoAuth() {
+			return false, false
+		}
 		signedIn, known := codexChatGPTKnown(dir)
 		if !known {
 			return false, false
@@ -628,6 +639,8 @@ func codexIn(at place) *Agent {
 		want, known := openaiAuth()
 		if want {
 			kvs = append(kvs, edit.KV{Path: "requires_openai_auth", Value: true})
+		} else if ownNoAuth() {
+			kvs = append(kvs, edit.KV{Path: "requires_openai_auth", Value: false})
 		}
 		if err := edit.SetTOMLTable(path, "model_providers."+magpieID, kvs...); err != nil {
 			return err

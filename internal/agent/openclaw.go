@@ -416,7 +416,8 @@ func openClawAt(at place) *Agent {
 	return atomic(&Agent{
 		ID: "openclaw", Name: "OpenClaw", Icon: "openclaw", Spelled: prefixed, NoNames: true,
 		Bin: "openclaw", Dir: dir, Path: path,
-		Notice: func() string { return noticeOpenClaw.String() },
+		Notice:   func() string { return noticeOpenClaw.String() },
+		ListOnly: true,
 		Sync: func() error {
 			s, err := openClawRead(path)
 			if err != nil {

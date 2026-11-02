@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -92,6 +94,44 @@ func TestCodexMagpieProviderKeepsChatGPTAccount(t *testing.T) {
 		}
 		if cfg := read(); strings.Contains(cfg, "model_provider =") || flag(t, cfg) != "true" {
 			t.Fatalf("after the reset:\n%s", cfg)
+		}
+	})
+
+	// 蛋仔 on Discord: requires_openai_auth = false written by hand, to have
+	// the Codex app on magpie with no ChatGPT account, was set back to true
+	// by the next sync while the sign-in had room
+	t.Run("user's own false kept", func(t *testing.T) {
+		home, read := codexHome(t, `{"tokens":{"access_token":"x","id_token":"x.e30.x"}}`, "")
+		cx := codex(home)
+		if err := cx.Field("login").Set("api"); err != nil {
+			t.Fatal(err)
+		}
+		if err := cx.Fields[0].Set("fake/m1"); err != nil {
+			t.Fatal(err)
+		}
+		cfg := read()
+		cfg = strings.Replace(cfg, "requires_openai_auth = true", "requires_openai_auth = false", 1)
+		if err := os.WriteFile(filepath.Join(home, ".codex", "config.toml"), []byte(cfg), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, used := range []bool{false, true, false} {
+			codexUsedUp = func() bool { return used }
+			if err := cx.Sync(); err != nil {
+				t.Fatal(err)
+			}
+			if cfg := read(); flag(t, cfg) != "false" {
+				t.Fatalf("used up %v: the user's requires_openai_auth = false kept:\n%s", used, cfg)
+			}
+		}
+		codexUsedUp = func() bool { return false }
+		if err := cx.Fields[0].Set("fake/m2"); err != nil {
+			t.Fatal(err)
+		}
+		if cfg := read(); flag(t, cfg) != "false" {
+			t.Fatalf("a model switch: the user's false kept:\n%s", cfg)
+		}
+		if c := cx.Check(); c != "" {
+			t.Fatal(c)
 		}
 	})
 

@@ -26,6 +26,7 @@ type ccLine struct {
 	AITitle     string `json:"aiTitle"`
 	CustomTitle string `json:"customTitle"`
 	Summary     string `json:"summary"`
+	Entrypoint  string `json:"entrypoint"`
 	Message     struct {
 		ID      string          `json:"id"`
 		Model   string          `json:"model"`
@@ -49,6 +50,7 @@ var (
 	ccCustom    = []byte(`"type":"custom-title"`)
 	ccSummary   = []byte(`"type":"summary"`)
 	ccCwd       = []byte(`"cwd":"`)
+	ccEntry     = []byte(`"entrypoint":"`)
 )
 
 var (
@@ -167,10 +169,15 @@ func ccRandomUUID(u string) bool {
 }
 
 // ccWhere takes the session's folder and id from the end of a line, while
-// they are not known.
+// they are not known, and the entrypoint from the line the folder was
+// found in: each line names both, and a file of an older Claude Code that
+// names no entrypoint isn't searched for one on every line.
 func ccWhere(s *state, b []byte) {
 	if s.Cwd == "" {
 		s.Cwd = strAt(b, ccCwd)
+		if s.Cwd != "" {
+			s.Entry = strAt(b, ccEntry)
+		}
 	}
 	if s.ID == "" {
 		s.ID = strAt(b, ccSession)
@@ -179,7 +186,7 @@ func ccWhere(s *state, b []byte) {
 
 // strAt is the string after the last key in b.
 func strAt(b, key []byte) string {
-	i := bytes.LastIndex(b, key)
+	i := lastIndex(b, key)
 	if i < 0 {
 		return ""
 	}
@@ -288,7 +295,7 @@ func ccReply(s *state, at time.Time, msg, b []byte, main bool) {
 	m := ccUsageState(&s.Claude).message(id, request)
 	defer s.Claude.finish(m)
 
-	i := bytes.LastIndex(b, ccUsage)
+	i := lastIndex(b, ccUsage)
 	if i < 0 {
 		i = len(b)
 	}
@@ -326,7 +333,7 @@ func claudeFull(s *state, b []byte, main bool) {
 		return
 	}
 	if s.Cwd == "" && l.Cwd != "" {
-		s.Cwd = l.Cwd
+		s.Cwd, s.Entry = l.Cwd, l.Entrypoint
 	}
 	if s.ID == "" && l.SessionID != "" {
 		s.ID = l.SessionID

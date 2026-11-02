@@ -53,10 +53,12 @@ func TestPiGooglePluginModels(t *testing.T) {
 					continue
 				}
 				found = true
-				// StepCode has no google-generative-ai stream: Chat there
-				if a.ID == "stepcode" {
+				// StepCode has no google-generative-ai stream, and Pi's
+				// folder is read by Raft, whose fetch pi-ai's Google
+				// adapter refuses: Chat there (piAsked)
+				if a.ID == "stepcode" || a.ID == "pi" {
 					if m["api"] != nil || m["baseUrl"] != nil {
-						t.Errorf("StepCode can't ask Gemini's API: %v", m)
+						t.Errorf("%s can't ask Gemini's API: %v", a.ID, m)
 					}
 				} else if m["api"] != "google-generative-ai" || m["baseUrl"] != gw+"/v1beta" {
 					t.Errorf("Google model still inherits Chat: %v", m)
@@ -96,5 +98,28 @@ func TestPiGoogleThinkingLevelsAreGeminis(t *testing.T) {
 	chat := piModelJSON(catalog.Model{ID: m.ID, Name: m.Name, Efforts: m.Efforts}, "http://127.0.0.1:1", true)
 	if l := chat["thinkingLevelMap"].(map[string]any); l["xhigh"] != "xhigh" || l["max"] != "max" {
 		t.Errorf("a Chat model lost its levels: %v", l)
+	}
+}
+
+// Raft runs Pi's SDK on Pi's own agent folder and hands each request a
+// fetch of its own, which pi-ai's Google adapter refuses before sending
+// ("Custom fetch is not supported by the Google Generative AI adapter",
+// yunfei9958 on X), so a Gemini model in Pi's models.json stays on Chat,
+// and Pi offers it the levels Chat has; OmO and Prime Agent, whose
+// folders are their own, keep Gemini's API.
+func TestPiFolderKeepsGeminiOnChatForRaft(t *testing.T) {
+	m := catalog.Model{ID: "gem/gemini-3.8-flash", Name: "Gemini 3.8 Flash", APIs: []string{"gemini"}, Efforts: []string{"low", "high", "xhigh"}}
+	const gw = "http://127.0.0.1:1"
+	for id, want := range map[string]any{"pi": nil, "stepcode": nil, "omo": "google-generative-ai", "prime-agent": "google-generative-ai"} {
+		e := piModelJSON(piAsked(id, m), gw, true)
+		if e["api"] != want {
+			t.Errorf("%s: api %v, want %v", id, e["api"], want)
+		}
+		if want == nil && (e["baseUrl"] != nil || e["thinkingLevelMap"].(map[string]any)["xhigh"] != "xhigh") {
+			t.Errorf("%s: not Chat's entry: %v", id, e)
+		}
+	}
+	if !slices.Equal(m.APIs, []string{"gemini"}) {
+		t.Errorf("the catalog's model changed: %v", m.APIs)
 	}
 }
