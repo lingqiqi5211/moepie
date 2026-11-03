@@ -1,9 +1,10 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
 // WorkBuddy's credits a day (#568): under the account's Credits meter, the
 // Usage page says how many credits it used in the period, and, over 7 or
-// 30 days, a bar a day, each day's figure in its tooltip; a day before
-// magpie began counting is an empty slot saying so, not a zero, and the
-// card says since when it counts. A card with no days counted has none of
+// 30 days, a thin bar a day, today's lighter, the most and today's figures
+// over theirs, a dashed daily average, each day's figure on hover; a day
+// before magpie began counting is a dotted slot saying so, not a zero, and
+// the card says since when it counts. A card with no days counted has none of
 // it. English and Chinese; no backend, the API is faked here.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -45,8 +46,8 @@ function serve(lang) {
 }
 
 const words = {
-  en: { head: "Credits used per day", today: "12.5 today", week: "102.75 in 7 days", day7: "7 days", day1: "Today", bar: /: 60 credits$/, unknown: /: not counted — magpie began counting on /, since: /^Counted since / },
-  zh: { head: "每天用掉的积分", today: "今天 12.5", week: "7 天共 102.75", day7: "7 天", day1: "今天", bar: /：60 积分$/, unknown: /：未统计，magpie 从 .+ 开始统计$/, since: /^从 .+ 开始统计$/ },
+  en: { head: "Credits used per day", today: "12.5 today", week: "102.75 in 7 days", day7: "7 days", day1: "Today", bar: /: 60 credits$/, unknown: /: not counted — magpie began counting on /, since: /^Counted since /, avg: "Daily average 22.56" },
+  zh: { head: "每天用掉的积分", today: "今天 12.5", week: "7 天共 102.75", day7: "7 天", day1: "今天", bar: /：60 积分$/, unknown: /：未统计，magpie 从 .+ 开始统计$/, since: /^从 .+ 开始统计$/, avg: "日均 22.56" },
 };
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
@@ -74,21 +75,28 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await box.waitFor();
       assert.equal(await box.locator(".cd-head span").textContent(), w.head);
       assert.equal(await box.locator(".cd-head b").textContent(), w.today);
-      assert.equal(await box.locator(".cd-day").count(), 0, "one day: its figure, no bars");
+      assert.equal(await box.locator("svg.qv").count(), 0, "one day: its figure, no bars");
       assert.equal(await page.locator(".subscription-card", { hasText: "Codex" }).locator(".credit-days").count(), 0);
 
-      // 7 days: a bar a day, oldest first; the days before counting began
-      // empty, and the card saying since when
+      // 7 days: a slot a day, oldest first; the days before counting began
+      // dotted, and the card saying since when
       const y = await page.evaluate(() => document.querySelector("#view-usage").scrollTop);
       await page.locator("#period .opt", { hasText: new RegExp("^" + w.day7 + "$") }).click();
-      await page.waitForFunction(() => document.querySelectorAll(".credit-days .cd-day").length === 7);
+      await page.waitForFunction(() => document.querySelectorAll(".credit-days rect.qv-hit").length === 7);
       assert.equal(await page.evaluate(() => document.querySelector("#view-usage").scrollTop), y, "a click doesn't scroll");
       assert.equal(await box.locator(".cd-head b").textContent(), w.week);
-      const days = await box.locator(".cd-day").evaluateAll((ds) => ds.map((d) => ({ unknown: d.classList.contains("unknown"), h: parseFloat(d.querySelector("i").style.height), title: d.title })));
-      assert.deepEqual(days.map((d) => d.unknown), [true, true, false, false, false, false, false]);
-      assert.deepEqual(days.map((d) => d.h), [0, 0, 50.4, 0, 100, 0, 20.8]);
-      assert.match(days[4].title, w.bar);
-      assert.match(days[0].title, w.unknown);
+      assert.equal(await box.locator("line.qv-unknown").count(), 2);
+      const bars = await box.locator("path.qv-bar").evaluateAll((bs) => bs.map((b) => ({ today: b.classList.contains("today"), h: b.getBBox().height })));
+      assert.deepEqual(bars.map((b) => b.today), [false, false, true]);
+      const ratio = bars.map((b) => (b.h / bars[1].h) * 100);
+      assert.ok([50.4, 100, 20.8].every((v, i) => Math.abs(ratio[i] - v) < 0.5), `heights to scale, to a tenth of a pixel: ${ratio}`);
+      assert.deepEqual(await box.locator("text.qv-top").allTextContents(), ["12.5", "60"], "today's and the most's figures only");
+      assert.equal(await box.locator("line.qv-avg").count(), 1);
+      assert.equal(await box.locator("text.qv-avg-t").textContent(), w.avg);
+      assert.ok((await box.locator(".qc-axis text").allTextContents()).includes(w.day1), "today named on the axis");
+      const tips = await box.locator("rect.qv-hit title").allTextContents();
+      assert.match(tips[4], w.bar);
+      assert.match(tips[0], w.unknown);
       assert.match(await box.locator(".cd-note").textContent(), w.since);
       // no coloured stripe down a side
       const sides = await box.evaluate((b) => { const s = getComputedStyle(b); return [s.borderLeftWidth, s.borderRightWidth]; });

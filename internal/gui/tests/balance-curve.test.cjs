@@ -1,11 +1,11 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
 // A key's balance over time (TJHHHH on Discord): under a balance's figure on
-// the Usage page, its readings as a line, the least-squares line since the
-// last top-up dashed on to zero when that is within what is shown, and
-// "Runs out in 3d at this pace" in the curve's head, with what is spent a
-// day in its legend. A click on the plot makes it larger, another back, and
-// neither moves the page; Enter does the same. A key of one reading has no
-// curve, and the allowances' "Off" takes it away too.
+// the Usage page, its readings as a line over a light area, dotted on at
+// its fitted pace from the last reading to zero, labelled "Runs out", when
+// that is within twice what is shown, and "Runs out in 3d at this pace" in
+// the chart's head with what is spent a day; each reading's figure on
+// hover. A key of one reading has no chart, and the allowances' "Off" takes
+// it away too.
 // English and Chinese, light and dark; no backend, the API is faked here.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -50,8 +50,8 @@ function serve(lang, theme, quotas, colorblind = false) {
 }
 
 const words = {
-  en: { head: "Balance over time", out: "Runs out in 3d at this pace", balance: "Balance", pace: "about ¥10.00 a day" },
-  zh: { head: "余额走势", out: "按此速度，预计 3 天后用完", balance: "余额", pace: "约每天 ¥10.00" },
+  en: { head: "Balance over time", out: "Runs out in 3d at this pace", end: "Runs out", now: "Now", pace: "about ¥10.00 a day" },
+  zh: { head: "余额走势", out: "按此速度，预计 3 天后用完", end: "预计用完", now: "现在", pace: "约每天 ¥10.00" },
 };
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
@@ -85,17 +85,25 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const card = page.locator(".subscription-card", { hasText: "DeepSeek" });
         const curve = card.locator(".balance-curve");
         await curve.waitFor();
-        assert.equal(await curve.locator(".qc-head > span").first().textContent(), w.head);
+        assert.equal(await curve.locator(".qc-title").textContent(), w.head);
         assert.equal(await curve.locator(".qc-range").textContent(), w.out);
-        assert.deepEqual(await curve.locator(".qc-key").allTextContents(), [w.balance + "¥30.00", w.pace]);
+        assert.equal(await curve.locator(".qv-sub").textContent(), w.pace);
+        assert.equal(await curve.locator(".qc-legend, .qc-key").count(), 0, "no legend for one line");
         assert.equal(await curve.locator("path.qc-line").count(), 1);
-        assert.equal(await curve.locator("line.qc-now").count(), 1, "now, with the dashes carried past it");
-        // the fit, from the top-up to zero at the plot's right edge
-        const fit = curve.locator("line.bc-fit");
-        assert.equal(await fit.count(), 1);
-        const [x1, y1, x2, y2] = await fit.evaluate((e) => ["x1", "y1", "x2", "y2"].map((a) => +e.getAttribute(a)));
-        assert.ok(Math.abs(x2 - 300) < 0.5 && Math.abs(y2 - 60) < 0.5, `the dashes end at zero on the right: ${x2},${y2}`);
-        assert.ok(x1 > 50 && x1 < 150 && y1 < 10, `they start at the top-up: ${x1},${y1}`);
+        assert.equal(await curve.locator("line.qc-now").count(), 1, "now, with the dots carried past it");
+        // carried on from the last reading to zero, at the plot's right edge
+        const proj = curve.locator("path.qv-proj");
+        assert.equal(await proj.count(), 1);
+        const line = await curve.locator("path.qc-line").getAttribute("d");
+        const [x1, y1, x2, y2] = (await proj.getAttribute("d")).match(/-?\d+(\.\d+)?/g).map(Number);
+        assert.ok(line.endsWith(`${x1.toFixed(1)} ${y1.toFixed(1)}`), `from the last reading: ${line} / ${x1},${y1}`);
+        assert.ok(Math.abs(x2 - 354) < 0.5 && Math.abs(y2 - 96) < 0.5, `to zero on the right: ${x2},${y2}`);
+        assert.equal(await curve.locator("text.qv-proj-t").textContent(), w.end);
+        assert.ok((await curve.locator(".qc-axis text").allTextContents()).includes(w.now));
+        // each reading's figure on hover
+        const tips = await curve.locator("rect.qv-hit title").allTextContents();
+        assert.equal(tips.length, 7);
+        assert.ok(tips.at(-1).endsWith("¥30.00") && tips[2].endsWith("¥50.00"), JSON.stringify(tips));
         assert.ok(await page.locator("#quotaHead #quotaTrend").isVisible(), "the range pick is there for balances alone too");
         assert.equal(await page.locator(".subscription-card", { hasText: "Moonshot" }).locator(".balance-curve").count(), 0, "one reading, no curve");
         assert.equal(await page.locator(".quota-curve select, .quota-curve button").count(), 0, "no control on the card");
@@ -104,25 +112,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const stroke = await curve.locator("path.qc-line").evaluate((e) => getComputedStyle(e).stroke);
         const c1 = await page.evaluate(() => { const s = document.createElement("i"); s.style.color = "var(--c1)"; document.body.append(s); const c = getComputedStyle(s).color; s.remove(); return c; });
         assert.equal(stroke, c1, "the theme's chart colour");
-
-        // a click enlarges it, another takes it back; the page stays put
-        const plot = curve.locator(".qc-plot");
-        const small = (await plot.boundingBox()).height;
-        const top = await page.evaluate(() => { const s = document.scrollingElement; s.scrollTop = 30; return s.scrollTop; });
-        await plot.click();
-        assert.equal(await plot.getAttribute("aria-expanded"), "true");
-        const big = (await plot.boundingBox()).height;
-        assert.ok(big >= small * 2.5, `enlarged: ${small} → ${big}`);
-        assert.equal(await page.evaluate(() => document.scrollingElement.scrollTop), top, "the click moved the page");
-        const box = await card.boundingBox(), pb = await plot.boundingBox();
-        assert.ok(pb.x >= box.x && pb.x + pb.width <= box.x + box.width + 0.5, "the large plot fits its card");
-        await plot.click();
-        assert.equal(await plot.getAttribute("aria-expanded"), "false");
-        assert.ok(Math.abs((await plot.boundingBox()).height - small) < 1, "back to its size");
-        await plot.focus();
-        await page.keyboard.press("Enter");
-        assert.equal(await plot.getAttribute("aria-expanded"), "true", "Enter enlarges it too");
-        assert.equal(await page.evaluate(() => document.scrollingElement.scrollTop), top, "Enter moved the page");
+        const box = await card.boundingBox(), pb = await curve.locator("svg.qv").boundingBox();
+        assert.ok(pb.x >= box.x && pb.x + pb.width <= box.x + box.width + 0.5, "the plot fits its card");
       }
 
       // the allowances' Off takes the balance's curve away too
@@ -135,11 +126,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
   }
 }
 
-// Colorblind mode (#2073) dashes a quota curve's windows by their place in
-// it; the balance curve has one line, kept solid beside its dashed fit, and
-// its legend keeps its dot in the line's colour.
+// Colorblind mode (#2073) dashes the tray's quota lines by their place; the
+// balance chart has one line, kept solid beside its dotted carry.
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
-  test(`${engine}: colorblind mode leaves the balance curve's solid line, dashed fit and dot as they were`, async (t) => {
+  test(`${engine}: colorblind mode leaves the balance chart's solid line and dotted carry as they were`, async (t) => {
     const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
     t.after(() => browser.close());
     const errors = [];
@@ -153,10 +143,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const curve = page.locator(".subscription-card", { hasText: "DeepSeek" }).locator(".balance-curve");
       await curve.waitFor();
       const got = await curve.evaluate((c) => {
-        const line = getComputedStyle(c.querySelector("path.qc-line")), fit = getComputedStyle(c.querySelector("line.bc-fit"));
-        const dot = getComputedStyle(c.querySelector(".qc-key i"));
-        return { cb: document.documentElement.dataset.colorblind || "", line: line.strokeDasharray, stroke: line.stroke, fit: fit.strokeDasharray,
-          dot: dot.display, dotColor: dot.backgroundColor, dotShadow: dot.boxShadow, title: c.title };
+        const line = getComputedStyle(c.querySelector("path.qc-line")), fit = getComputedStyle(c.querySelector("path.qv-proj"));
+        return { cb: document.documentElement.dataset.colorblind || "", line: line.strokeDasharray, stroke: line.stroke, fit: fit.strokeDasharray, fitStroke: fit.stroke,
+          label: c.querySelector("svg.qv").getAttribute("aria-label") };
       });
       await page.context().close();
       return got;
@@ -165,12 +154,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const plain = await read(theme, false), cb = await read(theme, true);
       assert.equal(cb.cb, "1");
       assert.equal(cb.line, "none", `the balance stays solid: ${JSON.stringify(cb)}`);
-      assert.equal(cb.fit, plain.fit, "its fit keeps its dashes");
+      assert.equal(cb.fit, plain.fit, "its carry keeps its dots");
       assert.notEqual(cb.fit, "none");
-      assert.notEqual(cb.dot, "none", "its legend keeps the dot");
-      assert.equal(cb.dotShadow, "none", "a filled dot, not a ring");
-      assert.equal(cb.dotColor, cb.stroke, `the dot is the line's colour: ${JSON.stringify(cb)}`);
-      assert.equal(cb.title, plain.title, "its tooltip still says solid and dashed");
+      assert.equal(cb.fitStroke, cb.stroke, `the carry is the line's colour: ${JSON.stringify(cb)}`);
+      assert.equal(cb.label, plain.label, "it says the same to a screen reader");
     }
     assert.deepEqual(errors, []);
   });

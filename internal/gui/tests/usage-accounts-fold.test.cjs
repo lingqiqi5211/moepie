@@ -102,8 +102,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       let got = await cards(page);
       assert.deepEqual(got["workbuddy-ai"].users, range(1, 5));
       assert.equal(got["workbuddy-ai"].more, w.more17);
-      // the one in full and the one with the check-in switch stay in sight
-      assert.deepEqual(got.trae.users, ["t-1@example.com", "t-2@example.com", "t-3@example.com", "t-4@example.com", "t-5@example.com", "t-7@example.com", "t-8@example.com"]);
+      // the one in full and the one with the check-in switch stay in sight,
+      // the one in full first, the others in brief at the card's foot
+      assert.deepEqual(got.trae.users, ["t-8@example.com", "t-1@example.com", "t-2@example.com", "t-3@example.com", "t-4@example.com", "t-5@example.com", "t-7@example.com"]);
       assert.equal(got.trae.more, w.more2);
       assert.equal(await page.locator('#subscriptionUsage > [data-key="trae"] .ci-auto').count(), 1, "the check-in switch is in sight");
       // eight: all in sight, no button

@@ -921,6 +921,20 @@ body.window .field.solo { grid-column: auto; }
 /* packed into columns (packUsage): each card as tall as itself, placed on
    rows a pixel high, the gap between cards in its place on them (#860) */
 .subscription-usage.packed { grid-auto-rows: 1px; row-gap: 0; }
+/* an account's meters and the rest on the left, its charts on the right in
+   wide cards, under them in columns; one column where the two don't fit */
+.q-body.has-viz { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0 28px; }
+.q-main { flex: 999 1 320px; min-width: 0; }
+/* no wider than 520: the charts' text grows with them */
+.q-viz { flex: 1 0 380px; max-width: min(100%, 520px); min-width: 0; }
+/* in columns always under them, however wide the card */
+.subscription-usage.multi .q-body.has-viz { display: block; }
+.subscription-usage.wide .subscription-card { padding: 12px 16px 14px; }
+.subscription-usage.wide .quota-windows { grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr)); }
+.q-viz > :first-child { margin-top: 10px; }
+/* side by side, level with the meters; wrapped under them, apart */
+.subscription-usage.wide .q-viz > :first-child { margin-top: 0; }
+.subscription-usage.wide .q-body.has-viz { row-gap: 12px; }
 .subscription-card { padding: 10px 12px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); min-width: 0; }
 .subscription-head { display: flex; align-items: center; gap: 7px; margin-bottom: 9px; }
 .subscription-head .ic { width: 17px; height: 17px; }
@@ -931,7 +945,8 @@ body.window .field.solo { grid-column: auto; }
 .subscription-card.several .quota-balance:not([hidden]) + .subscription-account,
 .subscription-card.several .quota-read:not([hidden]) + .subscription-account,
 .subscription-card.several .credit-days:not([hidden]) + .subscription-account,
-.subscription-card.several .quota-curve:not([hidden]) + .subscription-account { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); }
+.subscription-card.several .quota-curve:not([hidden]) + .subscription-account,
+.subscription-card.several .q-body + .subscription-account { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); }
 .subscription-account .user { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* an account the user named (#1515): the name, then the account and the
    key plan it stands in for, muted, giving their room up first */
@@ -999,68 +1014,70 @@ body.window .field.solo { grid-column: auto; }
 .quota-reset .quota-holds-why { flex-basis: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .75; cursor: help; }
 .quota-track { height: 4px; border-radius: 2px; background: var(--pill); overflow: hidden; }
 .quota-track i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+/* where an even pace would be now, a tick across the bar */
+.quota-track.paced { position: relative; overflow: visible; }
+.quota-track.paced i { overflow: hidden; }
+.quota-tick { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--fg-2); opacity: .55; }
+/* one running out before its reset at this pace, and one nearly out */
+.quota.eta .quota-n { color: var(--amber); }
+.quota.eta .quota-track i { background: var(--amber); }
+.quota.low .quota-track i { background: var(--red); }
+.quota-eta { margin-top: 3px; font-size: 10px; color: var(--amber); }
+.quota-windows.brief .quota-eta { display: none; }
 .subscription-error { font-size: 11px; color: var(--faint); }
 /* the way to the provider's settings, on a plan card that needs its access key (#1821) */
 .subscription-error .quota-fix { font: inherit; color: var(--accent); padding: 0; background: none; border: 0; cursor: pointer; }
 /* WorkBuddy's credits a day (#568): the period's sum over a bar a day; a
-   day before counting began is an empty slot, not a zero */
+   day before counting began is a dashed slot, not a zero */
 .credit-days { margin-top: 10px; }
 .credit-days .cd-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; font-size: 10.5px; color: var(--muted); }
 .credit-days .cd-head b { color: var(--fg-2); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.credit-days .cd-bars { display: flex; align-items: flex-end; gap: 2px; height: 28px; margin-top: 5px; }
-.credit-days .cd-day { flex: 1; height: 100%; display: flex; align-items: flex-end; border-radius: 2px; background: var(--pill); }
-.credit-days .cd-day.unknown { background: none; outline: 1px dashed var(--line); outline-offset: -1px; }
-.credit-days .cd-day i { display: block; width: 100%; border-radius: 2px; background: var(--accent); }
 .credit-days .cd-note { margin-top: 4px; font-size: 10px; color: var(--faint); }
-/* what was left over time (#651): a line a window, an even burn dashed, now
-   upright; the range (or Off) is picked once, in the allowances' head */
+/* what was left over time (#651); the range (or Off) is picked once, in
+   the allowances' head */
+.quota-head { flex-wrap: wrap; row-gap: 6px; }
 .quota-head .quota-trend { margin-right: 8px; }
 .quota-curve { margin-top: 10px; }
-.quota-curve .qc-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; font-size: 10.5px; color: var(--muted); }
+.quota-curve .qc-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font-size: 10.5px; color: var(--muted); }
+.quota-curve .qc-title { color: var(--fg-2); font-weight: 600; min-width: 0; }
 .quota-curve .qc-range { font-size: 10px; color: var(--faint); }
 .quota-curve button.qc-range { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; padding: 0; }
 .quota-curve button.qc-range:disabled { opacity: 1; cursor: default; }
-.quota-curve .qc-plot { display: block; width: 100%; height: 52px; margin-top: 5px; overflow: hidden; }
-/* a click makes a curve larger, another back (TJHHHH on Discord) */
-.quota-curve .qc-plot { cursor: zoom-in; transition: height .15s ease; }
-.quota-curve.big .qc-plot { height: 168px; cursor: zoom-out; }
-.quota-curve .qc-plot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
-@media (prefers-reduced-motion: reduce) { .quota-curve .qc-plot { transition: none; } }
 .balance-curve .qc-range { color: var(--muted); }
-.quota-curve .qc-head > span:first-child { flex: none; }
-.quota-curve .qc-pace { font-size: 10px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.balance-curve .bc-pace { color: var(--faint); }
 .qc-grid { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .qc-line { fill: none; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-/* a window far shorter than the span drawn (a 5-hour one over a week) is a
-   comb of drops: faint, and without its upright even burn */
-.qc-line.qc-short { stroke-width: 1; opacity: .45; }
 .qc-even { stroke-width: 1; stroke-dasharray: 3 3; opacity: .45; vector-effect: non-scaling-stroke; }
 .qc-now { stroke: var(--faint); stroke-width: 1; stroke-dasharray: 1 2; vector-effect: non-scaling-stroke; }
-.quota-curve .qc-axis { display: flex; justify-content: space-between; gap: 8px; margin-top: 3px; font-size: 10px; color: var(--faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.quota-curve .qc-legend { display: flex; flex-wrap: wrap; gap: 3px 12px; margin-top: 5px; font-size: 10.5px; color: var(--muted); }
-/* a key never breaks inside: a long name ends in … rather than its % on a line of its own */
-.qc-key { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; white-space: nowrap; }
-.qc-key > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.qc-key i { flex: none; width: 7px; height: 7px; border-radius: 50%; }
-.qc-key b { color: var(--fg-2); font-weight: 600; font-variant-numeric: tabular-nums; }
-/* colorblind mode (#2073): each quota window's line keeps a dash of its own,
-   and its legend shows a sample of that line for the dot; the even paces go
-   dotted, so no window's dash reads as one. Only drawQuotaPlot and the
-   quota legend set data-series, so the balance curve keeps its solid line,
-   dashed fit and dot. */
-.qc-key .qc-sample { display: none; }
-.qc-sample line { stroke-width: 1.5; stroke-linecap: round; }
-:root[data-colorblind="1"] .qc-key[data-series] i { display: none; }
-:root[data-colorblind="1"] .qc-key[data-series] .qc-sample { display: block; flex: none; width: 22px; height: 6px; }
-:root[data-colorblind="1"] .qc-line.qc-short { stroke-width: 1.35; opacity: .85; }
+/* colorblind mode (#2073): the tray's even pace dotted, apart from its
+   dashed burn of before */
 :root[data-colorblind="1"] .qc-even[data-series] { stroke-width: 1.4; stroke-dasharray: 0 4; stroke-linecap: round; opacity: .6; }
-:root[data-colorblind="1"] :is(.qc-line, .qc-dash)[data-series="1"] { stroke-dasharray: 8 4; }
-:root[data-colorblind="1"] :is(.qc-line, .qc-dash)[data-series="2"] { stroke-dasharray: 3.5 4; }
-:root[data-colorblind="1"] :is(.qc-line, .qc-dash)[data-series="3"] { stroke-dasharray: 12 4 3.5 4; }
-:root[data-colorblind="1"] :is(.qc-line, .qc-dash)[data-series="4"] { stroke-dasharray: 3.5 4 3.5 9; }
-:root[data-colorblind="1"] :is(.qc-line, .qc-dash)[data-series="5"] { stroke-dasharray: 16 4; }
-:root[data-colorblind="1"] :is(.qc-line, .qc-dash)[data-series="6"] { stroke-dasharray: 12 4 3.5 4 3.5 4; }
+/* the allowances' charts (quotaChart, balanceChart, creditChart): one line
+   over a light area, the text in the text's colours with a halo of the
+   card's, a value a reading on hover */
+.qv { display: block; width: 100%; height: auto; margin-top: 6px; overflow: visible; font-size: 10px; font-variant-numeric: tabular-nums; }
+.qv text { fill: var(--muted); }
+.qv .qv-keep { fill: var(--fg-2); }
+.qv .qv-v { fill: var(--fg-2); font-weight: 600; paint-order: stroke; stroke: var(--card); stroke-width: 3px; stroke-linejoin: round; }
+.qv .qv-zero { stroke: var(--faint); opacity: .6; }
+.qv .qc-line { stroke: var(--c1); stroke-width: 2; }
+.qv-area { fill: var(--c1); opacity: .1; }
+.qv .qc-even { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 4 3; opacity: .7; }
+.qv .qc-now { stroke: var(--muted); }
+.qv-proj { fill: none; stroke: var(--c1); stroke-width: 2; stroke-dasharray: 0 5; stroke-linecap: round; opacity: .8; vector-effect: non-scaling-stroke; }
+.qv-end { fill: var(--card); stroke: var(--c1); stroke-width: 1.5; }
+.qv-dot { fill: var(--c1); stroke: var(--card); stroke-width: 2; }
+.qv-bar { fill: var(--c1); opacity: .9; }
+.qv-bar.today { opacity: .4; }
+.qv-avg { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.qv-unknown { stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 2 2; }
+.qv-hit { fill: transparent; }
+.qv-hit:hover, .qv-hit.on { fill: var(--fg); fill-opacity: .05; }
+.qv-tip { position: fixed; z-index: 1000; max-width: min(300px, calc(100vw - 16px)); padding: 4px 8px; border-radius: 6px; background: var(--fg); color: var(--bg); font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; pointer-events: none; box-shadow: 0 2px 8px rgba(0, 0, 0, .18); }
+.qv-key { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 10px; }
+.qv-key i { width: 16px; height: 0; border-top: 1.5px dashed var(--muted); }
+.qv-key i.qv-k-proj { border-top: 2px dotted var(--c1); }
+.qv-sub { font-size: 10px; color: var(--muted); }
+.quota-curve .qc-head .grow { flex: 1; }
 .quota-resets { display: flex; align-items: center; gap: 8px; margin-top: 9px; font-size: 10.5px; font-variant-numeric: tabular-nums; }
 .quota-resets .text { margin-left: auto; flex: none; font-size: 11px; padding: 2px 7px; }
 .subscription-card.several .quota-resets:not([hidden]) + .subscription-account { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); }

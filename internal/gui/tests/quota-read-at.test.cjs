@@ -3,9 +3,9 @@
 // says "Updated 40 minutes ago" from the reading's own time (readAt) — a
 // Claude account's is what Claude Code last told, which can be well before
 // the page asked — one standing in for a reading that failed says "As of",
-// marked stale, and a failed one says neither. Hovering a window's key under
-// the curve lists its latest readings, each with when it was read, ↻ where
-// the window started again; the card gets no control of its own.
+// marked stale, and a failed one says neither. Hovering the chart beside
+// the meters says each reading of this cycle, oldest first, with when it was
+// read; the card gets no control of its own.
 // English and Chinese; no backend, the API is faked here.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -57,8 +57,8 @@ function serve(lang, data) {
 }
 
 const words = {
-  en: { updated: "Updated 40 minutes ago", asOf: /^As of /, latest: "Latest readings:" },
-  zh: { updated: "40分钟前更新", asOf: /^截至|^As of/, latest: "最近的读数：" },
+  en: { updated: "Updated 40 minutes ago", asOf: /^As of /, used: (n) => n + "% used" },
+  zh: { updated: "40分钟前更新", asOf: /^截至|^As of/, used: (n) => "已用 " + n + "%" },
 };
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
@@ -87,11 +87,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
 
       assert.equal(await page.locator(".subscription-card", { hasText: "Kimi" }).locator(".quota-read").count(), 0, "a failed reading says no time");
 
-      // the latest readings, newest first, on the window's key
-      const key = claude.locator(".quota-curve .qc-key").first();
-      const title = (await key.getAttribute("title")).split("\n");
-      assert.equal(title[2], w.latest, title.join(" | "));
-      assert.deepEqual(title.slice(3).map((l) => l.replace(/ · .*/, "")), ["72%", "↻ 100%", "35%"]);
+      // this cycle's readings, oldest first, each with when it was read
+      const tips = await claude.locator(".quota-curve rect.qv-hit title").allTextContents();
+      assert.deepEqual(tips.map((l) => l.replace(/^.* · /, "")), [w.used(0), w.used(28)], tips.join(" | "));
+      assert.ok(tips.every((l) => /\d:\d\d · /.test(l)), tips.join(" | "));
       assert.equal(await claude.locator(".quota-curve button:not(.qc-range)").count(), 0, "only the account's cycle picker on the card");
       assert.deepEqual(errors, []);
     });

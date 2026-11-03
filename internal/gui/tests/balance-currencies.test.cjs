@@ -1,9 +1,9 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
 // A balance in two currencies (gakki on Discord): DeepSeek tells an
 // account's CNY and USD at once, "$11.12 · ¥-0.05", and the trend under it
-// is the USD's alone (balanceTrend.currency "$"). The curve's legend, its
-// readings and its pace are said in dollars, not with the other currency
-// stuck on each ("$11.12 · ¥-0.05" for every reading). English and Chinese,
+// is the USD's alone (balanceTrend.currency "$"). The chart's readings and
+// its pace are said in dollars, not with the other currency stuck on each
+// ("$11.12 · ¥-0.05" for every reading). English and Chinese,
 // light and dark, at a narrow width; no backend, the API is faked here.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -46,8 +46,8 @@ function serve(lang, theme, quotas) {
 }
 
 const words = {
-  en: { balance: "Balance", pace: "about $0.44 a day", head: "Latest readings:" },
-  zh: { balance: "余额", pace: "约每天 $0.44", head: "最近的读数：" },
+  en: { pace: "about $0.44 a day", head: "Balance over time" },
+  zh: { pace: "约每天 $0.44", head: "余额走势" },
 };
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
@@ -69,12 +69,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           const curve = card.locator(".balance-curve");
           await curve.waitFor();
           assert.ok((await card.textContent()).includes("$11.12 · ¥-0.05"), "the card still says both");
-          assert.deepEqual(await curve.locator(".qc-key").allTextContents(), [w.balance + "$11.12", w.pace]);
-          const tip = (await curve.locator(".qc-key").first().getAttribute("title")).split("\n");
-          assert.equal(tip[0], w.head);
-          assert.equal(tip.length, 6);
-          for (const line of tip.slice(1)) assert.match(line, /^\$\d+\.\d\d · /, `a reading in dollars alone: ${line}`);
-          assert.ok(tip[1].startsWith("$11.12 · "), tip[1]);
+          assert.equal(await curve.locator(".qc-title").textContent(), w.head);
+          assert.equal(await curve.locator(".qv-sub").textContent(), w.pace);
+          const tips = await curve.locator("rect.qv-hit title").allTextContents();
+          assert.ok(tips.length >= 5, tips.join(" | "));
+          for (const line of tips) assert.match(line, / · \$\d+\.\d\d$/, `a reading in dollars alone: ${line}`);
+          assert.ok(tips.at(-1).endsWith(" · $11.12"), tips.at(-1));
+          assert.ok((await curve.locator(".qc-axis text").allTextContents()).every((s) => !s.includes("¥")));
           assert.equal(await curve.locator("path.qc-line").count(), 1);
           const cb = await card.boundingBox(), pb = await curve.locator(".qc-plot").boundingBox();
           assert.ok(pb.x >= cb.x && pb.x + pb.width <= cb.x + cb.width + 0.5, `the plot fits its card at ${width}px`);

@@ -1,14 +1,15 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
-// What was left over time (#651): under an account's meters on the Usage
-// page, a line a window from magpie's readings — broken where the 5-hour
-// window started again — a dashed even burn from each window's start to its
-// reset, and an upright line at now. One pick in the allowances' head, the
+// What was used over time (#651): beside or under an account's meters on
+// the Usage page, the cycle of the window whose reset is furthest off, one
+// line from magpie's readings, a dashed even burn from its start to its
+// reset, an upright line at now and the pace carried on, dotted, to the
+// reset; over "2 days", the 5-hour window, broken where it started again. One pick in the allowances' head, the
 // app's own menu, turns every card at once: "2 days" / "Cycle", or "Off"
 // (ARNO on Discord: the curves made the cards cluttered), which draws no
 // curve on any card, the tray's thin line included; each account can pick
 // an earlier recorded cycle in Cycle mode. The global pick is remembered
 // across a reload, and no click moves the page. Several accounts on a card
-// are set apart by a rule, a curve's legend before the next one too. An
+// are set apart by a rule, a curve before the next one too. An
 // account with no readings has no curve. The tray's card has a low line of
 // its first window's cycle, with no now line (#1601), and a click into the
 // tray's list rings nothing.
@@ -106,14 +107,15 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const other = card.locator(".quota-curve").nth(1);
       const otherAxis = await other.locator(".qc-axis").textContent();
       const currentAxis = await curve.locator(".qc-axis").textContent();
-      const currentLegend = await curve.locator(".qc-key").allTextContents();
+      const currentTitle = await curve.locator(".qc-title").textContent();
+      const lastTip = () => curve.locator("rect.qv-hit title").last().textContent();
       const meters = card.locator(".quota-windows").first();
       const currentMeters = await meters.locator(".quota-n").allTextContents();
       assert.equal(await meters.locator(".quota-holds").count(), 1, "the current view keeps upstream's whole-window estimate");
       const otherMeters = await card.locator(".quota-windows").nth(1).locator(".quota-n").allTextContents();
       const pick = curve.getByRole("button", { name: w.choose });
-      // this cycle's pace is said; a past cycle's is over and says none (#2079)
-      assert.notEqual(await curve.locator(".qc-pace").textContent(), "", "the current cycle tells its pace");
+      // this cycle's pace is carried on; a past cycle's is over and has none (#2079)
+      assert.equal(await curve.locator("path.qv-proj").count(), 1, "the current cycle carries its pace on");
       for (const [index, left] of [[1, 30], [2, 70], [3, 20]]) {
         const before = await page.locator("#view-usage").evaluate((v) => v.scrollTop);
         await pick.click();
@@ -124,13 +126,14 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.notEqual(notes[1], notes[2], "a regular week and an early reset have different lengths");
         await items.nth(index).click();
         assert.equal(await pick.textContent(), w.past);
-        assert.equal(await curve.locator(".qc-pace").textContent(), "", "a past cycle has no pace to tell");
+        assert.equal(await curve.locator("path.qv-proj").count(), 0, "a past cycle has no pace to carry on");
+        assert.equal(await curve.locator(".qv-k-proj").count(), 0);
         const hasShort = index === 2;
         await page.waitForFunction((n) => document.querySelector('.subscription-card[data-key="codex"] .quota-windows').querySelectorAll(".quota-holds").length === n, hasShort ? 2 : 1);
         const estimates = await meters.locator(".quota-holds").allTextContents();
         assert.ok(estimates.every((text) => !text.includes("100K") && !text.includes("$12")), "today's estimate is never used for history");
         assert.equal(await meters.locator(".quota-holds").count(), hasShort ? 2 : 1, "historical estimates follow the sampled windows");
-        assert.deepEqual(await curve.locator(".qc-key b").allTextContents(), hasShort ? ["12%", left + "%"] : [left + "%"], "the historical legend uses that cycle's final reading");
+        assert.match(await lastTip(), new RegExp(" " + (100 - left) + "%"), "the chart ends on that cycle's final reading");
         assert.match(await meters.locator(".quota-n").nth(1).textContent(), new RegExp((100 - left) + "%"), "the weekly meter follows the historical selection");
         if (hasShort) assert.match(await meters.locator(".quota-n").first().textContent(), /88%/, "the 5-hour meter uses its last reading inside that cycle");
         else assert.equal(await meters.locator(".quota-n").first().textContent(), w.missing, "missing history never shows today's meter");
@@ -138,8 +141,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.ok((await card.locator(".quota-read").first().textContent()).includes(w.reading));
         assert.equal(await card.locator(".quota-autoreset").count(), 1, "only the other account retains current controls");
         assert.equal(await curve.locator("line.qc-now").count(), 0, "now is outside a completed cycle");
-        assert.equal(await curve.locator("line.qc-even").count(), hasShort ? 2 : 1, "the historical even pace belongs to the selected cycle");
-        assert.equal(await curve.locator("path.qc-line").count(), hasShort ? 2 : 1, "no fabricated short-window readings");
+        assert.equal(await curve.locator("line.qc-even").count(), 1, "the historical even pace belongs to the selected cycle");
+        assert.equal(await curve.locator("path.qc-line").count(), 1, "the picked window's line alone");
+        assert.notEqual(await curve.locator(".qc-title").textContent(), currentTitle, "titled a past cycle");
         assert.notEqual(await curve.locator(".qc-axis").textContent(), currentAxis);
         assert.equal(await other.locator(".qc-axis").textContent(), otherAxis, "another account stays on its own cycle");
         assert.deepEqual(await card.locator(".quota-windows").nth(1).locator(".quota-n").allTextContents(), otherMeters);
@@ -161,11 +165,12 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await card.locator(".quota-refresh").first().click();
       await page.waitForFunction(() => !document.querySelector(".quota-refresh.busy"));
       assert.equal(await pick.textContent(), w.past, "a refresh preserves the selected historical cycle");
-      assert.deepEqual(await curve.locator(".qc-key b").allTextContents(), ["20%"]);
+      assert.match(await lastTip(), / 80%/);
       await pick.click();
       await page.locator(".sess-menu .pm-item").first().click();
       assert.equal(await curve.locator(".qc-axis").textContent(), currentAxis);
-      assert.deepEqual(await curve.locator(".qc-key").allTextContents(), currentLegend);
+      assert.equal(await curve.locator(".qc-title").textContent(), currentTitle);
+      assert.equal(await curve.locator("path.qv-proj").count(), 1);
       assert.deepEqual(await meters.locator(".quota-n").allTextContents(), currentMeters, "returning to this cycle restores today's meters");
       assert.equal(await meters.locator(".quota-holds").count(), 1, "returning to this cycle restores upstream's whole-window estimate");
       assert.deepEqual(await page.evaluate(() => ({ page: document.documentElement.scrollWidth > innerWidth, cards: [...document.querySelectorAll(".subscription-card")].some((c) => c.scrollWidth > c.clientWidth + 1) })), { page: false, cards: false });
@@ -249,16 +254,18 @@ function serve(lang, theme, panel, data) {
 }
 
 const words = {
-  en: { head: "Left over time", two: "2 days", cycle: "Cycle", off: "Off", trend: (r) => "Trends: " + r, five: "5 hours", week: "Weekly", dashes: /Dashed: an even pace/,
-    lasts: "Lasts past the reset at this pace", runsOut: /^Runs out .+ at this pace$/ },
-  zh: { head: "剩余额度走势", two: "2 天", cycle: "本周期", off: "关闭", trend: (r) => "走势：" + r, five: "5 小时", week: "每周", dashes: /虚线：匀速用量/,
-    lasts: "按此速度，能撑到重置", runsOut: /^按此速度，预计 .+ 用完$/ },
+  en: { head: "Weekly · this cycle", two: "2 days", cycle: "Cycle", off: "Off", trend: (r) => "Trends: " + r, five: "5 hours · last 2 days",
+    even: "Even pace", ahead: "At this pace", atReset: /^About \d+% used at the reset$/, used: "30% used",
+    lasts: "Lasts past the reset at this pace", runsOut: /^≈ .+ runs out$/, meterOut: /^Runs out .+ at this pace$/ },
+  zh: { head: "每周 · 本周期", two: "2 天", cycle: "本周期", off: "关闭", trend: (r) => "走势：" + r, five: "5 小时 · 最近 2 天",
+    even: "匀速", ahead: "按现在速度", atReset: /^重置时约用 \d+%$/, used: "已用 30%",
+    lasts: "按此速度，能撑到重置", runsOut: /^≈ .+ 用完$/, meterOut: /^按此速度，预计 .+ 用完$/ },
 };
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
   for (const lang of ["en", "zh"]) {
     const w = words[lang];
-    test(`${engine} ${lang}: quota cards draw what was left over time`, async (t) => {
+    test(`${engine} ${lang}: quota cards draw what was used over time`, async (t) => {
       const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
       const pages = [];
       t.after(async () => {
@@ -287,27 +294,28 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const card = page.locator(".subscription-card", { hasText: "Codex" });
         const curve = card.locator(".quota-curve").first();
         await curve.waitFor();
-        assert.equal(await curve.locator(".qc-head > span").first().textContent(), w.head);
+        assert.equal(await curve.locator(".qc-title").textContent(), w.head);
         // the range is picked once, in the allowances' head, not on every card
         const pick = page.locator("#quotaHead #quotaTrend");
         assert.equal(await pick.textContent(), w.trend(w.cycle), "Cycle first");
         assert.equal(await page.locator(".quota-curve .segs, .quota-curve button:not(.qc-range), .quota-curve select").count(), 0, "only the account's cycle picker on a card");
         assert.equal(await curve.locator(".qc-range").textContent(), w.cycle);
-        // the window whose reset is furthest off, in words: a 52px plot
-        // leaves the reader to work out which side of the dashes it is on,
-        // and that is the only question the curve is asked (#2079)
-        assert.equal(await curve.locator(".qc-pace").textContent(), w.lasts);
-        // a line a window, now; the 5-hour window, a comb over the week's
-        // cycle, faint and without its upright even burn
-        assert.equal(await curve.locator("path.qc-line").count(), 2);
+        // the window whose reset is furthest off, alone: one line, its even
+        // burn, now, and its pace carried on to the reset, said in words
+        // there, since that is the only question the chart is asked (#2079)
+        assert.equal(await curve.locator("path.qc-line").count(), 1);
+        assert.equal(await curve.locator("path.qc-line").getAttribute("data-name"), "Weekly");
         assert.equal(await curve.locator("line.qc-even").count(), 1);
-        assert.match(await curve.getAttribute("title"), w.dashes, "hovering the plot says what the dashes are");
-        assert.equal(await curve.locator("path.qc-line.qc-short").getAttribute("data-name"), "5 hours");
         assert.equal(await curve.locator("line.qc-now").count(), 1);
-        const five = await curve.locator('path.qc-line[data-name="5 hours"]').getAttribute("d");
-        assert.equal((five.match(/M/g) || []).length, 2, "the 5-hour line breaks where its window started again: " + five);
-        const legend = await curve.locator(".qc-key").allTextContents();
-        assert.deepEqual(legend, [w.five + "40%", w.week + "70%"]);
+        assert.equal(await curve.locator(".qc-legend, .qc-key, .qc-short").count(), 0, "no legend for one line, no other window drawn");
+        assert.deepEqual(await curve.locator(".qv-key").allTextContents(), [w.even, w.ahead], "the dashes and dots named");
+        const said = await curve.locator("text.qv-proj-t").textContent();
+        assert.match(said, w.atReset);
+        assert.ok((await curve.locator("svg.qv").getAttribute("aria-label")).endsWith(said));
+        assert.equal(await curve.locator("path.qv-proj").count(), 1);
+        assert.equal(await card.locator(".quota.eta").count(), 0, "lasting, no meter says it runs out");
+        const tips = await curve.locator("rect.qv-hit title").allTextContents();
+        assert.ok(tips.length > 10 && tips.at(-1).endsWith(w.used), tips.at(-1));
         assert.equal(await page.locator(".subscription-card", { hasText: "Kimi" }).locator(".quota-curve").count(), 0, "no readings, no curve");
         // the colours are the theme's chart colours, nothing outside the card
         strokes[theme] = await curve.locator("path.qc-line").first().evaluate((e) => getComputedStyle(e).stroke);
@@ -319,12 +327,14 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal(left, 0, "no left borders");
 
         if (theme === "light") {
-          // several accounts: the next one is set apart from a curve's legend
+          // several accounts: the next one is set apart from a curve
           await card.locator(".quota-more").click();
           const second = card.locator(".subscription-account", { hasText: "b@x.com" });
-          // (after the curve, a Codex account's Auto-use row, #719, then its
-          // Use credits row, which closes its section)
-          assert.deepEqual(await second.evaluate((e) => [e.previousElementSibling.previousElementSibling.previousElementSibling.className, e.previousElementSibling.previousElementSibling.className, e.previousElementSibling.className]), ["quota-curve", "quota-autoreset ar-split", "quota-credits on"]);
+          // (the first's body before it: its meters closed by a Codex
+          // account's Auto-use row, #719, then its Use credits row, and its
+          // curve beside them)
+          assert.deepEqual(await second.evaluate((e) => { const b = e.previousElementSibling, m = b.querySelector(".q-main"); return [b.className, m.lastElementChild.previousElementSibling.className, m.lastElementChild.className, b.querySelector(".q-viz").firstElementChild.className]; }),
+            ["q-body has-viz", "quota-autoreset ar-split", "quota-credits on", "quota-curve"]);
           assert.notEqual(await second.evaluate((e) => getComputedStyle(e).borderTopStyle), "none", "a rule between the accounts");
           const choose = async (name) => {
             await pick.click();
@@ -339,8 +349,11 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           assert.equal(await pick.textContent(), w.trend(w.two));
           assert.equal(await curve.locator(".qc-range").textContent(), w.two);
           assert.notEqual(await curve.locator(".qc-axis").textContent(), before);
-          assert.notEqual(await curve.locator('path.qc-line[data-name="5 hours"]').getAttribute("d"), five);
-          assert.equal(await curve.locator("line.qc-even").count(), 2, "over two days the 5-hour window has its even burn");
+          // the 5-hour window, broken where it started again, no even burn
+          // or carried pace over a span that isn't a cycle
+          assert.equal(await curve.locator(".qc-title").textContent(), w.five);
+          assert.equal(await curve.locator('path.qc-line[data-name="5 hours"]').count(), 2, "a line a 5-hour cycle");
+          assert.equal(await curve.locator("line.qc-even, path.qv-proj").count(), 0);
           assert.equal(await page.evaluate(() => document.scrollingElement.scrollTop), scroller, "the click moved the page");
           assert.equal(await page.evaluate(() => localStorage.getItem("magpie.quotaRange")), "2d");
           // Off: no card draws a curve, the pick stays where it was, kept
@@ -374,7 +387,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const counting = await open("counting", "http://magpie.test/?view=usage", "light", { width: 900, height: 620 });
       const countingCurve = counting.locator(".subscription-card", { hasText: "Codex" }).locator(".quota-curve").first();
       await countingCurve.waitFor();
-      assert.match(await countingCurve.locator(".qc-pace").textContent(), w.runsOut);
+      assert.match(await countingCurve.locator("text.qv-proj-t").textContent(), w.runsOut);
+      assert.match(await counting.locator(".subscription-card", { hasText: "Codex" }).locator(".quota.eta .quota-eta").first().textContent(), w.meterOut, "its meter says so too");
 
       // the tray: a thin line of the 5-hour window's cycle, across the card
       // Its own readings, three over three hours: clearly slower than the
@@ -461,17 +475,17 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
 }
 
 const cbWords = {
-  en: { label: "Colorblind mode", off: "Off", on: "On", tip: "Each window's line has the dash", solid: "Solid: what was left." },
-  zh: { label: "色盲模式", off: "关闭", on: "开启", tip: "每个窗口的线型", solid: "实线：剩余额度。" },
-  "zh-TW": { label: "色盲模式", off: "關閉", on: "開啟", tip: "每個時段的線型", solid: "實線：剩餘額度。" },
-  ja: { label: "色覚サポート", off: "オフ", on: "オン", tip: "各ウィンドウの線種", solid: "実線：残量。" },
-  de: { label: "Farbenblind-Modus", off: "Aus", on: "An", tip: "Jedes Zeitfenster hat das Strichmuster", solid: "Durchgezogen: der verbleibende Rest." },
+  en: { label: "Colorblind mode", off: "Off", on: "On" },
+  zh: { label: "色盲模式", off: "关闭", on: "开启" },
+  "zh-TW": { label: "色盲模式", off: "關閉", on: "開啟" },
+  ja: { label: "色覚サポート", off: "オフ", on: "オン" },
+  de: { label: "Farbenblind-Modus", off: "Aus", on: "An" },
 };
 
 // colorblindPage: the Usage and Settings pages over fixtures, with the
 // settings (colorblind included) kept as a backend would and every save
 // recorded
-async function colorblindPage(browser, lang, data, colorblind) {
+async function colorblindPage(browser, lang, data, colorblind, web = true) {
   const posts = [];
   const st = { theme: "light", colorblind, lang, tray: "panel", quotaLeft: false, currency: "usd" };
   const context = await browser.newContext({ viewport: { width: 900, height: 640 }, reducedMotion: "reduce" });
@@ -480,12 +494,12 @@ async function colorblindPage(browser, lang, data, colorblind) {
   page.setDefaultNavigationTimeout(60000);
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  const base = serve(lang, "light", false, data);
+  const base = serve(lang, "light", !web, data);
   await page.route("**/*", async (route) => {
     const req = route.request(), url = new URL(req.url());
     const json = (body) => route.fulfill({ json: body });
     if (url.pathname === "/boot.js") {
-      const boot = { lang, theme: st.theme, web: true, ...(st.colorblind ? { colorblind: true } : {}) };
+      const boot = { lang, theme: st.theme, web, ...(st.colorblind ? { colorblind: true } : {}) };
       return route.fulfill({ contentType: "text/javascript", body: `window.bootPrefs = ${JSON.stringify(boot)};` });
     }
     if (url.pathname === "/api/state") return json({ agents: [], profiles: [], settings: st });
@@ -502,38 +516,20 @@ async function colorblindPage(browser, lang, data, colorblind) {
   return { page, st, posts, errors };
 }
 
-// readCurve: what a quota curve shows of each window, as drawn
+// readCurve: how a quota chart draws its one line, its even pace and its
+// pace carried on, and the theme's first chart colour beside them
 function readCurve(page, sel) {
   return page.evaluate((sel) => {
-    const parse = (s) => s.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number);
-    const lum = ([r, g, b]) => {
-      const [R, G, B] = [r, g, b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
-      return 0.2126 * R + 0.7152 * G + 0.0722 * B;
-    };
-    const hue = ([r, g, b]) => {
-      r /= 255; g /= 255; b /= 255;
-      const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
-      if (!d) return 0;
-      const h = max === r ? ((g - b) / d + (g < b ? 6 : 0)) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
-      return h * 60;
-    };
-    const curve = document.querySelector(sel);
-    const lines = [...curve.querySelectorAll("path.qc-line")].map((p) => {
-      const cs = getComputedStyle(p);
-      const rgb = parse(cs.stroke);
-      return { series: p.dataset.series, stroke: cs.stroke, dash: cs.strokeDasharray, opacity: +cs.opacity, lum: lum(rgb), hue: hue(rgb) };
-    });
-    const evens = [...curve.querySelectorAll("line.qc-even")].map((e) => ({ series: e.dataset.series, stroke: getComputedStyle(e).stroke, dash: getComputedStyle(e).strokeDasharray }));
-    const keys = [...curve.querySelectorAll(".qc-key")].map((k) => {
-      const dot = k.querySelector("i"), sample = k.querySelector(".qc-sample"), line = sample?.querySelector("line");
-      const kept = [...k.querySelectorAll("*")].filter((x) => parseFloat(getComputedStyle(x).borderLeftWidth) > 0).length;
-      return {
-        series: k.dataset.series, dot: getComputedStyle(dot).display !== "none", dotColor: getComputedStyle(dot).backgroundColor,
-        sample: !!sample && getComputedStyle(sample).display !== "none" && sample.getBoundingClientRect().width > 10,
-        sampleStroke: line && getComputedStyle(line).stroke, sampleDash: line && getComputedStyle(line).strokeDasharray, borders: kept,
-      };
-    });
-    return { cb: document.documentElement.dataset.colorblind || "", title: curve.title, lines, evens, keys };
+    const curve = document.querySelector(sel), cs = (q) => getComputedStyle(curve.querySelector(q));
+    const i = document.createElement("i");
+    i.style.color = "var(--c1)";
+    document.body.append(i);
+    const c1 = getComputedStyle(i).color;
+    i.remove();
+    const line = cs("path.qc-line");
+    const keys = [...curve.querySelectorAll(".qv-key i")].map((k) => { const s = getComputedStyle(k); return { style: s.borderTopStyle, color: s.borderTopColor }; });
+    return { cb: document.documentElement.dataset.colorblind || "", c1, lines: curve.querySelectorAll("path.qc-line").length, stroke: line.stroke, dash: line.strokeDasharray,
+      even: cs("line.qc-even").strokeDasharray, proj: cs("path.qv-proj").strokeDasharray, projStroke: cs("path.qv-proj").stroke, keys };
   }, sel);
 }
 
@@ -541,20 +537,30 @@ const codexCurve = '.subscription-card[data-key="codex"] .quota-curve';
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
   for (const [lang, w] of Object.entries(cbWords)) {
-    test(`${engine} ${lang}: colorblind mode separates quota windows by colour and dash, in the legend too (#2073)`, async (t) => {
+    // a chart has one line now, so the mode no longer dashes it: its colour
+    // turns to the mode's palette, and its even pace stays dashed apart from
+    // its dotted carry, their keys the same
+    test(`${engine} ${lang}: colorblind mode recolours the quota chart and keeps its line, dashes and dots apart (#2073)`, async (t) => {
       const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
       t.after(() => browser.close());
       const { page, st, posts, errors } = await colorblindPage(browser, lang, fixtures(Date.now()), false);
+      const apart = (got, say) => {
+        assert.equal(got.lines, 1, say);
+        assert.equal(got.dash, "none", `the line solid: ${say}`);
+        assert.equal(got.stroke, got.c1, `in the theme's first colour: ${say}`);
+        assert.equal(got.projStroke, got.stroke, say);
+        assert.ok(got.even !== "none" && got.proj !== "none" && got.even !== got.proj, `dashed even pace, dotted carry: ${say}`);
+        assert.deepEqual(got.keys.map((k) => k.style), ["dashed", "dotted"], say);
+        assert.equal(got.keys[1].color, got.stroke, `the carry's key in the line's colour: ${say}`);
+      };
 
-      // off by default: the dots and solid lines of before
+      // off by default
       await page.goto("http://magpie.test/?view=usage");
       await page.locator(codexCurve).first().waitFor();
       let got = await readCurve(page, codexCurve);
       assert.equal(got.cb, "");
-      assert.ok(got.lines.every((l) => l.dash === "none"), JSON.stringify(got.lines));
-      assert.ok(got.keys.every((k) => k.dot && !k.sample), JSON.stringify(got.keys));
-      assert.ok(got.title.startsWith(w.solid), got.title);
-      const plainEven = got.evens[0].dash;
+      apart(got, JSON.stringify(got));
+      const plain = got;
 
       await page.goto("http://magpie.test/?view=settings&tab=general");
       const row = page.locator("#colorblindRow");
@@ -577,29 +583,12 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         got = await readCurve(page, codexCurve);
         const say = `${theme}: ${JSON.stringify(got)}`;
         assert.equal(got.cb, "1");
-        assert.deepEqual(got.lines.map((l) => l.series), ["0", "1"]);
-        // 5h and 7d are apart in hue (>100 deg, not two blues) and in luminance
-        const hueDiff = Math.abs(got.lines[0].hue - got.lines[1].hue);
-        assert.ok(Math.min(hueDiff, 360 - hueDiff) > 100, `hues too close: ${say}`);
-        assert.ok(Math.abs(got.lines[0].lum - got.lines[1].lum) > 0.12, `luminance too close: ${say}`);
-        // 5h solid, 7d dashed, and the short 5h window isn't washed out
-        assert.equal(got.lines[0].dash, "none", say);
-        assert.notEqual(got.lines[1].dash, "none", say);
-        assert.ok(got.lines[0].opacity >= 0.8, `short window stays legible: ${say}`);
-        // each legend key is a sample of its own line: same dash, same colour
-        assert.deepEqual(got.keys.map((k) => k.series), ["0", "1"]);
-        for (const [i, k] of got.keys.entries()) {
-          assert.ok(!k.dot && k.sample, `key ${i} shows its line, not a dot: ${say}`);
-          assert.equal(k.sampleDash, got.lines[i].dash, `key ${i}'s dash: ${say}`);
-          assert.equal(k.sampleStroke, got.lines[i].stroke, `key ${i}'s colour: ${say}`);
-          assert.equal(k.borders, 0, "no left border");
+        apart(got, say);
+        if (theme === "light") {
+          assert.notEqual(got.stroke, plain.stroke, `the mode's palette: ${say}`);
+          assert.equal(got.even, plain.even, "the even pace keeps its dashes");
+          assert.equal(got.proj, plain.proj, "and the carry its dots");
         }
-        // the even pace is dotted, unlike any window's line or what it was
-        assert.equal(got.evens.length, 1, say);
-        assert.equal(got.evens[0].series, "1");
-        assert.notEqual(got.evens[0].dash, plainEven, say);
-        assert.ok(got.lines.every((l) => l.dash !== got.evens[0].dash), say);
-        assert.ok(got.title.startsWith(w.tip), `the tooltip names the dashes and dots: ${got.title}`);
         // the Context tab's "good" grade, a colour and not a series, stays
         // apart in hue from "fair" (--c2 turns amber in this palette)
         const grades = await page.evaluate(() => Object.fromEntries(["good", "fair"].map((g) => {
@@ -617,28 +606,21 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       }
 
       // turned off elsewhere: the window coming back reads it, and the
-      // curve drawn already goes back to dots, solid lines and its tooltip
+      // chart drawn already goes back to its colours
       await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
       // no state read from before the change may land after it
       await page.waitForLoadState("networkidle");
       st.colorblind = false;
       await page.evaluate(() => window.dispatchEvent(new Event("focus")));
       await page.waitForFunction(() => !document.documentElement.dataset.colorblind);
-      // the tooltip follows the mode at once, before any redraw
-      const now0 = await page.evaluate((sel) => ({ cb: document.documentElement.dataset.colorblind || "", title: document.querySelector(sel).closest(".quota-curve").title }), codexCurve);
-      assert.ok(now0.title.startsWith(now0.cb ? w.tip : w.solid), `tooltip of the mode it is in: ${JSON.stringify(now0)}`);
       // a state poll begun before the change may still answer with it on;
-      // the next one turns it off again, so wait for the plain curve
+      // the next one turns it off again, so wait for the plain chart
       for (let i = 0; i < 100; i++) {
         got = await readCurve(page, codexCurve);
-        if (!got.cb && got.evens[0]?.dash === plainEven && got.title.startsWith(w.solid)) break;
+        if (!got.cb && got.stroke === plain.stroke) break;
         await page.waitForTimeout(50);
       }
-      assert.equal(got.cb, "");
-      assert.ok(got.lines.every((l) => l.dash === "none"), JSON.stringify(got.lines));
-      assert.ok(got.keys.every((k) => k.dot && !k.sample), JSON.stringify(got.keys));
-      assert.equal(got.evens[0].dash, plainEven);
-      assert.ok(got.title.startsWith(w.solid), `tooltip back to solid and dashed: ${got.title}`);
+      assert.deepEqual(got, plain);
 
       // and Settings turns it off for good
       st.colorblind = true;
@@ -654,31 +636,28 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     });
   }
 
-  test(`${engine}: in colorblind mode seven windows have seven dashes, each in its legend key (#2073)`, async (t) => {
+  // the tray's thin line: solid in the mode's colour, its even burn dotted
+  test(`${engine}: in colorblind mode the tray's even burn is dotted under a solid line (#2073)`, async (t) => {
     const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
     t.after(() => browser.close());
-    const now = Date.now(), rw = now + 3 * 24 * H;
-    const data = fixtures(now);
-    const names = ["Weekly", "Weekly Opus", "Weekly Sonnet", "Monthly", "Weekly A", "Weekly B", "Weekly C"];
-    data.quotas[0].windows = names.map((name, i) => ({ name, used: 10 + i * 5, resetsAt: iso(rw) }));
-    data.history[0].lines = names.map((name, i) => ({ name, points: [90, 60, 30, 0].map((h) => ({ at: iso(now - h * H), left: 95 - i * 6 - (90 - h) / 9, start: iso(rw - 168 * H), resetsAt: iso(rw) })) }));
-    const { page, errors } = await colorblindPage(browser, "en", data, true);
-    await page.goto("http://magpie.test/?view=usage");
-    await page.locator(codexCurve).first().waitFor();
-    const got = await readCurve(page, codexCurve);
-    const say = JSON.stringify(got);
-    assert.deepEqual(got.lines.map((l) => l.series), ["0", "1", "2", "3", "4", "5", "6"]);
-    assert.equal(new Set(got.lines.map((l) => l.dash)).size, 7, `every window its own dash: ${say}`);
-    assert.equal(new Set(got.lines.map((l) => l.stroke)).size, 7, `and its own colour: ${say}`);
-    for (const [i, k] of got.keys.entries()) {
-      assert.ok(!k.dot && k.sample, say);
-      assert.equal(k.sampleDash, got.lines[i].dash, say);
-      assert.equal(k.sampleStroke, got.lines[i].stroke, say);
+    const read = (page) => page.evaluate(() => {
+      const s = document.querySelector(".pq-card .pq-spark"), l = getComputedStyle(s.querySelector("path.qc-line")), e = getComputedStyle(s.querySelector("line.qc-even"));
+      return { line: l.strokeDasharray, stroke: l.stroke, even: e.strokeDasharray };
+    });
+    const seen = {};
+    for (const cb of [false, true]) {
+      const { page, errors } = await colorblindPage(browser, "en", fixtures(Date.now()), cb, false);
+      await page.goto("http://magpie.test/?mode=panel");
+      await page.locator('#ptabs [data-ptab="usage"]').click();
+      await page.locator(".pq-card .pq-spark").first().waitFor();
+      seen[cb] = await read(page);
+      assert.equal(seen[cb].line, "none", JSON.stringify(seen[cb]));
+      assert.deepEqual(errors, []);
     }
-    assert.equal(got.evens.length, 7);
-    assert.equal(new Set(got.evens.map((e) => e.dash)).size, 1, "the paces share one dotted pattern");
-    assert.ok(got.lines.every((l) => l.dash !== got.evens[0].dash), say);
-    assert.deepEqual(errors, []);
+    const say = JSON.stringify(seen);
+    assert.notEqual(seen.true.even, seen.false.even, `dotted, not its plain dashes: ${say}`);
+    assert.match(seen.true.even, /^0(px)?,? /, `dots: ${say}`);
+    assert.notEqual(seen.true.stroke, seen.false.stroke, `the mode's palette: ${say}`);
   });
 }
 

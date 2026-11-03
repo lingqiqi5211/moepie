@@ -15553,6 +15553,7 @@ function renderQuotas(lazy) {
   }
   renderQuotaTrend();
   renderQuotaHid();
+  renderQuotaLook();
   if (!quotas) {
     subscriptions.hidden = false;
     for (let i = 0; i < 2; i++) {
@@ -15606,11 +15607,14 @@ function renderQuotas(lazy) {
     // the same, each still a row of its own
     const accts = !keys && several && subs.length > ACCTS_FOLD;
     const folded = keys ? keysFolded(subs) : accts ? acctsFolded(subs) : new Set();
+    // By account: each in full. Summary: one in full, the others at the
+    // card's foot, the window nearest its end alone
+    const all = quotaByAccount(), briefs = [];
     for (const sub of subs) {
       if (folded.has(sub)) continue;
       // "Every model" by the account, or the card's name: where the click
       // was, whichever way the meters under it grow or shrink
-      const brief = several && !usageAcctOpen(sub, subs);
+      const brief = several && !all && !usageAcctOpen(sub, subs);
       const history = !brief && quotaHistoryView(sub);
       const shownSub = history ? quotaHistoryCard(sub, history) : sub;
       const [meters, every] = history ? [quotaWindows(shownSub), null] : familyQuota(sub);
@@ -15624,43 +15628,51 @@ function renderQuotas(lazy) {
         if (auto) who.append(auto);
         if (sub.plan || sub.until) who.append(planSpan(sub));
         if (every) who.append(every);
-        if (several) who.append(usageAcctFold(sub, !brief));
-        card.append(who);
+        if (several && !all) who.append(usageAcctFold(sub, !brief));
+        if (brief) briefs.push(who); else card.append(who);
       } else if (every) head.append(every);
-      // in brief: each window's name, figure and bar, when it resets in
-      // its tooltip; the curve and the rest only in full
-      if (brief) meters.classList.add("brief");
-      card.append(meters);
-      // a remote magpie's gateway key: what its windows don't say (#1547)
-      const keyLine = !brief && !history && keyLimitLine(sub);
-      if (keyLine) card.append(keyLine);
-      // how many of the period's requests to it magpie made itself (#1839)
-      const own = !brief && !history && ownLine(sub);
-      if (own) card.append(own);
       // WorkBuddy's, Trae CN's or MiniMax Code's daily check-in, how this account's went,
       // and the switch for it, on the card rather than only in Settings
       // (#694); the switch on the first card of each vendor's
-      if (sub.checkins && !history) card.append(checkinRow(sub, sub === subs.find((x) => x.checkins && (x.checkinBy || "") === (sub.checkinBy || "")), subs));
-      // what was left over time, against an even burn (#651)
-      const curve = !brief && !sub.error && quotaCurve(sub);
-      if (curve) card.append(curve);
+      const checkin = sub.checkins && !history && checkinRow(sub, sub === subs.find((x) => x.checkins && (x.checkinBy || "") === (sub.checkinBy || "")), subs);
+      // what is left besides the windows, under them
+      const bal = !history && sub.balance && sub.windows?.length && !sub.error && balanceRow(sub, "What is left on the account besides its windows", false);
+      if (brief) {
+        meters.classList.add("brief");
+        quotaTightest(meters);
+        briefs.push(meters, ...[checkin, bal].filter(Boolean));
+        continue;
+      }
+      // the meters and what goes with them on the left, the charts on the
+      // right (under them in columns), none when there are none
+      const main = el("div", "q-main"), viz = el("div", "q-viz");
+      main.append(meters);
+      // a remote magpie's gateway key: what its windows don't say (#1547)
+      const keyLine = !history && keyLimitLine(sub);
+      if (keyLine) main.append(keyLine);
+      // how many of the period's requests to it magpie made itself (#1839)
+      const own = !history && ownLine(sub);
+      if (own) main.append(own);
+      if (checkin) main.append(checkin);
+      // what was left over time, against an even pace (#651)
+      const curve = !sub.error && quotaChart(sub);
+      if (curve) viz.append(curve);
       // the account's credits, day by day, as magpie counted them (#568):
       // each pool on its own, named when there are several (#3321)
-      if (!brief && !history && sub.daily && !sub.error) {
+      if (!history && sub.daily && !sub.error) {
         const pools = [sub.daily, ...(sub.moreDaily || [])];
-        for (const d of pools) card.append(creditDays(d, pools.length > 1));
+        for (const d of pools) viz.append(creditChart(d, pools.length > 1));
       }
-      // what is left besides the windows, under them
-      if (!history && sub.balance && sub.windows?.length && !sub.error) card.append(balanceRow(sub, "What is left on the account besides its windows", false));
+      if (bal) main.append(bal);
       // the balance over time, and when it runs out at that pace
-      const spend = !brief && !history && !sub.error && balanceCurve(sub);
-      if (spend) card.append(spend);
+      const spend = !history && !sub.error && balanceChart(sub);
+      if (spend) viz.append(spend);
       // when the windows were read: "Updated 3 min ago", or the time of
       // ones standing in for a reading that failed just now (#802; a
       // balance alone says it in its row)
-      const read = !brief && sub.windows?.length && !sub.error && readWhen(shownSub, true);
-      if (read) card.append(read);
-      if (!brief && !history && sub.resets?.count) {
+      const read = sub.windows?.length && !sub.error && readWhen(shownSub, true);
+      if (read) main.append(read);
+      if (!history && sub.resets?.count) {
         const r = el("div", "quota-resets");
         r.append(resetsWords(sub.resets, sub));
         // only Codex's are spent from here: a GLM team's are spent on
@@ -15671,18 +15683,23 @@ function renderQuotas(lazy) {
           use.onclick = () => askReset(sub);
           r.append(use);
         }
-        card.append(r);
+        main.append(r);
       }
       // the account's standing say on its resets, held or not (#719)
-      const policy = !brief && !history && autoResetRow(sub, "quota-autoreset");
-      if (policy) card.append(policy);
+      const policy = !history && autoResetRow(sub, "quota-autoreset");
+      if (policy) main.append(policy);
       // and on its credits, when its windows run out
-      const credits = !brief && !history && creditsRow(sub, "quota-credits");
-      if (credits) card.append(credits);
+      const credits = !history && creditsRow(sub, "quota-credits");
+      if (credits) main.append(credits);
+      const body = el("div", "q-body" + (viz.childElementCount ? " has-viz" : ""));
+      body.append(main);
+      if (viz.childElementCount) body.append(viz);
+      card.append(body);
     }
+    card.append(...briefs);
     // in the card's head, beside its name: no line of its own
     // (of the keys in sight: the ones folded away are the foot's button's)
-    if (several) head.append(usageMore(folded.size ? subs.filter((q) => !folded.has(q)) : subs, "text quota-more"));
+    if (several && !all) head.append(usageMore(folded.size ? subs.filter((q) => !folded.has(q)) : subs, "text quota-more"));
     if (keys && (folded.size || usageKeysAll.has(first.provider))) card.append(keysMore(first.provider, folded.size));
     if (accts && (folded.size || usageAcctsAll.has(first.provider))) card.append(acctsMore(first.provider, folded.size));
     subscriptions.append(card);
@@ -15884,17 +15901,19 @@ function keyCards(list) {
 // row by row as near as the heights allow, and the cards stay in it on the
 // page, for dragging, Alt+arrows and a screen reader alike. As many columns
 // as 260px each fit, unless one fewer leaves much less empty beside the
-// short cards for a page not much taller. Decided again when the cards
-// change or the width fits another number of columns; a card growing (a
-// fold opened) only packs them again, so what was clicked stays where it
-// was, even as the view's scrollbar comes in and takes some of the width
-// (in WebKit a card turned to every model went to one column under its
-// neighbour, the page following it). The last card in each column reaches
-// down to where the tallest column ends, so the bottoms line up: a row of
-// cards side by side is as tall as its tallest, and a short card stacked
-// under another ends with the tall one beside them (ikunbots on X: 卡片可以
-// 对齐吗). Each card is measured as tall as itself before that.
-const USAGE_MIN = 260, USAGE_GAP = 7;
+// short cards for a page not much taller, and no wider than 640px each:
+// past that a card's charts (520px at most) leave it half empty. Decided
+// again when the cards change or the width fits another number of
+// columns; a card growing (a fold opened) only packs them again, so what
+// was clicked stays where it was, even as the view's scrollbar comes in
+// and takes some of the width (in WebKit a card turned to every model went
+// to one column under its neighbour, the page following it). The last
+// card in each column reaches down to where the tallest column ends, so
+// the bottoms line up: a row of cards side by side is as tall as its
+// tallest, and a short card stacked under another ends with the tall one
+// beside them (ikunbots on X: 卡片可以对齐吗). Each card is measured as
+// tall as itself before that.
+const USAGE_MIN = 260, USAGE_MAX = 640, USAGE_GAP = 7;
 let usagePacked = null, usagePackFrame = 0;
 function packUsage() {
   const list = $("#subscriptionUsage");
@@ -15910,7 +15929,7 @@ function packUsage() {
     return;
   }
   const keys = cards.map((c) => c.dataset.key || "").join();
-  const most = Math.max(1, Math.min(cards.length, Math.floor((width + USAGE_GAP) / (USAGE_MIN + USAGE_GAP))));
+  const most = list.classList.contains("wide") ? 1 : Math.max(1, Math.min(cards.length, Math.floor((width + USAGE_GAP) / (USAGE_MIN + USAGE_GAP))));
   const place = (n, hs) => {
     const ends = Array(n).fill(0), at = [];
     for (const h of hs.map(Math.ceil)) {
@@ -15938,6 +15957,7 @@ function packUsage() {
     list.classList.remove("packed");
     for (const c of cards) c.style.gridArea = "";
     for (let n = most; n >= Math.max(1, most - 1); n--) {
+      if (n < most && (width - (n - 1) * USAGE_GAP) / n > USAGE_MAX) break;
       columns(n);
       const p = place(n, heights());
       if (!best) best = p;
@@ -16030,57 +16050,6 @@ async function moveUsage(key, to) {
     renderQuotas();
     statusErr(e);
   }
-}
-
-// creditDays: the credits (or money, in its unit's currency) one of an
-// account's windows used each day of the period, as magpie counted them
-// from its readings of the vendor's meter, which tells only what the cycle
-// has used so far — a bar a day, and the period's sum; a day before magpie
-// first read it is not known rather than nothing. named: the window's name
-// beside the head, for a card with several.
-function creditDays(daily, named) {
-  const box = el("div", "credit-days");
-  const { since, days, window: pool, unit } = daily;
-  const by = new Map(days.map((d) => [d.day, d.used]));
-  const key = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const today = new Date();
-  today.setHours(12, 0, 0, 0);
-  // the period's days, the first from when counting began for All, a
-  // picked range's own (#1492), its last 120 at most
-  const range = periodDays(period);
-  const last = range ? dayOfKey(range.to) : today;
-  let n = range ? Math.round((last - dayOfKey(range.from)) / 864e5) + 1 : { today: 1, "7d": 7, "30d": 30 }[period];
-  if (!n) n = Math.round((today - new Date(since + "T12:00:00")) / 864e5) + 1;
-  n = Math.min(120, Math.max(1, n));
-  const list = [];
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(last);
-    d.setDate(d.getDate() - i);
-    list.push({ day: key(d), date: d, used: by.get(key(d)) || 0, known: key(d) >= since });
-  }
-  const num = (v) => { try { if (unit) return new Intl.NumberFormat(intlLang(), { style: "currency", currency: unit.toUpperCase() }).format(v); } catch {} return (Math.round(v * 100) / 100).toLocaleString(intlLang()); };
-  const dayName = (d) => d.toLocaleDateString(intlLang(), { month: "short", day: "numeric" });
-  const sum = list.reduce((a, d) => a + d.used, 0);
-  const head = el("div", "cd-head");
-  const name = el("span", "", t(unit ? "Spent per day" : "Credits used per day") + (named && pool ? " · " + t(pool) : ""));
-  name.title = t("Counted from magpie's readings of the vendor's meter, since {date}: what is used while magpie isn't reading it is counted on the day it next does", { date: dayName(new Date(since + "T12:00:00")) });
-  head.append(name, el("b", "", n > 1 ? t("{n} in {days} days", { n: num(sum), days: n }) : range && range.to !== key(today) ? t("{n} on {date}", { n: num(sum), date: dayName(last) }) : t("{n} today", { n: num(sum) })));
-  box.append(head);
-  if (n > 1) {
-    const bars = el("div", "cd-bars");
-    const peak = Math.max(...list.map((d) => d.used), 0);
-    for (const d of list) {
-      const b = el("span", "cd-day" + (d.known ? "" : " unknown"));
-      const fill = el("i");
-      fill.style.height = d.known && peak ? Math.max(d.used ? 6 : 0, 100 * d.used / peak).toFixed(1) + "%" : "0%";
-      b.append(fill);
-      b.title = d.known ? t(unit ? "{date}: {n} spent" : "{date}: {n} credits", { date: dayName(d.date), n: num(d.used) }) : t("{date}: not counted — magpie began counting on {since}", { date: dayName(d.date), since: dayName(new Date(since + "T12:00:00")) });
-      bars.append(b);
-    }
-    box.append(bars);
-  }
-  if (since > list[0].day) box.append(el("div", "cd-note", t("Counted since {date}", { date: dayName(new Date(since + "T12:00:00")) })));
-  return box;
 }
 
 // What was left of an account's windows over time (#651), from magpie's
@@ -16293,19 +16262,11 @@ function quotaEtaText(l, now) {
   const p = l && quotaEta(l, now);
   if (!p) return "";
   return p.lasts ? t("Lasts past the reset at this pace")
-    : t("Runs out {when} at this pace", { when: quotaTimeText(Math.max(p.out, now + 60e3), now) });
+    : t("Runs out {when} at this pace", { when: quotaOutText(p.out, now) });
 }
-function quotaSpan(lines, range, now) {
-  if (range === "2d") return [now - 48 * 3600e3, now];
-  let x0 = Infinity, x1 = now;
-  for (const l of lines) {
-    const c = quotaCycle(l, now);
-    x0 = Math.min(x0, c.start);
-    if (c.reset) x1 = Math.max(x1, c.reset);
-  }
-  if (!(x0 < now)) x0 = now - 3600e3;
-  return [x0, x1];
-}
+// quotaOutText: the hour a window runs out, a minute off at the least, so
+// the meter and its chart say the same
+const quotaOutText = (out, now) => quotaTimeText(Math.max(out, now + 60e3), now);
 // quotaPaths: a line's points in [x0, x1] as path data on a w×h box, a
 // new subpath at each cycle's start; the point before x0 and the one after
 // x1 go along, so the line reaches the box's edges
@@ -16336,135 +16297,16 @@ function quotaTimeText(at, now) {
 function quotaCycleDate(at) {
   return new Date(at).toLocaleString(intlLang(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 }
-// drawQuotaPlot puts lines' curves for [x0, x1] in svg, a w×h box:
-// the grid, the even burns, the lines, and now.
-function drawQuotaPlot(g, lines, x0, x1, w, h, now, thin) {
+// drawQuotaPlot puts a window's line for [x0, x1] in svg, a w×h box, over
+// its even burn; no now line: the line ends at now already, and in 16px a
+// dotted one read as a stray mark under it (#1601)
+function drawQuotaPlot(g, l, x0, x1, w, h, now) {
+  const X = (t) => ((t - x0) / (x1 - x0)) * w, c = l.cycle || quotaCycle(l, now), color = "var(--c1)";
   g.replaceChildren();
-  if (!thin) for (const v of [0, 50, 100]) g.append(sv("line", { x1: 0, x2: w, y1: h - (v / 100) * h, y2: h - (v / 100) * h, class: "qc-grid" }));
-  const X = (t) => ((t - x0) / (x1 - x0)) * w;
-  lines.forEach((l, i) => {
-    // data-series is the window's colour, and in colorblind mode its dash
-    const s = i % 7, color = `var(--c${s + 1})`;
-    const c = l.cycle || quotaCycle(l, now);
-    // a window far shorter than the span (a 5-hour one over a week) is
-    // drawn faint, without its even burn, an all but upright dash
-    const short = !thin && c.reset && c.reset - c.start < (x1 - x0) / 12;
-    if (c.reset && c.start < c.reset && !short) {
-      const e = sv("line", { x1: X(c.start), y1: 0, x2: X(c.reset), y2: h, class: "qc-even", "data-series": s }, { stroke: color });
-      g.append(e);
-    }
-    const d = quotaPaths(l.points, x0, x1, w, h);
-    if (d) g.append(sv("path", { d, class: "qc-line" + (short ? " qc-short" : ""), "data-name": l.name, "data-series": s }, { stroke: color }));
-  });
-  // a spark ends at now already, and in 16px the dotted now line read as a
-  // stray mark under the curve (#1601); the large curve keeps it
-  if (!thin && now >= x0 && now <= x1) g.append(sv("line", { x1: X(now), x2: X(now), y1: 0, y2: h, class: "qc-now" }));
-}
-// what the dashes are isn't plain from the plot (John on Discord asked);
-// colorblind mode dashes the windows and dots the even paces. applyPrefs
-// sets it again on every drawn curve when the mode changes.
-function quotaCurveTitle() {
-  return document.documentElement.dataset.colorblind
-    ? t("Each window's line has the dash shown beside its name. Dotted: an even pace, full at the cycle's start to empty at its reset; a line above its dots lasts the cycle, one below runs out before the reset.")
-    : t("Solid: what was left. Dashed: an even pace, full at the cycle's start to empty at its reset; a line above its dashes lasts the cycle, one below runs out before the reset.");
-}
-
-// quotaCurve: an account's windows over time, under its meters, with the
-// range turned for every card at once
-function quotaCurve(sub) {
-  if (quotaRange === "off") return null;
-  const lines = quotaLines(sub);
-  if (!lines.length) return null;
-  const box = el("div", "quota-curve");
-  const head = el("div", "qc-head");
-  const range = el("button", "text qc-range");
-  range.type = "button";
-  const key = usageAcctKey(sub);
-  const pace = el("span", "qc-pace");
-  head.append(el("span", "", t("Left over time")), pace, range);
-  const W = 300, H = 60;
-  const g = sv("svg", { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", class: "qc-plot", role: "img" });
-  curveZoom(box, g);
-  const axis = el("div", "qc-axis");
-  const legend = el("div", "qc-legend");
-  const drawLegend = (shown, now) => {
-    legend.replaceChildren();
-    shown.forEach((l, i) => {
-      const k = el("span", "qc-key");
-      const s = i % 7, color = `var(--c${s + 1})`;
-      k.dataset.series = s;
-      const sw = el("i");
-      sw.style.background = color;
-      // colorblind mode shows this for the dot: the window's line in its dash
-      const sample = sv("svg", { class: "qc-sample", viewBox: "0 0 22 6", "aria-hidden": "true" });
-      sample.append(sv("line", { x1: 1, y1: 3, x2: 21, y2: 3, class: "qc-dash", "data-series": s }, { stroke: color }));
-      const last = l.points[l.points.length - 1];
-      if (!last) return;
-      k.append(sw, sample, el("span", "", l.label), el("b", "", Math.round(last.left) + "%"));
-      k.title = [t("{name}: {n} left, read {when}", { name: l.label, n: Math.round(last.left) + "%", when: quotaTimeText(last.at, now) }),
-        "", t("Latest readings:"), ...quotaReadings(l, now)].join("\n");
-      legend.append(k);
-    });
-  };
-  box.draw = () => {
-    const now = Date.now();
-    const past = quotaPastCycles(lines, now);
-    const history = quotaHistoryView(sub, lines, now);
-    const picked = history?.picked;
-    const [x0, x1] = picked ? [picked.start, picked.end] : quotaSpan(lines, quotaRange, now);
-    // Keep only readings of the selected cycle. In particular, a refill
-    // at its end belongs to the next cycle, not this cycle's last figure.
-    const shown = history?.shown || lines;
-    drawQuotaPlot(g, shown, x0, Math.max(x0 + 1, x1), W, H, now);
-    box.title = quotaCurveTitle();
-    const r = picked ? t("Past cycle") : t(quotaRange === "2d" ? "2 days" : "Cycle");
-    range.textContent = r;
-    range.disabled = quotaRange !== "cycle" || !past.cycles.length;
-    range.title = t("Choose a recorded cycle");
-    range.setAttribute("aria-label", t("Choose a recorded cycle"));
-    if (!range.disabled) range.append(svg(CHEV, 9, 1.6));
-    range.onclick = (e) => {
-      e.stopPropagation();
-      if (range.classList.contains("open")) return closeProtoMenu();
-      openProtoMenu(range, [{ v: "", name: "Cycle", note: "The current cycle, from the window's start to its reset" }, ...past.cycles.map((c) => ({
-        v: c.id, name: quotaCycleDate(c.start) + " – " + quotaCycleDate(c.end), literalName: true, note: t("Recorded duration: {duration}", { duration: quotaCycleLength(c) }),
-      }))], picked?.id || "", (id) => { if (id) quotaCyclePicks.set(key, id); else quotaCyclePicks.delete(key); renderQuotas(); }, "Choose a recorded cycle", "sess-menu");
-    };
-    g.setAttribute("aria-label", t("Left over time") + " · " + r);
-    axis.replaceChildren(el("span", "", picked ? quotaCycleDate(x0) : quotaTimeText(x0, now)), el("span", "", picked ? quotaCycleDate(x1) : quotaTimeText(x1, now)));
-    drawLegend(shown, now);
-    // The window whose deadline is furthest off answers for the card: the
-    // head has room for the pace a shape in 52px only hints at (#2079). It
-    // is the window the legend's last key is, and a window with no readings
-    // of the picked cycle carries a cycle of nothing to be asked about. A
-    // past cycle picked has no pace to tell: it is over.
-    let longest = null, latest = -Infinity;
-    if (!picked) shown.forEach((l) => {
-      const c = l.cycle || quotaCycle(l, now);
-      if (c?.reset != null && c.reset > latest) { latest = c.reset; longest = l; }
-    });
-    const p = longest ? quotaEta(longest, now) : null;
-    pace.textContent = p ? quotaEtaText(longest, now) : "";
-    // which window it is, and the instant with its year, behind a line
-    // that holds day and minute and is cut short rather than wrapped
-    pace.title = p ? tipLines(shown.length > 1 ? longest.label : "", pace.textContent, p.out != null ? new Date(p.out).toLocaleString(intlLang()) : "") : "";
-  };
-  box.append(head, g, axis, legend);
-  box.draw();
-  return box;
-}
-// curveZoom: a curve made larger on a click, or Enter, and back on the
-// next (TJHHHH on Discord); the page stays where it is
-function curveZoom(box, g) {
-  g.setAttribute("tabindex", "0");
-  g.setAttribute("aria-expanded", "false");
-  const flip = (e) => {
-    e.stopPropagation();
-    const big = box.classList.toggle("big");
-    g.setAttribute("aria-expanded", String(big));
-  };
-  g.addEventListener("click", flip);
-  g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flip(e); } });
+  // data-series: dotted in colorblind mode
+  if (c.reset && c.start < c.reset) g.append(sv("line", { x1: X(c.start), y1: 0, x2: X(c.reset), y2: h, class: "qc-even", "data-series": 0 }, { stroke: color }));
+  const d = quotaPaths(l.points, x0, x1, w, h);
+  if (d) g.append(sv("path", { d, class: "qc-line", "data-name": l.name, "data-series": 0 }, { stroke: color }));
 }
 // balanceAmount: v written as the card's balance writes its amount, "¥"
 // or "$" before it, "credits" after
@@ -16476,68 +16318,6 @@ function balanceAmount(sub, v) {
   if (cur) return cur + n;
   const m = (sub.balance || "").match(/^(.*?)-?\d[\d,]*(?:\.\d+)?(.*)$/);
   return m ? m[1] + n + m[2] : n;
-}
-// balanceCurve: a key's balance over time, as magpie read it, under its
-// figure on the Usage page (TJHHHH on Discord): the line, the least-squares
-// line through it since the last top-up dashed on to where it meets zero
-// when that is near, and when it runs out at that pace in the head. The
-// range the allowances' curves have ("2 days", or all it has: two weeks);
-// none while they are off, or with one reading only.
-function balanceCurve(sub) {
-  if (quotaRange === "off") return null;
-  const tr = sub.balanceTrend;
-  if (!tr?.points?.length || tr.points.length < 2) return null;
-  const pts = tr.points.map((p) => ({ at: Date.parse(p.at), v: p.amount }));
-  const box = el("div", "quota-curve balance-curve");
-  const head = el("div", "qc-head");
-  const out = tr.runsOut ? Date.parse(tr.runsOut) : null;
-  const pace = el("span", "qc-range");
-  head.append(el("span", "", t("Balance over time")), pace);
-  box.title = t("Solid: the balance as magpie read it. Dashed: a straight line fitted through it since the last top-up, carried on to where it runs out. Click to enlarge.");
-  const W = 300, H = 60;
-  const g = sv("svg", { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", class: "qc-plot", role: "img" });
-  curveZoom(box, g);
-  const axis = el("div", "qc-axis");
-  const legend = el("div", "qc-legend");
-  const k = el("span", "qc-key");
-  const sw = el("i");
-  sw.style.background = "var(--c1)";
-  const last = pts[pts.length - 1];
-  k.append(sw, el("span", "", t("Balance")), el("b", "", balanceAmount(sub, last.v)));
-  k.title = [t("Latest readings:"), ...pts.slice(-8).reverse().map((p) => balanceAmount(sub, p.v) + " · " + quotaTimeText(p.at, Date.now()))].join("\n");
-  legend.append(k);
-  if (tr.perDay > 0) legend.append(el("span", "qc-key bc-pace", t("about {amount} a day", { amount: balanceAmount(sub, tr.perDay) })));
-  box.draw = () => {
-    const now = Date.now();
-    let x0 = quotaRange === "2d" ? now - 48 * 3600e3 : pts[0].at, x1 = now;
-    if (!(x0 < now)) x0 = now - 3600e3;
-    // the dashes reach zero when it is no further off than what is shown
-    if (out && out > now && out - now <= now - x0) x1 = out;
-    const top = Math.max(...pts.filter((p) => p.at >= x0).map((p) => p.v), last.v, tr.fitStart || 0) * 1.08 || 1;
-    const X = (at) => ((at - x0) / (x1 - x0)) * W, Y = (v) => H - (Math.max(0, Math.min(top, v)) / top) * H;
-    g.replaceChildren();
-    for (const f of [0, 0.5, 1]) g.append(sv("line", { x1: 0, x2: W, y1: H - f * H, y2: H - f * H, class: "qc-grid" }));
-    if (tr.fitFrom) {
-      const from = Date.parse(tr.fitFrom), slope = (tr.fitNow - tr.fitStart) / (now - from || 1);
-      const end = out && x1 === out ? out : now;
-      g.append(sv("line", { x1: X(from), y1: Y(tr.fitStart), x2: X(end), y2: Y(tr.fitStart + slope * (end - from)), class: "qc-even bc-fit" }, { stroke: "var(--c1)" }));
-    }
-    let d = "";
-    for (let i = 0; i < pts.length; i++) {
-      const p = pts[i], next = pts[i + 1];
-      if (p.at < x0 && next && next.at < x0) continue;
-      d += (d ? "L" : "M") + X(p.at).toFixed(1) + " " + Y(p.v).toFixed(1);
-    }
-    if (d) g.append(sv("path", { d, class: "qc-line" }, { stroke: "var(--c1)" }));
-    if (x1 > now) g.append(sv("line", { x1: X(now), x2: X(now), y1: 0, y2: H, class: "qc-now" }));
-    pace.textContent = out ? t("Runs out {in} at this pace", { in: untilText(Math.max(out, now + 60e3)) }) : "";
-    pace.title = out ? new Date(out).toLocaleString(intlLang()) : "";
-    g.setAttribute("aria-label", t("Balance over time") + (out ? " · " + pace.textContent : ""));
-    axis.replaceChildren(el("span", "", quotaTimeText(x0, now)), el("span", "", quotaTimeText(x1, now)));
-  };
-  box.append(head, g, axis, legend);
-  box.draw();
-  return box;
 }
 function setQuotaRange(id) {
   if (id === quotaRange) return;
@@ -16570,7 +16350,7 @@ function quotaSpark(q, w) {
   const W = 200, H = 30;
   const g = sv("svg", { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", class: "pq-spark", role: "img" });
   g.setAttribute("aria-label", t("{name}: this cycle", { name: t(w.name) }));
-  drawQuotaPlot(g, [line], c.start, x1, W, H, now, true);
+  drawQuotaPlot(g, line, c.start, x1, W, H, now);
   const gap = c.reset && sparkGap(line.points, c.start, c.reset, now, W, H);
   if (gap) g.prepend(gap);
   const s = el("span", "pq-spark-box");
@@ -16756,7 +16536,9 @@ function focusQuotaCard() {
   // The panel omits accounts in brief; the main window draws them short.
   // The one asked for is opened in full.
   const quota = quotas?.find((q) => trayCardID(q) === quotaFocus);
-  if (quota?.user && !usageAcctOpen(quota, quotas.filter((q) => q.user && q.provider === quota.provider))) {
+  // By account has every one in full already: nothing to open, and the
+  // Summary's choice is left as it was
+  if (quota?.user && (mode === "panel" || !quotaByAccount()) && !usageAcctOpen(quota, quotas.filter((q) => q.user && q.provider === quota.provider))) {
     setUsageAccts([quota], true);
     return; // the redraw queues focus once the account is visible
   }
@@ -18276,7 +18058,20 @@ function quotaWindows(sub) {
     if (w.historyMissing) track.style.visibility = "hidden";
     track.append(fill);
     quota.append(labels);
-    if (!w.unlimited && !quotaNoShare(w)) quota.append(track);
+    if (!w.unlimited && !quotaNoShare(w) && w.used != null) {
+      quota.append(track);
+      // the tightest of an account's windows is the one with least left
+      quota.dataset.used = to100(w.used);
+      if (to100(w.used) > 90) quota.classList.add("low");
+      // where an even pace through the window would be by now
+      const s = Date.parse(w.startsAt), e = Date.parse(w.resetsAt), f = (Date.now() - s) / (e - s);
+      if (!sub.history && f > 0 && f < 1) {
+        const tick = el("b", "quota-tick");
+        tick.style.left = ((quotaLeft ? 1 - f : f) * 100).toFixed(1) + "%";
+        track.classList.add("paced");
+        track.append(tick);
+      }
+    } else if (!w.unlimited && !quotaNoShare(w)) quota.append(track);
     // when it starts again, on the clock and how long until then
     let r = null;
     if (w.resetsAt) {
@@ -18322,6 +18117,13 @@ function quotaWindows(sub) {
     if (w.tiers) quota.title = t("{family}: the most used of its models", { family: w.name }) + "\n" + tiersText(w);
     // a pool's: when it starts again, and the models it counts
     if (w.members) quota.title = tipLines(quota.title, poolTip(w));
+    // where its own readings are taking it, when that is before its reset
+    const line = !sub.history && w.resetsAt && quotaLines({ ...sub, windows: [w] })[0];
+    const eta = line && quotaEta(line, Date.now());
+    if (eta?.out && !eta.lasts) {
+      quota.classList.add("eta");
+      quota.append(el("div", "quota-eta", quotaEtaText(line, Date.now())));
+    }
     windows.append(quota);
   }
   quotaFit.observe(windows);
@@ -19058,9 +18860,6 @@ function applyPrefs(s, rate) {
   if (!!s.colorblind !== !!root.dataset.colorblind) {
     if (s.colorblind) root.dataset.colorblind = "1";
     else delete root.dataset.colorblind;
-    // a curve drawn already keeps its lines (CSS dashes them), but its
-    // tooltip says which mode it was drawn in
-    for (const b of document.querySelectorAll(".quota-curve:not(.balance-curve)")) b.title = quotaCurveTitle();
   }
   applyPrefs.ready = true;
   // accounts hidden while personal data is masked, until chosen otherwise

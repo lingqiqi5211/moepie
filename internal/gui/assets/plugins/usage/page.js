@@ -452,12 +452,382 @@ function quotaWho(q) {
 function ownCalls(n) {
   return t("{n} by magpie itself", { n: fmtN(n) });
 }
-// quotaReadings: a line's last eight readings, newest first, each what was
-// left and when it was read (#802), a line each, ↻ where the window
-// started again; for its legend key's title
-function quotaReadings(l, now) {
-  const pts = l.points.slice(-8);
-  return pts.map((p, i) => (i > 0 && quotaCycleBreak(pts[i - 1], p) ? "↻ " : "") + Math.round(p.left) + "% · " + quotaTimeText(p.at, now)).reverse();
+// The allowances' arrangement and statistics, picked in their head and
+// kept: wide cards, a provider a row with its charts beside the meters, or
+// columns; every account in full, or a summary, one account in full and
+// the others' tightest window at the card's foot. Columns sum by default.
+let quotaLayout = "multi", quotaStat = "";
+try {
+  if (localStorage.getItem("magpie.quotaLayout") === "wide") quotaLayout = "wide";
+  const s = localStorage.getItem("magpie.quotaStat");
+  if (s === "sum" || s === "acct") quotaStat = s;
+} catch {}
+const quotaByAccount = () => (quotaStat || (quotaLayout === "wide" ? "acct" : "sum")) === "acct";
+function renderQuotaLook() {
+  const list = $("#subscriptionUsage");
+  list.classList.toggle("wide", quotaLayout === "wide");
+  list.classList.toggle("multi", quotaLayout !== "wide");
+  const users = (quotas || []).filter((q) => q.user);
+  const segs = (id, shown, opts, cur, set) => {
+    const box = $("#" + id);
+    box.hidden = !shown;
+    if (!shown) return;
+    box.replaceChildren(...opts.map(([v, name, tip]) => {
+      const b = el("button", "opt" + (v === cur ? " on" : ""), t(name));
+      b.type = "button";
+      b.title = t(tip);
+      b.setAttribute("aria-pressed", String(v === cur));
+      b.onclick = () => { if (v !== cur) set(v); };
+      return b;
+    }));
+    slide(box, id);
+  };
+  const pick = (key, v) => { try { localStorage.setItem("magpie." + key, v); } catch {} renderQuotas(); };
+  segs("quotaLayout", !!quotas?.length, [["wide", "Wide cards", "A card a row, its charts beside the meters"], ["multi", "Columns", "Cards in columns, the charts under the meters"]],
+    quotaLayout, (v) => { quotaLayout = v; pick("quotaLayout", v); });
+  // only where some card has several accounts to sum
+  segs("quotaStat", users.some((q) => users.some((x) => x !== q && x.provider === q.provider)),
+    [["sum", "Summary", "One account of a card in full, the others' tightest window at its foot"], ["acct", "By account", "Every account in full"]],
+    quotaByAccount() ? "acct" : "sum", (v) => { quotaStat = v; pick("quotaStat", v); });
+}
+// quotaTightest: brief meters cut to the window with least left
+function quotaTightest(meters) {
+  const qs = [...meters.querySelectorAll(":scope > .quota[data-used]")];
+  const top = qs.reduce((a, b) => (+b.dataset.used > +a.dataset.used ? b : a), qs[0]);
+  if (top) for (const q of meters.querySelectorAll(":scope > .quota")) if (q !== top) q.remove();
+}
+
+// The allowances' charts, a 360×116 box each: the plot from y 10 to 96,
+// its axis at 111. One line over a light area, its text in the text's
+// colour with a halo, never in the line's; each reading's value on hover,
+// in strips wider than the marks.
+const QV = { right: 354, top: 10, base: 96 };
+// about how wide text is at 10px, to keep labels apart
+const qvWidth = (s) => [...s].reduce((w, c) => w + (c.charCodeAt(0) > 0x2e7f ? 10 : 5.8), 0);
+function qvText(g, x, y, text, anchor, cls) {
+  const e = sv("text", { x: x.toFixed(1), y: y.toFixed(1), "text-anchor": anchor, class: cls });
+  e.textContent = text;
+  g.append(e);
+  return e;
+}
+// a round top for a scale, a little over its most
+function qvNice(v) {
+  if (!(v > 0)) return 1;
+  const p = 10 ** Math.floor(Math.log10(v));
+  return [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find((m) => m * p >= v - 1e-9) * p;
+}
+// qvFrame: the box's scales from..to across, 0..max up, and its grid, the
+// plot starting where its widest tick label leaves room
+function qvFrame(label, from, to, max, tick) {
+  const g = sv("svg", { viewBox: "0 0 360 116", class: "qc-plot qv", role: "img", "aria-label": label });
+  const ticks = [0, max / 2, max].map((v) => [v, v ? tick(v) : "0"]);
+  const left = Math.max(32, 8 + Math.max(...ticks.map(([, s]) => qvWidth(s))));
+  const X = (at) => left + ((at - from) / (to - from || 1)) * (QV.right - left);
+  const Y = (v) => QV.base - (Math.max(0, Math.min(max, v)) / max) * (QV.base - QV.top);
+  for (const [v, s] of ticks) {
+    g.append(sv("line", { x1: left, x2: QV.right, y1: Y(v), y2: Y(v), class: "qc-grid" + (v ? "" : " qv-zero") }));
+    qvText(g, left - 6, Y(v) + 3, s, "end", "qv-t");
+  }
+  return { g, X, Y, left };
+}
+// the axis: labels {x, text, keep} under the plot, kept ones first; one in
+// the way of a label already placed gives way
+function qvAxis(f, labels) {
+  const axis = sv("g", { class: "qc-axis" }), placed = [];
+  for (const l of [...labels.filter((l) => l.keep), ...labels.filter((l) => !l.keep)]) {
+    const w = qvWidth(l.text), from = Math.min(Math.max(l.x - w / 2, f.left - 4), QV.right + 4 - w);
+    if (placed.some((p) => from < p.to + 8 && p.from < from + w + 8)) continue;
+    placed.push({ ...l, from, to: from + w });
+  }
+  placed.sort((a, b) => a.from - b.from);
+  for (const p of placed) qvText(axis, p.from, 111, p.text, "start", "qv-t" + (p.keep ? " qv-keep" : ""));
+  f.g.append(axis);
+}
+// strips from halfway to the reading before to halfway to the next, the
+// first and last as wide outwards as in (a bar's whole width), each with
+// its value; readings within a unit of each other share one
+function qvHits(f, pts) {
+  const xs = [];
+  for (const p of pts) if (xs.length && p.x - xs.at(-1).x < 1) xs[xs.length - 1] = p; else xs.push(p);
+  const out = (i, j) => (xs.length > 1 ? Math.max(6, Math.abs(xs[i].x - xs[j].x) / 2) : 6);
+  xs.forEach((p, i) => {
+    const l = i ? (p.x + xs[i - 1].x) / 2 : Math.max(f.left, p.x - out(0, 1)), r = i < xs.length - 1 ? (p.x + xs[i + 1].x) / 2 : Math.min(QV.right + 4, p.x + out(i, i - 1));
+    const h = sv("rect", { x: l.toFixed(1), y: 6, width: Math.max(1, r - l).toFixed(1), height: 92, class: "qv-hit" });
+    h.append(sv("title"));
+    h.firstChild.textContent = p.tip;
+    f.g.append(h);
+  });
+}
+// a touch brings up no title: a tap on a strip shows its value over the
+// chart until the next press elsewhere or a scroll
+let qvTipEl = null;
+function qvTip(hit) {
+  qvTipOff();
+  const tip = qvTipEl = el("div", "qv-tip", hit.querySelector("title").textContent);
+  tip.setAttribute("role", "tooltip");
+  document.body.append(tip);
+  const a = hit.getBoundingClientRect(), b = tip.getBoundingClientRect();
+  tip.style.left = Math.max(8, Math.min(a.left + a.width / 2 - b.width / 2, innerWidth - b.width - 8)) + "px";
+  tip.style.top = Math.max(8, a.top - b.height - 4) + "px";
+  hit.classList.add("on");
+}
+function qvTipOff() {
+  qvTipEl?.remove();
+  qvTipEl = null;
+  for (const h of document.querySelectorAll(".qv-hit.on")) h.classList.remove("on");
+}
+document.addEventListener("pointerup", (e) => { const h = e.pointerType !== "mouse" && e.target.closest?.(".qv-hit"); if (h) qvTip(h); }, true);
+document.addEventListener("pointerdown", (e) => { if (qvTipEl && !e.target.closest?.(".qv-hit")) qvTipOff(); }, true);
+addEventListener("scroll", () => { if (qvTipEl) qvTipOff(); }, { capture: true, passive: true });
+// qvLine: runs of {x, y}, each over its light area; the even pace; a
+// dotted carry from the last reading on to proj {x, y, text}; now; the
+// last reading marked
+function qvLine(f, o) {
+  if (o.pace) f.g.append(sv("line", { ...o.pace, class: "qc-even" }));
+  if (o.now != null && o.now < QV.right - 2) f.g.append(sv("line", { x1: o.now, x2: o.now, y1: QV.top, y2: QV.base, class: "qc-now" }));
+  for (const run of o.runs) {
+    const d = run.map((p, i) => (i ? "L" : "M") + p.x.toFixed(1) + " " + p.y.toFixed(1)).join("") + (run.length < 2 ? "h0.01" : "");
+    f.g.append(sv("path", { d: d + `L${run.at(-1).x.toFixed(1)} ${QV.base}L${run[0].x.toFixed(1)} ${QV.base}Z`, class: "qv-area" }));
+    f.g.append(sv("path", { d, class: "qc-line", "data-name": o.name || "" }));
+  }
+  const n = o.runs.at(-1)?.at(-1);
+  if (!n) return;
+  if (o.proj) {
+    const e = o.proj;
+    f.g.append(sv("path", { d: `M${n.x.toFixed(1)} ${n.y.toFixed(1)}L${e.x.toFixed(1)} ${e.y.toFixed(1)}`, class: "qv-proj" }));
+    f.g.append(sv("circle", { cx: e.x.toFixed(1), cy: e.y.toFixed(1), r: 3.5, class: "qv-end" }));
+    const segs = [...o.runs, [n, e]].flatMap((r) => r.slice(1).map((p, i) => [r[i], p]));
+    qvPlace(f, e, e.text, segs, "qv-v qv-proj-t");
+  }
+  f.g.append(sv("circle", { cx: n.x.toFixed(1), cy: n.y.toFixed(1), r: 4, class: "qv-dot" }));
+}
+// qvPlace: a label by point e, at the first of its places around it clear
+// of the lines (segs, pairs of points) and inside the plot
+function qvPlace(f, e, text, segs, cls) {
+  const w = qvWidth(text), d = Math.max(w, 1);
+  const box = ([x, y]) => [Math.min(Math.max(x, f.left), QV.right - w), Math.min(Math.max(y, 8), QV.base - 3)];
+  const clear = ([x, y]) => segs.every(([a, b]) => {
+    for (let i = 0; i <= 16; i++) {
+      const px = a.x + ((b.x - a.x) * i) / 16, py = a.y + ((b.y - a.y) * i) / 16;
+      if (px > x - 3 && px < x + w + 3 && py > y - 10 && py < y + 4) return false;
+    }
+    return true;
+  });
+  const at = [[e.x - d / 2, e.y - 10], [e.x - w - 8, e.y - 8], [e.x + 8, e.y - 8], [e.x - w - 8, e.y + 14], [e.x - d / 2, e.y + 18], [e.x - w - 10, e.y + 3.5], [e.x + 8, e.y + 14]].map(box);
+  const [x, y] = at.find(clear) || at[0];
+  return qvText(f.g, x, y, text, "start", cls);
+}
+function qvHead(title) {
+  const head = el("div", "qc-head");
+  head.append(el("span", "qc-title", title), el("span", "grow"));
+  return head;
+}
+// a key to a line's look: "even pace" dashed, "at this pace" dotted
+const qvKey = (cls, name) => { const k = el("span", "qv-key"); k.append(el("i", cls), t(name)); return k; };
+
+// quotaChart: an account's longest window this cycle, what is left (or
+// used, as the meters say) against an even pace, carried on at this pace
+// (quotaEta) to where it runs out or to the reset; over "2 days", its
+// shortest window's rises and falls. In Cycle a recorded cycle can be
+// picked in its head, which the meters follow (quotaHistoryView).
+function quotaChart(sub) {
+  if (quotaRange === "off") return null;
+  const lines = quotaLines(sub);
+  if (!lines.length) return null;
+  const box = el("div", "quota-curve");
+  const key = usageAcctKey(sub);
+  box.draw = () => {
+    const now = Date.now(), two = quotaRange === "2d", H = 3600e3;
+    const past = quotaPastCycles(lines, now), history = quotaHistoryView(sub, lines, now), picked = history?.picked;
+    const shown = history?.shown || lines;
+    const cyc = (l) => l.cycle || quotaCycle(l, now);
+    const len = (l) => { const c = cyc(l); return c.reset != null ? c.reset - c.start : Infinity; };
+    const L = picked ? shown.find((l) => l.name === past.line.name) || shown[0]
+      : two ? shown.reduce((a, b) => (len(b) < len(a) ? b : a))
+      : shown.reduce((a, b) => ((cyc(b).reset ?? 0) > (cyc(a).reset ?? 0) ? b : a));
+    const c = cyc(L);
+    let [x0, x1] = picked ? [picked.start, picked.end] : two ? [now - 48 * H, now] : [c.start, c.reset ?? now];
+    if (!(x1 > x0)) x0 = x1 - H;
+    const V = (left) => (quotaLeft ? left : 100 - left);
+    const say = (v) => t(quotaLeft ? "{n} left" : "{n} used", { n: Math.round(v) + "%" });
+    const title = t(picked ? "{name} · past cycle" : two ? "{name} · last 2 days" : "{name} · this cycle", { name: L.label });
+    const f = qvFrame(title, x0, x1, 100, (v) => v + "%");
+    // the readings in the range, broken where the window began again; the
+    // one before it carried to its edge
+    const runs = [], hits = [];
+    let prev = null;
+    for (const p of L.points) {
+      if (p.at > x1) break;
+      const brk = prev && quotaCycleBreak(prev, p);
+      if (p.at < x0) { prev = p; continue; }
+      if (!runs.length || brk) runs.push([]);
+      if (prev && prev.at < x0 && !brk && !runs.at(-1).length) runs.at(-1).push({ x: f.X(x0), y: f.Y(V(prev.left + ((p.left - prev.left) * (x0 - prev.at)) / (p.at - prev.at))) });
+      const pt = { x: f.X(p.at), y: f.Y(V(p.left)) };
+      runs.at(-1).push(pt);
+      hits.push({ x: pt.x, tip: quotaTimeText(p.at, now) + " · " + say(V(p.left)) });
+      prev = p;
+    }
+    let proj = null;
+    const last = L.points.filter((p) => p.at <= x1).at(-1), eta = !picked && !two && c.reset != null && last && quotaEta(L, now);
+    if (eta?.out && !eta.lasts) proj = { at: eta.out, left: 0, text: t("≈ {when} runs out", { when: quotaOutText(eta.out, now) }) };
+    else if (eta && c.reset != null) {
+      const left = eta.out ? (last.left * (eta.out - c.reset)) / (eta.out - last.at) : last.left;
+      proj = { at: c.reset, left, text: t(quotaLeft ? "About {n} left at the reset" : "About {n} used at the reset", { n: Math.round(V(left)) + "%" }) };
+    }
+    const paced = !two && (picked || c.reset != null);
+    if (runs.length) qvLine(f, { runs, name: L.name, now: !picked && !two ? f.X(now) : null,
+      pace: paced ? { x1: f.X(x0), y1: f.Y(V(100)), x2: f.X(x1), y2: f.Y(V(0)) } : null,
+      proj: proj && { x: f.X(proj.at), y: f.Y(V(proj.left)), text: proj.text } });
+    const day = (at) => (picked ? quotaCycleDate(at) : quotaTimeText(at, now));
+    qvAxis(f, two ? [{ x: f.X(x0), text: quotaTimeText(x0, now) }, { x: f.X(now - 24 * H), text: quotaTimeText(now - 24 * H, now) }, { x: f.X(now), text: t("Now"), keep: true }]
+      : [{ x: f.X(x0), text: day(x0), keep: !!picked }, ...(picked ? [] : [{ x: f.X(now), text: t("Now"), keep: true }]), ...(x1 > now || picked ? [{ x: f.X(x1), text: day(x1), keep: !!picked }] : [])]);
+    qvHits(f, hits);
+    // to a screen reader: what is drawn, the latest reading, where it goes
+    f.g.setAttribute("aria-label", [title, last && say(V(last.left)), proj?.text].filter(Boolean).join(" · "));
+    // the head: what is drawn, the keys to its dashes and dots, the cycle
+    const head = qvHead(title);
+    if (paced) head.append(qvKey("qv-k-even", "Even pace"));
+    if (proj) head.append(qvKey("qv-k-proj", "At this pace"));
+    const range = el("button", "text qc-range", picked ? t("Past cycle") : t(two ? "2 days" : "Cycle"));
+    range.type = "button";
+    range.disabled = quotaRange !== "cycle" || !past.cycles.length;
+    range.title = t("Choose a recorded cycle");
+    range.setAttribute("aria-label", t("Choose a recorded cycle"));
+    if (!range.disabled) range.append(svg(CHEV, 9, 1.6));
+    range.onclick = (e) => {
+      e.stopPropagation();
+      if (range.classList.contains("open")) return closeProtoMenu();
+      openProtoMenu(range, [{ v: "", name: "Cycle", note: "The current cycle, from the window's start to its reset" }, ...past.cycles.map((cy) => ({
+        v: cy.id, name: quotaCycleDate(cy.start) + " – " + quotaCycleDate(cy.end), literalName: true, note: t("Recorded duration: {duration}", { duration: quotaCycleLength(cy) }),
+      }))], picked?.id || "", (id) => { if (id) quotaCyclePicks.set(key, id); else quotaCyclePicks.delete(key); renderQuotas(); }, "Choose a recorded cycle", "sess-menu");
+    };
+    head.append(range);
+    box.replaceChildren(head, f.g);
+  };
+  box.draw();
+  return box;
+}
+
+// balanceChart: a balance as magpie read it (TJHHHH on Discord), over the
+// range the allowances' charts have ("2 days", or all it has: two weeks),
+// dotted on at its fitted pace to the day it runs out when that is no
+// further off than twice what is shown; none with one reading only
+function balanceChart(sub) {
+  if (quotaRange === "off") return null;
+  const tr = sub.balanceTrend;
+  if (!(tr?.points?.length > 1)) return null;
+  const pts = tr.points.map((p) => ({ at: Date.parse(p.at), v: p.amount }));
+  const out = tr.runsOut ? Date.parse(tr.runsOut) : null;
+  const box = el("div", "quota-curve balance-curve");
+  box.draw = () => {
+    const now = Date.now(), last = pts.at(-1);
+    let x0 = quotaRange === "2d" ? now - 48 * 3600e3 : pts[0].at, x1 = now;
+    if (!(x0 < now)) x0 = now - 3600e3;
+    const ends = out > now && out - now <= 2 * (now - x0);
+    if (ends) x1 = out;
+    const top = qvNice(Math.max(...pts.filter((p) => p.at >= x0).map((p) => p.v), last.v));
+    const amount = (v) => balanceAmount(sub, v).replace(/[.,]00(?!\d)/, "");
+    const f = qvFrame(t("Balance over time"), x0, x1, top, amount);
+    const run = [], hits = [];
+    pts.forEach((p, i) => {
+      if (p.at < x0 && pts[i + 1]?.at < x0) return;
+      const pt = { x: f.X(Math.max(x0, p.at)), y: f.Y(p.v) };
+      run.push(pt);
+      hits.push({ x: pt.x, tip: quotaTimeText(p.at, now) + " · " + balanceAmount(sub, p.v) });
+    });
+    const runsOut = out > now ? t("Runs out {in} at this pace", { in: untilText(Math.max(out, now + 60e3)) }) : "";
+    qvLine(f, { runs: [run], now: x1 > now ? f.X(now) : null, proj: ends ? { x: f.X(out), y: f.Y(0), text: t("Runs out") } : null });
+    qvAxis(f, [{ x: f.X(x0), text: quotaTimeText(x0, now) }, { x: f.X(now), text: t("Now"), keep: true }, ...(ends ? [{ x: f.X(out), text: quotaTimeText(out, now), keep: true }] : [])]);
+    qvHits(f, hits);
+    const perDay = tr.perDay > 0 ? t("about {amount} a day", { amount: balanceAmount(sub, tr.perDay) }) : "";
+    f.g.setAttribute("aria-label", [t("Balance over time"), balanceAmount(sub, last.v), perDay, runsOut].filter(Boolean).join(" · "));
+    const head = qvHead(t("Balance over time"));
+    if (ends) head.append(qvKey("qv-k-proj", "At this pace"));
+    if (perDay) head.append(el("span", "qv-sub", perDay));
+    const pace = el("span", "qc-range", runsOut);
+    pace.title = out > now ? new Date(out).toLocaleString(intlLang()) : "";
+    head.append(pace);
+    box.replaceChildren(head, f.g);
+  };
+  box.draw();
+  return box;
+}
+
+// creditChart: the credits (or money, in its unit's currency) one of an
+// account's windows used each day of the period, as magpie counted them
+// from its readings of the vendor's meter (#568): a thin bar a day, today's
+// light as it is not over, the most and today's figures on them, and the
+// dashed average of the days before today; a day before magpie first read
+// it is not known rather than nothing. named: the window's name in the
+// head, for a card with several.
+function creditChart(daily, named) {
+  const box = el("div", "credit-days");
+  const { since, days, window: pool, unit } = daily;
+  const by = new Map(days.map((d) => [d.day, d.used]));
+  const key = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  // the period's days, the first from when counting began for All, a
+  // picked range's own (#1492), its last 120 at most
+  const range = periodDays(period);
+  const last = range ? dayOfKey(range.to) : today;
+  let n = range ? Math.round((last - dayOfKey(range.from)) / 864e5) + 1 : { today: 1, "7d": 7, "30d": 30 }[period];
+  if (!n) n = Math.round((today - new Date(since + "T12:00:00")) / 864e5) + 1;
+  n = Math.min(120, Math.max(1, n));
+  const list = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(last);
+    d.setDate(d.getDate() - i);
+    list.push({ day: key(d), date: d, used: by.get(key(d)) || 0, known: key(d) >= since, today: key(d) === key(today) });
+  }
+  const num = (v) => { try { if (unit) return new Intl.NumberFormat(intlLang(), { style: "currency", currency: unit.toUpperCase() }).format(v); } catch {} return (Math.round(v * 100) / 100).toLocaleString(intlLang()); };
+  const dayName = (d) => d.toLocaleDateString(intlLang(), { month: "short", day: "numeric" });
+  const sum = list.reduce((a, d) => a + d.used, 0);
+  const head = el("div", "cd-head");
+  const name = el("span", "", t(unit ? "Spent per day" : "Credits used per day") + (named && pool ? " · " + t(pool) : ""));
+  name.title = t("Counted from magpie's readings of the vendor's meter, since {date}: what is used while magpie isn't reading it is counted on the day it next does", { date: dayName(new Date(since + "T12:00:00")) });
+  const total = n > 1 ? t("{n} in {days} days", { n: num(sum), days: n }) : range && range.to !== key(today) ? t("{n} on {date}", { n: num(sum), date: dayName(last) }) : t("{n} today", { n: num(sum) });
+  head.append(name, el("b", "", total));
+  box.append(head);
+  // one day is its figure alone; bars from two days on, however few of
+  // them were counted (the rest are slots)
+  if (n > 1) {
+    const before = list.filter((d) => d.known && !d.today), peak = Math.max(0, ...list.map((d) => d.used));
+    const f = qvFrame(name.textContent, 0, n, qvNice(peak), (v) => num(v).replace(/[.,]00(?!\d)/, ""));
+    const band = (QV.right - f.left) / n, bw = Math.max(1, Math.min(20, band - 2)), labels = [], tops = [];
+    const most = before.reduce((a, d) => (d.used > (a?.used || 0) ? d : a), null), now = list.find((d) => d.today && d.known);
+    let avgText = "";
+    list.forEach((d, i) => {
+      // a day's use, however little, stands 2 above the base
+      const x = f.X(i) + (band - bw) / 2, y = d.used > 0 ? Math.min(f.Y(d.used), QV.base - 2) : f.Y(d.used), r = Math.min(4, bw / 2, QV.base - y), at = (v) => v.toFixed(1);
+      if (!d.known) f.g.append(sv("line", { x1: x, x2: x + bw, y1: QV.base - 0.5, y2: QV.base - 0.5, class: "qv-unknown" }));
+      else if (d.used > 0) f.g.append(sv("path", { d: `M${at(x)} ${QV.base}V${at(y + r)}Q${at(x)} ${at(y)} ${at(x + r)} ${at(y)}H${at(x + bw - r)}Q${at(x + bw)} ${at(y)} ${at(x + bw)} ${at(y + r)}V${QV.base}Z`, class: "qv-bar" + (d.today ? " today" : "") }));
+      labels.push({ x: x + bw / 2, text: d.today ? t("Today") : d.date.toLocaleDateString(intlLang(), { month: "numeric", day: "numeric" }), keep: d.today });
+      if (d.known && d.used > 0 && (d.today || d === most)) tops.push({ x: x + bw / 2, y: y - 5, text: num(d.used), today: d.today });
+    });
+    // the average of the days before today, its figure clear of the bars'
+    if (before.length > 1) {
+      const avg = before.reduce((a, d) => a + d.used, 0) / before.length, y = f.Y(avg), text = avgText = t("Daily average {n}", { n: num(avg) });
+      f.g.append(sv("line", { x1: f.left, x2: QV.right, y1: y, y2: y, class: "qv-avg" }));
+      const w = qvWidth(text), clash = (ty) => tops.some((p) => Math.abs(p.y - ty) < 11 && p.x + qvWidth(p.text) / 2 > QV.right - w - 4);
+      qvText(f.g, QV.right, clash(y - 5) || y - 5 < QV.top ? y + 12 : y - 5, text, "end", "qv-v qv-avg-t");
+    }
+    // the most and today's figures, today's kept where they would meet
+    tops.sort((a, b) => b.today - a.today).forEach((p, i, all) => {
+      const w = qvWidth(p.text);
+      if (i && Math.abs(p.x - all[0].x) < (w + qvWidth(all[0].text)) / 2 + 4 && Math.abs(p.y - all[0].y) < 11) return;
+      qvText(f.g, Math.min(Math.max(p.x, f.left + w / 2), QV.right - w / 2), Math.max(QV.top + 2, p.y), p.text, "middle", "qv-v qv-top");
+    });
+    qvAxis(f, labels);
+    qvHits(f, list.map((d, i) => ({ x: f.X(i) + band / 2, tip: !d.known ? t("{date}: not counted — magpie began counting on {since}", { date: dayName(d.date), since: dayName(new Date(since + "T12:00:00")) })
+      : d.today ? t("{n} today", { n: num(d.used) }) : t(unit ? "{date}: {n} spent" : "{date}: {n} credits", { date: dayName(d.date), n: num(d.used) }) })));
+    // to a screen reader: the sum, the most, today's and the average
+    f.g.setAttribute("aria-label", [name.textContent, total, most?.used > 0 && t("Most on {date}: {n}", { date: dayName(most.date), n: num(most.used) }),
+      now && t("{n} today", { n: num(now.used) }), avgText].filter(Boolean).join(" · "));
+    box.append(f.g);
+  }
+  if (since > list[0].day) box.append(el("div", "cd-note", t("Counted since {date}", { date: dayName(new Date(since + "T12:00:00")) })));
+  return box;
 }
 // Keep the last date and as many earlier dates as fit, without clipping their
 // text. Visibility keeps each label aligned to its bar; resizing restores them.
