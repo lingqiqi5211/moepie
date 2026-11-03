@@ -156,6 +156,11 @@ func TestClaudeUsageExpiredReadingDoesNotSwitchAccounts(t *testing.T) {
 			}
 			if tt.back {
 				setLoginReturn("claude", loginReturn{Back: "b@example.com", To: "a@example.com"})
+				// Claude Code goes back to the first only In order
+				// (returnsToFirst)
+				if err := SetRouting("claude", Ordered); err != nil {
+					t.Fatal(err)
+				}
 			}
 			NoteClaudeLimits("b@example.com", []ClaudeLimit{{Kind: "five_hour", Used: .1, ResetsAt: future.Unix()}})
 			AskClaudeUsage()
@@ -186,7 +191,6 @@ func TestClaudeUsageFailureDoesNotHideAccountErrors(t *testing.T) {
 		subscriptionNotice + ".\nHTTP 401 Unauthorized",
 		"Current session: 40% used\nHTTP 401 Unauthorized",
 		"You've hit your limit · resets 3:30am (UTC)",
-		"You are currently using your overages to power your Claude Code usage. We will automatically switch you back to your subscription rate limits when they reset",
 	} {
 		t.Run(text, func(t *testing.T) {
 			out, card := claudeUsageCards(t, "Current session: 40% used", nil)

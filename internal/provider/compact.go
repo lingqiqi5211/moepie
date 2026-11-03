@@ -30,6 +30,12 @@ func CompactSet(id string) int {
 	return compactSet(settings.Load(), id, GroupFinder())
 }
 
+// CompactSetIn is CompactSet with the settings and group finder its caller
+// has already read (CompactFor's).
+func CompactSetIn(s settings.Settings, id string, find func(string) (Group, []Member, bool)) int {
+	return compactSet(s, id, find)
+}
+
 // CompactFor is where Codex compacts a conversation on e (catalog.Model's
 // Compact): the threshold the user set on it or its provider (CompactSet),
 // else, when its window is one the user typed (Entry.WindowSet) and no
@@ -158,7 +164,7 @@ func entryModel(m Member) string {
 // model id, "*" for all of them: what its editor's Compact at shows.
 func CompactsOf(providerID string) map[string]int {
 	out := map[string]int{}
-	for k, n := range settings.Load().ModelCompacts {
+	for k, n := range settings.Shared().ModelCompacts {
 		if model, ok := strings.CutPrefix(k, providerID+"/"); ok && model != "" && n > 0 {
 			out[model] = n
 		}

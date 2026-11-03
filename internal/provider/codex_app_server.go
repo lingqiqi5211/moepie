@@ -40,19 +40,22 @@ import (
 // sending to 127.0.0.1:3425 after Codex was disconnected (JiangLiuer222 on
 // X), so each such change restarts it the same way.
 //
-// A model-list-only change never restarts it: the app reads the catalog
-// at its next launch or on the Agents row's Restart. Ending its app-server
-// for every catalog refresh made the app relaunch every few minutes (#4550).
+// A change to the model list alone never does: the app takes an
+// app-server's end as a crash and relaunches, and the list changes far
+// more often than the route (an effort picked in the app, a provider
+// renamed), which ended the app every few minutes (#4550). The app reads
+// a new list at its next launch, or on the Agents row's Restart.
 //
 // The app-server is ended as a clean exit (proc.End): the app reads any
 // other exit as a crash and shows it.
 
 // CodexAppRoute is set by the agent package: what in Codex's config the
 // app-server reads as it starts and magpie writes (its provider and base
-// URL: route, compared, never parsed), and whether magpie is
-// Codex's provider for its used-up ChatGPT account (out, AppOut); known
-// false when Codex's config can't be read. Nothing the Codex app writes
-// itself (its model or effort pick), nor the model list, is in route.
+// URL: route, compared, never parsed), and whether magpie is Codex's
+// provider for its used-up ChatGPT account (out, AppOut); known false
+// when Codex's config can't be read. Nothing the Codex app writes itself
+// (its model or effort pick) and not the model list is in route, or a
+// pick would restart it.
 var CodexAppRoute func() (route string, out, known bool)
 
 // CodexNoAccount is set by the agent package: whether the provider Codex's
@@ -255,9 +258,6 @@ var codexApp struct {
 	// stale: the app-servers started before Codex's provider last changed,
 	// each with how often it was ended
 	stale map[int]int
-	// why records the cause for each stale app-server, including account
-	// switches seen by codexAppAccountSwitched, until it is ended.
-	why map[int]string
 	// stuck: one of them outlived codexAppTries ends, or may not be ended
 	stuck bool
 	// switched: Codex's ChatGPT account changed since the app-servers were
@@ -270,6 +270,10 @@ var codexApp struct {
 	// one has to start (codexAppBackWait after the last end)
 	ended  map[int]bool
 	backBy time.Time
+	// why: what made the app-servers in stale stale, said in the log line
+	// when they are ended, so a crash a user reports can be put down to
+	// an account switch, a route change or a used-up account (#4550)
+	why string
 }
 
 // CodexAppStuck is whether a Codex app is left on the provider it started
@@ -377,17 +381,18 @@ func codexAppStep(ctx context.Context, now time.Time, busy func() (int, time.Tim
 			return nil
 		}
 		c.Lock()
-		why := "where Codex's config sends it changed"
-		if !c.seen {
-			why = "Codex's account is used up, so magpie serves it"
-		}
-		if c.switched {
-			why = "Codex's ChatGPT account was switched"
+		switch {
+		case c.switched:
+			c.why = "Codex's ChatGPT account was switched"
+		case !c.seen:
+			c.why = "Codex's account is used up, so magpie serves it"
+		default:
+			c.why = "where Codex's config sends it changed"
 		}
 		c.seen, c.route, c.switched = true, route, false
-		c.stale, c.stuck, c.why = map[int]int{}, false, map[int]string{}
+		c.stale, c.stuck = map[int]int{}, false
 		for _, p := range pids {
-			c.stale[p], c.why[p] = 0, why
+			c.stale[p] = 0
 		}
 		c.Unlock()
 	}
@@ -413,7 +418,6 @@ func codexAppStep(ctx context.Context, now time.Time, busy func() (int, time.Tim
 			// gone: the one the app starts in its place reads the
 			// provider afresh, once it starts (c.ended)
 			delete(c.stale, p)
-			delete(c.why, p)
 		}
 	}
 	none := false
@@ -486,11 +490,13 @@ func codexAppStep(ctx context.Context, now time.Time, busy func() (int, time.Tim
 			continue
 		}
 		ended = append(ended, p)
-		log.Printf("codex: ended the Codex app's app-server %v for the app to start another: %s", []int{p}, c.why[p])
 		if c.ended == nil {
 			c.ended = map[int]bool{}
 		}
 		c.ended[p], c.backBy = true, now.Add(codexAppBackWait)
+	}
+	if len(ended) > 0 {
+		log.Printf("codex: ended the Codex app's app-server %v for the app to start another: %s", ended, c.why)
 	}
 	return ended
 }

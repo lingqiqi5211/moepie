@@ -117,7 +117,7 @@ func tiny(q Provider, proto Protocol, model string) (url, body string) {
 		body = strings.TrimSuffix(body, "}") + `,"stream":true}`
 	}
 	if q.OpenCodeFree(model) && body != "" {
-		url, body = OpenCodeFreeURL(url), zenFreeProbe(proto, body)
+		url, body = OpenCodeFreeURL(url, proto), zenFreeProbe(proto, body)
 	}
 	if q.IsCline() && body != "" {
 		body = clineProbe(body)
@@ -693,7 +693,7 @@ func probeOnce(ctx context.Context, p Provider, proto Protocol, url string, body
 		req.Header.Set("anthropic-version", "2023-06-01")
 	}
 	if OpenCodeURL(url) {
-		OpenCodeClient(req.Header, "") // a session of the probe's own
+		OpenCodeClient(req.Header, "", "") // a session of the probe's own, from the home folder
 	}
 	if p.IsCline() {
 		ClineClient(req.Header)

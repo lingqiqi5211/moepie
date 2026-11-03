@@ -888,6 +888,16 @@ func addLogin(l savedLogin) (using bool, err error) {
 	}()
 	loginsMu.Lock()
 	defer loginsMu.Unlock()
+	if l.Agent == "claude" {
+		// the sign-in Claude Code has is read, kept and maybe written
+		// over below: not while it refreshes it (#4532)
+		release, err := claudeRefreshLocks()
+		if err != nil {
+			return false, err
+		}
+		defer release()
+		forgetClaudeCredential()
+	}
 	l.Seen = time.Now().UTC().Truncate(time.Second)
 	live, signedIn := liveLogin(l.Agent)
 	ls := readLogins()
@@ -910,6 +920,15 @@ func addLogin(l savedLogin) (using bool, err error) {
 		live.Seen = l.Seen
 		ls = upsertLogin(ls, live)
 	}
+	// signed in again to an account Codex keeps in another of its folders
+	// (CODEX_HOME=…, charliepu on Discord): the new tokens go there, where
+	// Codex and magpie both read it, or the next look would read the old
+	// ones back over them
+	held := ""
+	if l.Agent == "codex" && !using {
+		held = codexHeldFolder(ls, l)
+		l.Home = held
+	}
 	// a second account is in use beside the first straight away, as a
 	// second key is: it takes over when the first runs out
 	l.On = !using
@@ -917,6 +936,14 @@ func addLogin(l savedLogin) (using bool, err error) {
 	// login keychain out of reach over ssh, #4563) leaves logins.json as
 	// it was, the account not kept, so signing in again or importing the
 	// same file another time isn't told it is already there
+	if held != "" {
+		// signed in again to an account held in another Codex folder: its
+		// sign-in goes there too, or the next look reads the old one back
+		if err := saveCodexLogin(held, l.Auth); err != nil {
+			return false, err
+		}
+		forgetCodexSignInGone(held)
+	}
 	if using {
 		switch l.Agent {
 		case "codex":
@@ -940,6 +967,20 @@ func addLogin(l savedLogin) (using bool, err error) {
 	loginsSeenAt.Store(0)
 	forgetAccountCaches()
 	return using, nil
+}
+
+// codexHeldFolder is the other Codex folder that holds l's account now,
+// as saved in ls (Home, codexHomeLogins): "" when none does.
+func codexHeldFolder(ls []savedLogin, l savedLogin) string {
+	for _, x := range ls {
+		if x.Agent != "codex" || x.Home == "" || !sameLogin(x, l) {
+			continue
+		}
+		if in, ok := codexLoginIn(x.Home); ok && sameLogin(in, l) {
+			return x.Home
+		}
+	}
+	return ""
 }
 
 // signInPage is what the browser shows at the end: magpie's, in its own

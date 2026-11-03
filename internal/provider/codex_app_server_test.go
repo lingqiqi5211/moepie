@@ -45,7 +45,7 @@ func stubCodexApp(t *testing.T) *codexAppStub {
 	oldOpen, oldReopen, oldQuiet := CodexAppOpen, CodexAppReopen, codexSessionsQuiet
 	reset := func() {
 		codexApp.Lock()
-		codexApp.seen, codexApp.route, codexApp.stale, codexApp.stuck, codexApp.why, codexApp.switched = false, "", nil, false, nil, false
+		codexApp.seen, codexApp.route, codexApp.stale, codexApp.stuck, codexApp.why, codexApp.switched = false, "", nil, false, "", false
 		codexApp.ended, codexApp.backBy, codexApp.spent = nil, time.Time{}, false
 		codexApp.Unlock()
 	}
