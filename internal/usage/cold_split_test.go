@@ -106,6 +106,55 @@ func TestFirstBuildPairsSpans(t *testing.T) {
 	}
 }
 
+// A first start pairs the history once for the warm-up's page and
+// Codex's effort, whichever is asked first, and tells what each pairing
+// of its own does (#2278).
+func TestFirstBuildPairsOnceForPageAndEffort(t *testing.T) {
+	yesterday, _ := advanceHistory(t)
+	writeLongCodexThread(t, yesterday.AddDate(0, 0, -20), yesterday.AddDate(0, 0, -1))
+	coldSpan = 4
+	restart := func() {
+		requestCache.Lock()
+		requestCache.parts, requestCache.pageOld, requestCache.heatParts, requestCache.heatOld, requestCache.heats, requestCache.pairs, requestCache.pages = nil, nil, nil, nil, nil, nil, map[pageKey]RequestPage{}
+		requestCache.Unlock()
+		codexEffort.Lock()
+		codexEffort.periods = map[Period]*effortEntry{}
+		codexEffort.Unlock()
+		codexEffortBuilding.Lock()
+		effortOlds = map[Period]*effortOld{}
+		codexEffortBuilding.Unlock()
+		for _, path := range []string{pageDiskPath(), heatDiskPath(), effortDiskPath(), codexEffortDiskPath()} {
+			os.Remove(path)
+		}
+	}
+	restart()
+	t.Cleanup(restart)
+	spans := 0
+	coldSpanning = func(int) { spans++ }
+	t.Cleanup(func() { coldSpanning = nil })
+	page := QueryPage(All, Filter{}, 0, 50)
+	restart()
+	effort := CodexModelEffort(All)
+	restart()
+	spans = 0
+	if got := QueryPage(All, Filter{}, 0, 50); !reflect.DeepEqual(got, page) {
+		t.Fatalf("page first: %+v, alone %+v", got, page)
+	}
+	first := spans
+	if got := CodexModelEffort(All); !reflect.DeepEqual(got, effort) || spans != first || first == 0 {
+		t.Fatalf("page first: effort %+v after %d spans of %d, alone %+v", got, spans, first, effort)
+	}
+	restart()
+	spans = 0
+	if got := CodexModelEffort(All); !reflect.DeepEqual(got, effort) {
+		t.Fatalf("effort first: %+v, alone %+v", got, effort)
+	}
+	first = spans
+	if got := QueryPage(All, Filter{}, 0, 50); !reflect.DeepEqual(got, page) || spans != first || first == 0 {
+		t.Fatalf("effort first: page %+v after %d spans of %d, alone %+v", got, spans, first, page)
+	}
+}
+
 // writeLongCodexThread writes one Codex rollout with a call at each of
 // ats, and the gateway's row of each.
 func writeLongCodexThread(t *testing.T, ats ...time.Time) {

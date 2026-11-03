@@ -84,7 +84,7 @@ func pageSplit(p Period, f Filter, now time.Time, take int, pass *cellPass, gate
 				old, kept = &pageOld{cut: cut, since: since, settled: serials, before: before, at: time.Now(), key: key, cells: c}, true
 			} else if c, found := pageAdvance(cache.disk, cut, since, until, f, pass, identities, sets, key); found {
 				old, kept = &pageOld{cut: cut, since: since, settled: serials, before: before, at: time.Now(), key: key, cells: c}, true
-			} else if c, found := pageCold(cut, since, pass, identities, sets, key); found {
+			} else if c, found := pageCold(cut, since, pass, identities, sets, key, effortKeyOf(f, k)); found {
 				old, kept = &pageOld{cut: cut, since: since, settled: serials, before: before, at: time.Now(), key: key, cells: c}, true
 			}
 		}
@@ -175,16 +175,44 @@ func pageAdvance(d heatDiskRef, cut, since, until time.Time, f Filter, pass *cel
 }
 
 // pageCold is a page's cells before cut from since, of a pairing a few
-// days at a time (coldSpans), written under key; or false.
-func pageCold(cut, since time.Time, pass *cellPass, identities map[string]sessions.CodexIdentity, sets [3][]*rowChunk, key string) (*chunkPart, bool) {
+// days at a time (coldSpans), written under key; or false. With
+// effortKey, Codex's effort before cut is counted of the same pairing and
+// kept under it, when the file doesn't have it: a first start paired the
+// whole history for the warm-up's page and again for the effort of the
+// same period, ~65 and ~105 MB of its live heap one after the other, and
+// seconds of CPU each (#2278).
+func pageCold(cut, since time.Time, pass *cellPass, identities map[string]sessions.CodexIdentity, sets [3][]*rowChunk, key, effortKey string) (*chunkPart, bool) {
 	cells := &chunkPart{}
+	var effort effortSums
+	if effortKey != "" {
+		if _, found := effortDiskRead(effortKey); !found {
+			effort = effortSums{}
+		}
+	}
 	if !coldSpans(since, cut, sets, func(from, to time.Time, span [3][]*rowChunk) {
-		cells = addCells(cells, pairRowsIn(from, to, span[0], span[1], span[2], identities).cellsBefore(pass, to))
+		ps := pairRowsIn(from, to, span[0], span[1], span[2], identities)
+		cells = addCells(cells, ps.cellsBefore(pass, to))
+		if effort != nil {
+			ps.visitActors(effort.add)
+		}
 	}) {
 		return nil, false
 	}
 	_ = pageDiskWrite(key, cut, since, cells)
+	if effort != nil {
+		_ = effortDiskWrite(effortKey, cut, since, effort.values())
+	}
 	return cells, true
+}
+
+// effortKeyOf is the key Codex's effort before the cut is kept under, of
+// the settled chunks heatSettledKey names k for f; "" when f filters
+// anything, as the effort is of every row.
+func effortKeyOf(f Filter, k string) string {
+	if f != (Filter{}) {
+		return ""
+	}
+	return fmt.Sprintf("%x", sha256.Sum256([]byte("effort-v1\x00"+k)))
 }
 
 // addCells is the cells of a and of b, the later, as one part: a cell of
@@ -222,7 +250,7 @@ func addCells(a, b *chunkPart) *chunkPart {
 func (ps *pairedRows) cellsBefore(pass *cellPass, cut time.Time) *chunkPart {
 	before := *ps
 	before.until = cut
-	var rows chunkRows
+	rows := lentRows() // part keeps unique's handles
 	defer rows.release()
 	var r Row
 	out := &chunkPart{}

@@ -30,6 +30,8 @@ var skillsCounted = map[string]struct {
 	"qoder-cn":       {parser: "claude"},
 	"codex":          {test: "TestCodexSkillReads"},
 	"pi":             {test: "TestPiSkillRead"},
+	"raft":           {parser: "pi"},
+	"cindy":          {parser: "pi"},
 	"omp":            {parser: "pi"},
 	"grok":           {test: "TestGrokToolsAndSkills"},
 	"alma":           {test: "TestAlmaSessions"},

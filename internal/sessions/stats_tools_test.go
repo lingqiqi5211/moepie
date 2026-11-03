@@ -153,20 +153,6 @@ func TestToolUseMergesSpellings(t *testing.T) {
 			sess:  2,
 		},
 		{
-			// the legend counts each spelling under its own kind, as the
-			// weeks do, whichever spelling came first: "task" is Other,
-			// "Task" is Task
-			name: "the legend keeps each spelling's own kind",
-			in: []Summary{
-				{ToolCalls: 3, tools: countsOf(map[string]int{"task": 3}, nil)},
-				{ToolCalls: 5, tools: countsOf(map[string]int{"Task": 5}, nil)},
-			},
-			top:   []ToolStat{{Name: "Task", Category: "Task", Calls: 8, Sessions: 2}},
-			cats:  []ToolStat{{Name: "Task", Calls: 5, Sessions: 1}, {Name: "Other", Calls: 3, Sessions: 1}},
-			calls: 8,
-			sess:  2,
-		},
-		{
 			name: "tools that only share a kind stay apart",
 			in:   []Summary{{ToolCalls: 12, tools: countsOf(map[string]int{"mcp__github__create_issue": 5, "mcp__github__list_issues": 7}, nil)}},
 			top: []ToolStat{

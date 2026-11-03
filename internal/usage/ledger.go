@@ -574,6 +574,9 @@ func Pricer() func(Record) *catalog.Price {
 			// rather than priced at another entry's guess.
 			if v, ok := catalog.PriceOf(r.SessionProvider, r.Model); ok {
 				pr = &v
+				// the failed lookup's windows are the billing provider's,
+				// not the session provider's: none holds for this price
+				ws = nil
 			}
 		}
 		if pr == nil {

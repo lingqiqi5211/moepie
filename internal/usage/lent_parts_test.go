@@ -44,16 +44,17 @@ func TestPartsReadStringsWhereDecoded(t *testing.T) {
 			runtime.ReadMemStats(&b)
 			least = min(least, b.TotalAlloc-a.TotalAlloc)
 		}
-		t.Logf("%s: allocated %d bytes for %d bytes of strings", name, least, section)
 		if least > uint64(section/4) {
 			t.Errorf("%s allocated %d bytes for %d bytes of strings", name, least, section)
 		}
 	}
 	allocs("partsOf", func() { ps.partsOf(pass, nil, nil) })
+	allocs("cellsBefore", func() { ps.cellsBefore(pass, now.Add(time.Second)) })
 	allocs("heatDaysOf", func() { ps.heatDaysOf(since, now, Filter{}, nil, nil, nil) })
 
 	// what they keep is right after every buffer was read over again
 	parts := ps.partsOf(pass, nil, nil)
+	before := ps.cellsBefore(pass, now.Add(time.Second))
 	days := ps.heatDaysOf(since, now, Filter{}, nil, nil, nil)
 	ps.partsOf(newCellPass(All, Filter{Model: "model-3"}, now, true), nil, nil)
 	models := map[string]int{}
@@ -66,6 +67,16 @@ func TestPartsReadStringsWhereDecoded(t *testing.T) {
 		if n := models[fmt.Sprint("model-", k)]; n != 2000 {
 			t.Fatalf("model-%d has %d calls in the parts: %v", k, n, models)
 		}
+	}
+	n := 0
+	for _, c := range before.cells {
+		if !strings.HasPrefix(c.model.Value(), "model-") || c.provider.Value() != "p" || c.agent.Value() != "claude" {
+			t.Fatalf("a cell before the cut reads %q %q %q", c.provider.Value(), c.agent.Value(), c.model.Value())
+		}
+		n += c.n
+	}
+	if n != 16000 {
+		t.Fatalf("%d calls before the cut", n)
 	}
 	calls := 0
 	for _, d := range days {
