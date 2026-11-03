@@ -1005,7 +1005,13 @@ func TestCRTidyTwentyFourMBLine(t *testing.T) {
 			} else if string(got) != c.want {
 				t.Fatal("the line came out other than wanted")
 			}
-			if elapsed > 8*time.Second {
+			// -race runs this several times slower (15.5s on CI's shard), so
+			// its bound is looser: a quadratic read is still far past it
+			limit := 8 * time.Second
+			if raceOn {
+				limit = 45 * time.Second
+			}
+			if elapsed > limit {
 				t.Fatalf("24MB took %s", elapsed)
 			}
 		})
