@@ -17,7 +17,8 @@
 // frame. And only the keys near sight are in the list: each update laid
 // out, read and moved all 800, longer than a frame in WebKit. The rest are
 // gaps as tall as they are, their wires still drawn to where they would
-// be, and scrolled to, the last key is there with its wire ending at it.
+// be, and scrolled to in the stage's window, the last key is there with
+// its wire ending at it.
 // English, Chinese and German; the API is faked here.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -148,15 +149,17 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const rowsNow = () => page.evaluate((KEYS) => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => {
         const all = [...document.querySelectorAll(KEYS)], keys = all.filter((li) => !li.classList.contains("hit"));
         const drawn = (li) => li.firstElementChild.checkVisibility({ contentVisibilityAuto: true });
-        const mid = (li) => { const r = li.getBoundingClientRect(); return Math.abs((r.top + r.bottom) / 2 - innerHeight / 2); };
+        // in sight: in the stage's window, the stage scrolling in it
+        const cv = document.querySelector("#view-routing .rt-canvas").getBoundingClientRect();
+        const mid = (li) => { const r = li.getBoundingClientRect(); return Math.abs((r.top + r.bottom) / 2 - (cv.top + cv.bottom) / 2); };
         const seen = keys.reduce((a, li) => (mid(li) < mid(a) ? li : a));
         const h = (li) => Math.round(li.getBoundingClientRect().height);
         // the wire to each key in sight ends at the middle of its left edge
-        const st = document.querySelector("#view-routing .rt-stage").getBoundingClientRect();
-        const ends = [...document.querySelectorAll("#view-routing .rt-wires path[d]")].map((p) => { const n = p.getAttribute("d").match(/-?[\d.]+(?:e-?\d+)?/g).map(Number); return [n[n.length - 2] + st.left, n[n.length - 1] + st.top]; });
-        const inSight = keys.filter((li) => { const r = li.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
+        const stage = document.querySelector("#view-routing .rt-stage"), st = stage.getBoundingClientRect(), z = st.width / stage.offsetWidth;
+        const ends = [...document.querySelectorAll("#view-routing .rt-wires path[d]")].map((p) => { const n = p.getAttribute("d").match(/-?[\d.]+(?:e-?\d+)?/g).map(Number); return [n[n.length - 2] * z + st.left, n[n.length - 1] * z + st.top]; });
+        const inSight = keys.filter((li) => { const r = li.getBoundingClientRect(); return r.bottom > cv.top && r.top < cv.bottom; });
         const unwired = inSight.filter((li) => { const r = li.getBoundingClientRect(); return !ends.some(([x, y]) => Math.abs(x - r.left) < 1.5 && Math.abs(y - (r.top + r.bottom) / 2) < 1.5); }).map((li) => li.title);
-        done({ shown: mid(seen) < innerHeight / 2 && drawn(seen), notDrawn: keys.filter((li) => !drawn(li)).length, listed: keys.length, inSight: inSight.length, unwired, wires: ends.length,
+        done({ shown: mid(seen) < cv.height / 2 && drawn(seen), notDrawn: keys.filter((li) => !drawn(li)).length, listed: keys.length, inSight: inSight.length, unwired, wires: ends.length,
           last: all.some((li) => li.title === "solpool2#k299" && drawn(li)), heights: [...new Set(keys.map(h))] });
       }))), KEYS);
       const rows = await rowsNow();
@@ -168,28 +171,30 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert(rows.wires >= 800, `${rows.wires} wires: each key has one, in the list or not`);
       assert.deepEqual(rows.unwired, [], "a wire ends at each key in sight");
       // scrolled to the foot, the last key is there, drawn, with its wire
-      await page.mouse.move(700, 500);
-      // by the wheel, as a reader would: on until the last key is in the
-      // list, then to it
+      const cv = await page.locator("#view-routing .rt-canvas").evaluate((e) => { const r = e.getBoundingClientRect(); return { x: r.left + r.width * .6, top: r.top, mid: (r.top + r.bottom) / 2, h: r.height }; });
+      await page.mouse.move(cv.x, cv.mid);
+      // by the wheel over the stage's window, as a reader would: on until
+      // the last key is in the list, then to it
       for (let k = 0; k < 80; k++) {
         const at = await page.evaluate(() => [...document.querySelectorAll("#view-routing .rt-accts > li")].find((li) => li.title === "solpool2#k299")?.getBoundingClientRect().top);
-        if (at !== undefined && Math.abs(at - 400) < 150) break;
-        await page.mouse.wheel(0, at === undefined ? 3000 : Math.max(-3000, Math.min(3000, at - 400)));
+        if (at !== undefined && Math.abs(at - cv.mid) < cv.h / 4) break;
+        await page.mouse.wheel(0, at === undefined ? 3000 : Math.max(-3000, Math.min(3000, at - cv.mid)));
         await page.waitForTimeout(at === undefined ? 50 : 300);
       }
       await page.waitForTimeout(300);
       const foot = await rowsNow();
       t.diagnostic(`at the foot ${JSON.stringify({ ...foot, unwired: foot.unwired.length })}`);
       assert.equal(foot.last, true, "scrolled to, the last key is drawn");
-      assert(foot.inSight > 5, `${foot.inSight} keys in sight at the foot`);
+      // the window, ~330px tall here, holds four or five rows
+      assert(foot.inSight >= 3, `${foot.inSight} keys in sight at the foot`);
       assert.deepEqual(foot.unwired, [], "a wire ends at each key in sight at the foot");
       // the second fold, hundreds of keys down, closed and opened again
       // where it is clicked stays there, the list made again around it
       const fold2 = () => page.evaluate(() => { const f = document.querySelectorAll("#view-routing .rt-fold")[1]; const r = f?.getBoundingClientRect(); return r && { top: r.top, x: r.left + 20, y: (r.top + r.bottom) / 2 }; });
       for (let k = 0; k < 80; k++) {
         const f = await fold2();
-        if (f && Math.abs(f.top - 300) < 150) break;
-        await page.mouse.wheel(0, !f ? -3000 : Math.max(-3000, Math.min(3000, f.top - 300)));
+        if (f && Math.abs(f.top - (cv.top + cv.h / 3)) < cv.h / 4) break;
+        await page.mouse.wheel(0, !f ? -3000 : Math.max(-3000, Math.min(3000, f.top - (cv.top + cv.h / 3))));
         await page.waitForTimeout(!f ? 50 : 300);
       }
       await page.waitForTimeout(300);

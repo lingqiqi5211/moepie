@@ -80,7 +80,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.equal((await page.locator(".rt-mode").textContent()).trim(),
         await say("Requests spread over the keys or accounts by the weight set beside each: one weighing 3 takes three requests for every one weighing 1 takes, evenly over a few requests. One that fails is passed over while it rests, and the others share its requests; a conversation stays with it as Stays says."));
       // the story says whose share went first
-      await page.locator(".rt-steps li.why").first().waitFor();
+      await page.locator(".rt-steps li.why").first().waitFor({ state: "attached" });
+      await page.locator(".rt-steps .rt-det:not([hidden])").first().waitFor(); // the step open at first, seen
       assert.equal((await page.locator(".rt-steps li.why").first().textContent()).trim(),
         await say(scenes.weight.why, { who: "relay-b" }));
       assert.deepEqual(errors, []);

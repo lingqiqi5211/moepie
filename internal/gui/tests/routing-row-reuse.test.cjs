@@ -2,13 +2,13 @@
 // What a request's row in Routing says is worked out once for each route
 // the gateway's trace sends, not again on every update (#1481). A trace
 // update replaces only the routes that changed, yet each one redrew every
-// row in sight from scratch: its outcome, its metrics with their token
-// breakdown, its title and a JSON signature of all of it, ~150 MB of
+// row in sight from scratch: its outcome, its metrics with their help,
+// its title and a JSON signature of all of it, ~150 MB of
 // garbage a minute at one request a second. WebKit's WebContent let that
 // pile up to a gigabyte while the window sat on Routing.
 //
-// The test counts the token breakdowns the page works out (each row's
-// Tokens metric carries one in its title) while new requests come in one
+// The test counts the speed helps the page works out (each row's metrics
+// work one out, shown or not) while new requests come in one
 // at a time over forty listed: worked out again for every row, that is
 // forty and more an update; kept, it is one for the new row. A request
 // that changed (answered after it was under way) and a new language are
@@ -68,13 +68,13 @@ function serve(lang, feed, next) {
   };
 }
 
-// the token breakdowns worked out: t("Token breakdown") is asked once for
-// each, wherever the page asks it. t is i18n.js's global, which the
-// Routing plugin calls by name, so wrapping it counts every call.
+// the rows' metrics worked out: the speed's help is asked once for each,
+// wherever the page asks it. t is i18n.js's global, which the Routing
+// plugin calls by name, so wrapping it counts every call.
 const countBreakdowns = () => {
   window.__breakdowns = 0;
   const t0 = window.t;
-  window.t = function (s, vars) { if (s === "Token breakdown") window.__breakdowns++; return t0(s, vars); };
+  window.t = function (s, vars) { if (s === "Output tokens a second after the first, over the streamed replies") window.__breakdowns++; return t0(s, vars); };
 };
 
 for (const engine of engines) for (const lang of ["en", "zh"]) {
@@ -102,7 +102,7 @@ for (const engine of engines) for (const lang of ["en", "zh"]) {
     }
     await page.waitForTimeout(300);
     const worked = await page.evaluate(() => window.__breakdowns);
-    assert(worked <= 6, `three updates of one request each worked out ${worked} token breakdowns over 43 listed rows: every row in sight was worked out again`);
+    assert(worked <= 6, `three updates of one request each worked out ${worked} rows' metrics over 43 listed rows: every row in sight was worked out again`);
 
     // a request under way, then answered: its row says so, the same
     // route id sent again
@@ -118,11 +118,11 @@ for (const engine of engines) for (const lang of ["en", "zh"]) {
     assert.equal(await page.evaluate(() => document.querySelector(".rt-req").className.includes("wait")), false, "the answered request's row still reads as under way");
 
     // a new language: every row is worked out again, in it
-    const title = () => page.evaluate(() => document.querySelector(".rt-req .rt-metric.tokens")?.title || "");
+    const title = () => page.evaluate(() => document.querySelector(".rt-req .rt-metric.ttft")?.title || "");
     const was = await title();
-    assert(was, "the answered request's row has no Tokens metric to read its breakdown from");
+    assert(was, "the answered request's row has no First token metric to read its title from");
     await page.evaluate((l) => setLocale(l === "en" ? "zh" : "en"), lang);
-    await page.waitForFunction((w) => (document.querySelector(".rt-req .rt-metric.tokens")?.title || "") !== w, was);
+    await page.waitForFunction((w) => (document.querySelector(".rt-req .rt-metric.ttft")?.title || "") !== w, was);
     assert.equal(errors.length, 0, errors.join("\n"));
   });
 }

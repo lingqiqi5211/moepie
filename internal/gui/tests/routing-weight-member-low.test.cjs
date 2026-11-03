@@ -81,7 +81,8 @@ async function open(t, engine, lang, scene, width = 1100) {
   const req = page.locator(".rt-req").first();
   await req.waitFor();
   if (await req.getAttribute("aria-pressed") !== "true") await req.click();
-  await page.locator(".rt-steps li.why").first().waitFor();
+  await page.locator(".rt-steps li.why").first().waitFor({ state: "attached" });
+  await page.locator(".rt-steps .rt-det:not([hidden])").first().waitFor(); // the step open at first, seen
   const say = (key, vars = {}) => page.evaluate(([lang, key, vars]) => {
     const s = (lang !== "en" && I18N[lang]?.[key]) || key;
     return s.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`);

@@ -4,7 +4,8 @@
 // again, so nothing could be read). A request still going is answered by
 // the trace 4 to 8 times a second, each saying a little more of it; its
 // row in the list is the same row throughout, patched in place, so its
-// pulse never starts over, while what it says does change. With nothing
+// pulse never starts over, while what it says does change (its tokens are
+// Usage's now: here it is masked, then routed). With nothing
 // coming, the countdowns' second writes nothing on the page at all.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -37,12 +38,14 @@ function serve(feed) {
       const trace = (routes, seq) => json({ mine: true, now: new Date().toISOString(), seq, totals: { requests: 0, rerouted: 0, errors: 0 }, routes });
       if (!url.searchParams.get("wait")) return trace(first, 111);
       // the long poll: held until the test turns the traffic on, then
-      // answered every 150ms with the same request, its tokens counting up
+      // answered every 150ms with the same request, its tokens counting up,
+      // being masked and from feed.moveAt on routed
       if (!feed.on) await new Promise((res) => { feed.wake = res; });
       if (feed.closed) return route.abort().catch(() => {});
       await new Promise((r) => setTimeout(r, 150));
       feed.n++;
-      return trace([{ ...live, seq: 200 + feed.n, tokens: 100 * feed.n }], 200 + feed.n).catch(() => {});
+      const phase = feed.moveAt && feed.n >= feed.moveAt ? "route" : "redact";
+      return trace([{ ...live, seq: 200 + feed.n, tokens: 100 * feed.n, provider: "", tries: [], phase }], 200 + feed.n).catch(() => {});
     }
     if (url.pathname === "/api/gateway/history") return json({ cut: false, days: [], routes: [] });
     if (url.pathname === "/api/groups") return json({ models: [], groups: [], pools: [] });
@@ -100,6 +103,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     const said = await row.textContent();
     await watch();
     const n0 = feed.n;
+    feed.moveAt = n0 + 4;
     await page.waitForTimeout(2500);
     const busy = await read();
     assert(feed.n - n0 >= 8, `the trace must have answered again and again (${feed.n - n0})`);

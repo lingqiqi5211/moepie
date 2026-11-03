@@ -146,9 +146,18 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         // third's dot waits at magpie
         await page.waitForFunction(() => document.querySelectorAll(".rt-sky .pkt.held").length === 2);
         await page.waitForFunction(() => document.querySelectorAll(".rt-sky .pkt:not([visibility])").length === 3);
-        await page.waitForTimeout(900); // the third's flight to magpie lands, the carriers fly off
-        const flown = await page.evaluate(() => document.querySelectorAll(".rt-sky .rt-flier").length);
-        assert(flown >= 1, "the magpie carrying the waiting request stays with it at magpie");
+        await page.waitForTimeout(900); // the third's flight to magpie lands
+        // no magpie carries it here (its pulses fly bare dots): the waiting
+        // request's own dot stays with it at magpie, the card nearest it
+        const waiting = await page.evaluate(() => {
+          const cards = [...document.querySelectorAll(".rt-stage .rt-node, .rt-accts li:not(.rt-gap)")];
+          return [...document.querySelectorAll(".rt-sky .pkt:not(.held)")].filter((d) => d.getAttribute("visibility") !== "hidden").map((d) => {
+            const r = d.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+            const far = (e) => { const c = e.getBoundingClientRect(); return Math.hypot(Math.max(c.left - cx, 0, cx - c.right), Math.max(c.top - cy, 0, cy - c.bottom)); };
+            return cards.reduce((a, e) => (far(e) < far(a) ? e : a)).classList.contains("rt-hub");
+          });
+        });
+        assert.deepEqual(waiting, [true], "the waiting request's dot stays with it at magpie");
 
         assert.deepEqual(await page.evaluate(covered), [], "nothing in the sky may be drawn over a card's words");
         const ds = await page.evaluate(dots);

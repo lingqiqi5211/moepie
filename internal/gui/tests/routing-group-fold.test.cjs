@@ -202,7 +202,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.deepEqual((await rows()).sort(), [...team, "solo-1"].sort());
       const big7 = acts.locator(".rt-act.rt-keys", { hasText: await say("{n} accounts", { n: 7 }) });
       assert.equal(await big7.getAttribute("title"), await say("Show each account"));
-      await page.mouse.move(300, 300);
+      // over the page's gutter: over the stage's window, the wheel scrolls that
+      const view = await page.locator("#view-routing").boundingBox();
+      await page.mouse.move(view.x + 3, 300);
       for (let i = 0; i < 20 && (await big7.boundingBox()).y > 500; i++) {
         await page.mouse.wheel(0, 120);
         await page.waitForTimeout(150);
@@ -233,4 +235,31 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.deepEqual(errors, []);
     });
   }
+}
+
+// An open heading branches down within its indentation, without a hook
+// crossing the incoming curve at the heading's left edge.
+for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ['chromium', 'webkit'])) {
+  test(`${engine}: child wires branch below their heading at every zoom`, async t => {
+    const {page,errors} = await open(t,engine,'en',1280);
+    const check = () => page.evaluate(() => {
+      const st=document.querySelector('.rt-stage'), sr=st.getBoundingClientRect(), z=sr.width/st.offsetWidth;
+      const p=[...document.querySelectorAll('.rt-accts > .rt-fold')].find(e=>e.textContent.includes('Team'));
+      const a=p.nextElementSibling, pr=p.getBoundingClientRect(), ar=a.getBoundingClientRect();
+      const x=(ar.left-sr.left)/z,y=((ar.top+ar.bottom)/2-sr.top)/z;
+      const path=[...document.querySelectorAll('.rt-wires path[d]')].map(p=>p.getAttribute('d').match(/-?[\d.]+(?:e-?\d+)?/g).map(Number)).find(ns=>Math.abs(ns.at(-2)-x)<1&&Math.abs(ns.at(-1)-y)<1);
+      return {has:!!path,start:path?.slice(0,2),left:(pr.left-sr.left)/z,bottom:(pr.bottom-sr.top)/z};
+    });
+    for(const zoom of ['100','50','200']){
+      await page.locator('.rt-zoom-at').click();
+      const button=page.locator(zoom==='50'?'.rt-zoom-out':'.rt-zoom-in');
+      for(let i=0;i<14&&parseInt(await page.locator('.rt-zoom-at').textContent())!==+zoom;i++)await button.click();
+      await page.waitForTimeout(150);
+      const m=await check();assert(m.has,'wire reaches child');assert(m.start[0]>m.left,'branch stays inside parent indentation');assert(Math.abs(m.start[1]-m.bottom)<1,'wire starts at lower edge rather than doubling back from its side');
+    }
+    await page.locator(".rt-zoom-at").click();
+    await page.waitForTimeout(150);
+    if(process.env.ARTIFACT_DIR) await page.locator(".rt-canvas").screenshot({path:path.join(process.env.ARTIFACT_DIR,"group-branches.png")});
+    assert.deepEqual(errors,[]);
+  });
 }

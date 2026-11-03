@@ -636,6 +636,9 @@ magpie.strings({
     "To ask for the maker's own API, tick “{tick}” in the provider's settings.": "要指定模型厂商的官方 API，请在该服务商设置里勾选“{tick}”。",
     "No provider was asked for, and its reply didn't say which one answered.": "请求时没有指定上游，回复也没有说是哪家作答。",
     "{h} h {m} min": "{h} 小时 {m} 分钟",
+    "Zoom the flow out": "缩小流程图",
+    "Zoom the flow in": "放大流程图",
+    "Reset the flow's zoom to 100%": "将流程图缩放重置为 100%",
   },
   "zh-TW": {
     "Each session's context window": "各會話的上下文視窗",
@@ -1272,6 +1275,9 @@ magpie.strings({
     "To ask for the maker's own API, tick “{tick}” in the provider's settings.": "要指定模型廠商的官方 API，請在該服務商設定裡勾選「{tick}」。",
     "No provider was asked for, and its reply didn't say which one answered.": "請求時沒有指定上游，回覆也沒有說是哪家作答。",
     "{h} h {m} min": "{h} 小時 {m} 分鐘",
+    "Zoom the flow out": "縮小流程圖",
+    "Zoom the flow in": "放大流程圖",
+    "Reset the flow's zoom to 100%": "將流程圖縮放重設為 100%",
   },
   ja: {
     "Each session's context window": "セッションごとのコンテキストウィンドウ",
@@ -1908,6 +1914,9 @@ magpie.strings({
     "{h} h {m} min": "{h} 時間 {m} 分",
     "This routing group will no longer be available to agents.": "このルーティンググループはエージェントから利用できなくなります。",
     "These routing groups will no longer be available to agents.": "これらのルーティンググループはエージェントから利用できなくなります。",
+    "Zoom the flow out": "フロー図を縮小",
+    "Zoom the flow in": "フロー図を拡大",
+    "Reset the flow's zoom to 100%": "フロー図の倍率を 100% に戻す",
   },
   de: {
     "Each session's context window": "Kontextfenster jeder Sitzung",
@@ -2544,5 +2553,13 @@ magpie.strings({
     "{h} h {m} min": "{h} h {m} min",
     "This routing group will no longer be available to agents.": "Diese Weiterleitungsgruppe steht Agenten nicht mehr zur Verfügung.",
     "These routing groups will no longer be available to agents.": "Diese Weiterleitungsgruppen stehen Agenten nicht mehr zur Verfügung.",
+    "Zoom the flow out": "Ablauf verkleinern",
+    "Zoom the flow in": "Ablauf vergrößern",
+    "Reset the flow's zoom to 100%": "Zoom des Ablaufs auf 100 % zurücksetzen",
+    "Waited, then asked again": "Gewartet, dann erneut gefragt",
+    "Waiting to ask again": "Wartet, um erneut zu fragen",
+    "Try {n}": "Versuch {n}",
+    "{who} answered": "{who} hat geantwortet",
+    "Rerouted, then answered": "Nach Umleitung beantwortet",
   },
 });

@@ -2,11 +2,29 @@
    request (client.js). The same stage as the site's Model Routing, only
    played by the gateway's own trace. */
 .rt { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px 12px; margin: 0 0 18px; }
-.rt-top { display: flex; flex-direction: column; gap: 3px; }
+.rt-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; row-gap: 3px; }
 .rt-what { font-size: 13px; color: var(--muted); }
 .rt-what b { color: var(--fg); font-weight: 600; }
-.rt-mode { margin: 0; font-size: 12.5px; color: var(--fg-2); line-height: 1.45; }
-.rt-stage { position: relative; display: grid; grid-template-columns: 124px 124px minmax(0, 1fr); column-gap: 56px; align-items: center; padding: 22px 2px; }
+.rt-mode { grid-column: 1 / -1; margin: 0; font-size: 12.5px; color: var(--fg-2); line-height: 1.45; }
+.rt-stage { position: absolute; display: grid; grid-template-columns: 124px 124px minmax(0, 1fr); column-gap: 56px; align-items: center; padding: 22px 2px; }
+.rt-stage { transform-origin: 0 0; min-width: min-content; }
+/* taller than its window (client.js tallness): the agents and magpie at
+   its top, beside the first accounts, not out of sight at its middle */
+.rt-stage.tall:not(.max560) > :is(.rt-srcs, .rt-hub) { align-self: start; }
+/* the stage's window: as tall as the view has room for (client.js
+   fitWindow), never as the stage is; the stage scrolls in it, zoomed on a
+   field its size times the zoom. The wheel stays in it only while it
+   overflows (app.js .holds): Chromium holds it even in a box that fits */
+.rt-pane { position: relative; }
+.rt-canvas { position: relative; height: max(360px, 70vh); overflow: auto; scrollbar-gutter: stable; cursor: grab; touch-action: none; }
+.rt-canvas.panning { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+.rt-field { position: relative; overflow: clip; }
+.rt-zoom { display: flex; align-items: center; gap: 1px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+.rt-zoom button { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); font: inherit; font-size: 11.5px; font-variant-numeric: tabular-nums; cursor: pointer; transition: background .12s, color .12s; }
+.rt-zoom button.rt-zoom-at { min-width: 42px; color: var(--fg-2); }
+.rt-zoom button:hover:not(:disabled) { color: var(--fg); background: var(--pill-hover); }
+.rt-zoom button:focus-visible { color: var(--fg); background: var(--pill-hover); outline: none; }
+.rt-zoom button:disabled { opacity: .4; cursor: default; }
 .rt-wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .rt-wires path { fill: none; stroke: var(--line); stroke-width: 1.5; transition: opacity .3s; }
 .rt-wires path.live { stroke: var(--agent, var(--muted)); stroke-dasharray: 3 5; }
@@ -24,7 +42,6 @@
 @keyframes rtflow { 50% { opacity: .4; } }
 /* the dots travel under the cards, never over their words. Each flight
    starts and ends a dot clear of the card at either end (pose). */
-.rt-sky { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .rt-sky { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 /* each agent's requests and answers fly in its colour: a request filled
    with it, an answer ringed with it, a failure ringed red */
@@ -126,8 +143,8 @@
 .rt-accts li.rt-fold.open .chev { transform: rotate(180deg); }
 .rt-accts li.rt-fold:focus { outline: none; }
 .rt-accts li.rt-fold:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
-.rt-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px 20px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--line); }
-.rt-cap { flex: 1 1 20em; margin: 0; min-height: 3em; display: flex; align-items: center; font-size: 13px; line-height: 1.45; color: var(--fg); }
+.rt-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px 20px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid var(--line); }
+.rt-cap { flex: 1 1 20em; margin: 0; display: flex; align-items: center; font-size: 12px; line-height: 1.45; color: var(--fg); }
 .rt-cap.in { animation: rtin .4s ease-out; }
 @keyframes rtin { from { opacity: 0; transform: translateY(4px); } }
 .rt-stats { display: flex; gap: 18px; font-size: 11px; color: var(--muted); }
@@ -199,10 +216,10 @@
 .rt-accts:where(.max460) li.rt-fold { grid-template-columns: 10px minmax(0, 1fr) auto; }
 .rt-accts:where(.max460) li.rt-fold em { grid-row: 2; text-align: left; }
 .rt-accts:where(.max460) li.rt-fold .chev { grid-column: 3; grid-row: 1; }
-/* narrow (the tray panel): magpie and the agent side by side, the
-   accounts under them, on a lane down their left */
-:where(.rt.max560) .rt-stage { grid-template-columns: 1fr 1fr; column-gap: 28px; row-gap: 26px; padding: 16px 0; }
-:where(.rt.max560) .rt-accts { grid-column: 1 / -1; padding-left: 22px; }
+/* narrow (the tray panel, or the stage zoomed in): magpie and the agent
+   side by side, the accounts under them, on a lane down their left */
+.rt-stage:where(.max560) { grid-template-columns: 1fr 1fr; column-gap: 28px; row-gap: 26px; padding: 16px 0; }
+:where(.rt-stage.max560) .rt-accts { grid-column: 1 / -1; padding-left: 22px; }
 .rt-accts:where(.max560) li { grid-template-columns: 10px minmax(0, 1fr); }
 .rt-accts:where(.max560) em { grid-column: 2; white-space: normal; }
 .rt-accts:where(.max560) .bar { grid-column: 2; }

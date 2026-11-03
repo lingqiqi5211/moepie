@@ -48,9 +48,13 @@ function routingPage(part) {
   // steady redraws a part of the page where the reader is: WebKit has no
   // scroll anchoring, and a part emptied and filled again, measured between,
   // pulls the page up to what was left of it for that moment
+  // The stage's own window is kept as the reader left it too
   function steady(fn) {
-    const v = $("#view-routing"), top = v.scrollTop;
-    try { return fn(); } finally { if (v.scrollTop !== top) v.scrollTop = top; }
+    const v = $("#view-routing"), top = v.scrollTop, inner = canvas.scrollTop;
+    try { return fn(); } finally {
+      if (v.scrollTop !== top) v.scrollTop = top;
+      if (canvas.scrollTop !== inner) canvas.scrollTop = inner;
+    }
   }
 
   // ---------- the stage ----------
@@ -81,6 +85,34 @@ function routingPage(part) {
   sky.setAttribute("class", "rt-sky");
   sky.setAttribute("aria-hidden", "true");
   stage.append(wires, flows, srcs, hub, list, sky);
+  // The viewport stays fixed; the scene keeps its unscaled layout while
+  // its field supplies room to pan on every side, including below 100%.
+  const canvas = el("div", "rt-canvas"), field = el("div", "rt-field");
+  let panPadX = 0, panPadY = 0, panReady = false;
+  let savedView = null, viewTimer = 0;
+  try {
+    const v = JSON.parse(localStorage.getItem("magpie.routingStageView") || "null");
+    if (v?.v === 1 && Number.isFinite(v.x) && Number.isFinite(v.y) && Math.abs(v.x) <= 4 && Math.abs(v.y) <= 1e7) savedView = v;
+  } catch {}
+  const initialView = savedView;
+  let viewTouched = false;
+  field.append(stage);
+  canvas.append(field);
+  // a click in it holds the window where it is (app.js): what it moves,
+  // it moves in the window, where the view's scroll can't follow it
+  canvas.dataset.unrolls = "";
+  const ZOOM_MIN = .5, ZOOM_MAX = 2;
+  let scale = 1;
+  try { const z = Number(localStorage.getItem("magpie.routingStageZoom")); if (z >= ZOOM_MIN && z <= ZOOM_MAX) scale = z; } catch {}
+  const zoomBar = el("div", "rt-zoom");
+  const zBtn = (cls, svg) => { const b = el("button", cls); b.type = "button"; if (svg) b.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${svg}"/></svg>`; return b; };
+  const zOut = zBtn("rt-zoom-out", "M3.5 8h9"), zAt = zBtn("rt-zoom-at"), zIn = zBtn("rt-zoom-in", "M8 3.5v9M3.5 8h9");
+  zoomBar.append(zOut, zAt, zIn);
+  // the zoom on the heading's line, right of it, over the window rather
+  // than in it: it covers none of the stage and takes none of its height
+  what.after(zoomBar);
+  const pane = el("div", "rt-pane");
+  pane.append(canvas);
   const foot = el("div", "rt-foot");
   const cap = el("p", "rt-cap");
   cap.setAttribute("aria-live", "polite");
@@ -128,7 +160,7 @@ function routingPage(part) {
   rTrack.append(rHead);
   rbar.append(rTop, rWhat, rTrack);
   rbar.hidden = true;
-  box.append(top, rbar, stage, foot, log, off);
+  box.append(top, rbar, pane, foot, log, off);
 
   // under the stage: every request the gateway keeps, and each account or
   // key as those requests found it
@@ -1697,7 +1729,7 @@ function routingPage(part) {
       const dx = b.x - a.x, dy = b.y - a.y, dist = Math.hypot(dx, dy);
       let c1, c2;
       if (dist < 4) {
-        const h = hub.getBoundingClientRect(), k = Math.min(h.width, h.height) * .42, m = k * .6;
+        const h = hub.getBoundingClientRect(), k = Math.min(h.width, h.height) / scale * .42, m = k * .6;
         const nx = a.ty, ny = -a.tx;
         c1 = [a.x + a.tx * k - nx * m, a.y + a.ty * k - ny * m];
         c2 = [b.x - b.tx * k + nx * m, b.y - b.ty * k + ny * m];
@@ -1724,7 +1756,11 @@ function routingPage(part) {
     if (capQ.length > 3) capQ.shift();
     kick();
   }
-  function show(c) { capLo = !!c.lo; cap.textContent = c.s; rerun(cap, "in", "rtin"); capAt = performance.now(); }
+  function show(c) { capLo = !!c.lo; cap.textContent = c.s; updateCaption(); rerun(cap, "in", "rtin"); capAt = performance.now(); }
+  function updateCaption() {
+    const why = analysis.querySelector(".rt-decision-why")?.textContent;
+    cap.hidden = !log.hidden && !!why && cap.textContent.trim() === why.trim();
+  }
 
   // curve is a wire's S from (x0, y0) to (x3, y3), its bends at mx: one
   // cubic, cut into exact pieces of it about 1000 px tall (the middle ones
@@ -1750,24 +1786,25 @@ function routingPage(part) {
   // 50 fps with two groups open. Its dashes from a screen above to a screen
   // below what is in sight are kept, from a multiple of their 8px so they
   // stay in step with the whole wire's; the rest of it is a gap, out of
-  // sight (dashFor). Nothing is laid out for it: where the
-  // stage and what is in sight were is kept by layout, which reads them
-  // anyway (sight), and the view's scroll since by its scroll events.
-  // Reading them here laid the stage out again after each update.
+  // sight (dashFor). Nothing is laid out for it: what of the stage its
+  // window shows is kept by layout, which reads it anyway, and the
+  // window's scroll since by its scroll events, all in the stage's own
+  // px (scrolled, viewH). Reading them here laid the stage out again
+  // after each update.
   // Each is drawn by a copy in flows, a layer of its own, and itself hidden:
   // in the svg of every wire, Chromium (WebView2) drew all 800 again on the
   // GPU each frame one flowed, 31 fps with both groups open (#3164)
   const flowing = new Map();
-  let flowAsked = 0, sight = null, scrolled = 0;
+  let flowAsked = 0, scrolled = 0;
   const flowSoon = () => { if (!flowAsked) flowAsked = requestAnimationFrame(() => { flowAsked = 0; flowNear(); }); };
   function flowNear() {
     const live = new Set([...wires.querySelectorAll("path.live[d]")].filter((p) => !p.classList.contains("rest")));
     for (const [p, f] of flowing) if (!live.has(p)) { f.copy.remove(); p.classList.remove("flown"); flowing.delete(p); }
-    if (!live.size || !sight) return;
-    // in the stage's own terms, a screen more each way, in steps of 200px
-    // so a scroll redashes a wire only now and then
-    const at = sight.at - (scrolled - sight.scroll), m = Math.max(sight.hi - sight.lo, 200);
-    const top = Math.floor((sight.lo - m - at) / 200) * 200, bottom = Math.ceil((sight.hi + m - at) / 200) * 200;
+    if (!live.size || !viewH) return;
+    // a window more each way, in steps of 200px so a scroll redashes a
+    // wire only now and then
+    const m = Math.max(viewH, 200);
+    const top = Math.floor((scrolled - m) / 200) * 200, bottom = Math.ceil((scrolled + viewH + m) / 200) * 200;
     for (const p of live) {
       // the same wire with the same in sight is dashed as it was: this is
       // asked after every update
@@ -1814,7 +1851,7 @@ function routingPage(part) {
     const a = Math.max(0, Math.floor(s0 / 8) * 8 - 64), z = Math.ceil(s1 / 8) * 8 + 64;
     return a <= 0 && z >= len ? "" : `0 ${a} ${"3 5 ".repeat((z - a) / 8)}0 ${Math.ceil(len) + 64}`;
   };
-  $("#view-routing").addEventListener("scroll", (e) => { scrolled = e.currentTarget.scrollTop; flowSoon(); if (win) placeSoon(); }, { passive: true });
+  canvas.addEventListener("scroll", () => { scrolled = (canvas.scrollTop - panPadY) / scale; roomBack(); flowSoon(); if (win) placeSoon(); }, { passive: true });
 
   // with hundreds of keys open (#3164) only the keys near sight are in the
   // list: a run of the others is one gap as tall as they are, and a key in
@@ -1880,21 +1917,22 @@ function routingPage(part) {
   const placeSoon = () => { if (!placeAsked) placeAsked = requestAnimationFrame(() => {
     placeAsked = 0;
     if (!win || !list.isConnected) return;
-    // read again: a fold opened is held where it was by a scrollTop set
-    // after the layout that asked, and the scroll event of it can come a
-    // frame after this one, the list left around where the view was
-    scrolled = $("#view-routing").scrollTop;
+    // read again: the scroll event of a scrollTop set after the layout that
+    // asked can come a frame after this one, the list left around where
+    // the window was
+    scrolled = (canvas.scrollTop - panPadY) / scale;
     const m = (viewH || innerHeight) / 2, lo = scrolled - listAt;
     if (lo - m >= win.lo && lo + viewH + m <= win.hi) return;
     // what is in sight stays where it is, the gaps above it as tall as
     // they guess or not
-    const vt = $("#view-routing").getBoundingClientRect().top;
+    const vt = canvas.getBoundingClientRect().top;
     const anchor = [...list.children].find((e) => !e.classList.contains("rt-gap") && e.getBoundingClientRect().bottom > vt);
     const was = anchor?.getBoundingClientRect().top;
     put(place(laid));
     if (anchor?.isConnected) {
       const d = anchor.getBoundingClientRect().top - was;
-      if (Math.abs(d) >= 1) $("#view-routing").scrollTop += d;
+      // the field as tall as the list now is first, or the window can't go there
+      if (Math.abs(d) >= 1) { sized(...own()); canvas.scrollTop += d; }
     }
     layout();
   }); };
@@ -1904,8 +1942,9 @@ function routingPage(part) {
     if (!r.width) return;
     // every box is read before any wire is drawn, each once: a wire drawn
     // between two reads had the next read lay the stage out again, and
-    // hundreds of keys open (#3164) laid it out once a row, seconds a time
-    const boxes = new Map(), sets = [];
+    // hundreds of keys open (#3164) laid it out once a row, seconds a time.
+    // In the stage's own px: zoomed, a box read is scale times that
+    const boxes = new Map(), sets = [], z = scale;
     const b = (e) => {
       let v = boxes.get(e);
       if (v) return v;
@@ -1913,7 +1952,10 @@ function routingPage(part) {
       if (at) { // a key in a gap: where it would be in it
         const g = b(at.run.g), l = g.l + (parseFloat(e.style.getPropertyValue("--depth")) || 0) * 18, t = g.t + at.off;
         v = { l, r: g.r, t, b: t + at.h, cx: (l + g.r) / 2, cy: t + at.h / 2 };
-      } else { const x = e.getBoundingClientRect(); v = { l: x.left - r.left, r: x.right - r.left, t: x.top - r.top, b: x.bottom - r.top, cx: (x.left + x.right) / 2 - r.left, cy: (x.top + x.bottom) / 2 - r.top }; }
+      } else {
+        const x = e.getBoundingClientRect(), l = (x.left - r.left) / z, rt = (x.right - r.left) / z, t = (x.top - r.top) / z, bt = (x.bottom - r.top) / z;
+        v = { l, r: rt, t, b: bt, cx: (l + rt) / 2, cy: (t + bt) / 2 };
+      }
       boxes.set(e, v);
       return v;
     };
@@ -1936,11 +1978,12 @@ function routingPage(part) {
       const x = a.l - 12, y = Math.max(h.b, low - 8);
       return `M${h.cx} ${h.b} L${h.cx} ${y} C${h.cx} ${y + 22} ${x} ${y + 2} ${x} ${y + 24} L${x} ${a.cy - 10} Q${x} ${a.cy} ${a.l} ${a.cy}`;
     };
-    // a group in the group: its models hang from its heading, a lane down
-    // from where the wire to it ends (under the heading) to each
+    // Branch from the heading's lower edge within the indentation, rather
+    // than doubling back around its incoming wire at the left edge.
     const fromSub = (s, a) => {
-      const p = b(s.li), x = p.l + 9;
-      return `M${p.l} ${p.cy} Q${x} ${p.cy} ${x} ${p.cy + 9} L${x} ${a.cy - 9} Q${x} ${a.cy} ${a.l} ${a.cy}`;
+      const p = b(s.li), x = Math.min(p.l + 12, a.l - 8);
+      const bend = Math.max(0, Math.min(8, (a.l - x) / 2, (a.cy - p.b) / 2));
+      return `M${x} ${p.b} L${x} ${a.cy - bend} Q${x} ${a.cy} ${x + bend} ${a.cy} L${a.l} ${a.cy}`;
     };
     for (const s of subs.values()) {
       const up = s.up && subs.get(s.up);
@@ -1961,13 +2004,14 @@ function routingPage(part) {
     // set after this frame: the keys not drawn changing size resize the
     // stage, which in its own ResizeObserver WebKit reports as a loop
     if (rowH && list.style.getPropertyValue("--rt-row") !== rowH + "px") requestAnimationFrame(() => list.style.setProperty("--rt-row", rowH + "px"));
-    // read before the wires are set, which lays the stage out again
-    const view = $("#view-routing"), v = view.getBoundingClientRect();
-    scrolled = view.scrollTop;
-    // what place() lays the next list out by: the list's top in the view's
-    // content, and each li's height as it is now
-    listAt = b(list).t + r.top - v.top + scrolled;
-    viewH = v.height;
+    // read before the wires are set, which lays the stage out again: what
+    // of the stage its window shows, the stage's top the top of what the
+    // window scrolls
+    scrolled = (canvas.scrollTop - panPadY) / z;
+    viewH = canvas.clientHeight / z;
+    // what place() lays the next list out by: the list's top in the stage,
+    // and each li's height as it is now
+    listAt = b(list).t;
     listGap = parseFloat(getComputedStyle(list).rowGap) || 0;
     for (const e of list.children) {
       if (e.classList.contains("rt-gap") || e.classList.contains("idle")) continue;
@@ -1975,16 +2019,16 @@ function routingPage(part) {
       laidHs.set(e, { h: x.b - x.t, nobar });
       if (isKey(e) && e.firstElementChild?.checkVisibility?.({ contentVisibilityAuto: true })) usual.set(nobar, x.b - x.t);
     }
-    sight = { at: r.top, scroll: scrolled, lo: Math.max(0, v.top), hi: Math.min(innerHeight, v.bottom) };
-    const box = `0 0 ${r.width} ${r.height}`;
+    const box = `0 0 ${r.width / z} ${r.height / z}`;
     for (const svg of [wires, flows, sky]) if (svg.getAttribute("viewBox") !== box) svg.setAttribute("viewBox", box);
     for (const [p, d] of sets) {
       if (d === null) { if (p.hasAttribute("d")) p.removeAttribute("d"); }
       else if (p.getAttribute("d") !== d) p.setAttribute("d", d);
     }
+    if (!panReady && loaded) sized(r.width / z, r.height / z, true);
     flowSoon();
-    // the view moved by more than a scroll told of (a row held in place,
-    // the stage grown under it): the list made again around where it is
+    // the window moved by more than a scroll told of (the stage grown or
+    // shrunk under it): the list made again around where it is
     if (win) placeSoon();
     holdAll();
   }
@@ -2463,8 +2507,9 @@ function routingPage(part) {
     let moved = false;
     const placed = [...[...rows].map(([id, row]) => [id, row.li]), ...[...folds].map(([k, f]) => ["\u0001" + k, f.li])].filter(([, li]) => li.isConnected);
     // each row's place read before any is moved: a row moved between two
-    // reads laid the stage out again, once a row of hundreds (#3164)
-    const dys = still() ? [] : placed.map(([id, li]) => before.has(id) ? before.get(id) - li.getBoundingClientRect().top : 0);
+    // reads laid the stage out again, once a row of hundreds (#3164). In
+    // the stage's own px, as the translate is
+    const dys = still() ? [] : placed.map(([id, li]) => before.has(id) ? (before.get(id) - li.getBoundingClientRect().top) / scale : 0);
     placed.forEach(([, li], i) => {
       if (!dys[i]) return;
       moved = true;
@@ -4984,14 +5029,13 @@ function routingPage(part) {
   function words() {
     for (const s of stats.children) s.lastChild.textContent = t(s.dataset.label);
     hubText();
+    zoomWords();
     // the caption said before, said again in these words: it was set as text
     if (loaded) { if (cur) { sync(true); renderAll(); capQ = []; say(affWhy(cur, true) || ruleWhy(cur, true) || firstWhy(cur)); } else empty(); }
     renderGroups();
     renderPanel();
   }
   new MutationObserver(words).observe(document.documentElement, { attributes: true, attributeFilter: ["lang"] });
-  // a count follows Settings' number units, the panel's "today" with it
-  document.addEventListener("magpie-costs-changed", () => { steady(renderHist); renderPanel(); });
 
   // ---------- routing groups ----------
   // The groups agents can pick as one model (group/<id>): the user's, and
@@ -7855,7 +7899,189 @@ function routingPage(part) {
   // sight change #rt's height a fraction of a pixel, which WebKit reports
   // as a ResizeObserver loop (#3164)
   let stageAsked = 0;
-  new ResizeObserver(() => { if (!stageAsked) stageAsked = requestAnimationFrame(() => { stageAsked = 0; layout(); }); }).observe(stage);
+  const layoutSoon = () => { if (!stageAsked) stageAsked = requestAnimationFrame(() => { stageAsked = 0; layout(); }); };
+  // A layout during a hit/arrival animation measured the transient offset.
+  // Redraw once it settles, including rows just returned by virtualization.
+  list.addEventListener("animationend", (e) => {
+    if (e.target.parentElement === list && (e.animationName === "rthit" || e.animationName === "rtin")) layoutSoon();
+  });
+  // the field is sized at once: the window scrolls over it, not the stage
+  new ResizeObserver(([e]) => {
+    const s = e.borderBoxSize?.[0];
+    sized(s ? s.inlineSize : stage.offsetWidth, s ? s.blockSize : stage.offsetHeight);
+    layoutSoon();
+  }).observe(stage);
+
+  // ---- the stage's window, and its zoom ----
+  // sized makes the field the stage's size (w × h, its own px) times scale.
+  // What shrinks under the reader (a fold shut near the window's end)
+  // leaves room at the foot till they scroll back up over it, as app.js's
+  // views do, rather than the window pulled up to where the stage now ends
+  // under what they clicked; fresh, none
+  let stageW = 0, stageH = 0, fieldH = 0;
+  // the stage's own size, to the fraction of a px (offset* round it)
+  const own = () => { const r = stage.getBoundingClientRect(); return [r.width / scale, r.height / scale]; };
+  function sized(w, h, fresh) {
+    if (!(w > 0 && h > 0 && canvas.clientWidth && canvas.clientHeight)) return;
+    stageW = w; stageH = h;
+    const need = h * scale;
+    fieldH = fresh ? need : Math.max(need, Math.min(fieldH, canvas.scrollTop - panPadY + canvas.clientHeight));
+    const sw = w * scale + panPadX * 2 + "px", sh = fieldH + panPadY * 2 + "px";
+    if (field.style.width !== sw) field.style.width = sw;
+    if (field.style.height !== sh) field.style.height = sh;
+    if (loaded && panPadX && panPadY && !viewTouched) {
+      panReady = true;
+      positionView(initialView);
+    }
+    tallness();
+  }
+  function positionView(view) {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    // Center a small diagram. A tall list starts at its first accounts.
+    const x = view ? view.x * stageW : stageW / 2;
+    canvas.scrollLeft = panPadX + x * scale - cw / 2;
+    canvas.scrollTop = view ? panPadY + Math.min(view.y, Math.max(stageH, ch / scale) - ch / (2 * scale)) * scale - ch / 2
+      : panPadY - Math.max(0, (ch - stageH * scale) / 2);
+    scrolled = (canvas.scrollTop - panPadY) / scale;
+  }
+  function saveView() {
+    clearTimeout(viewTimer);
+    viewTimer = 0;
+    if (!viewTouched || !panReady || !stageW || !canvas.clientWidth || !canvas.clientHeight) return;
+    savedView = { v: 1, x: (canvas.scrollLeft + canvas.clientWidth / 2 - panPadX) / (scale * stageW),
+      y: (canvas.scrollTop + canvas.clientHeight / 2 - panPadY) / scale };
+    try { localStorage.setItem("magpie.routingStageView", JSON.stringify(savedView)); } catch {}
+  }
+  canvas.addEventListener("scroll", () => {
+    if (!panReady || !canvas.clientWidth || !canvas.clientHeight) return;
+    clearTimeout(viewTimer);
+    viewTimer = setTimeout(saveView, 150);
+  }, { passive: true });
+  window.addEventListener("pagehide", saveView);
+  function roomBack() {
+    if (fieldH > stageH * scale + .5 && canvas.scrollTop - panPadY + canvas.clientHeight < fieldH - .5) sized(stageW, stageH);
+  }
+  // Tall scenes keep agents and magpie beside the first accounts. Compare
+  // unscaled scene and viewport sizes so zoom never rearranges the nodes;
+  // the accounts determine scene height in either alignment.
+  function tallness() {
+    const ch = canvas.clientHeight;
+    if (!ch || !stageH) return;
+    const tall = stageH > ch + .5;
+    if (tall !== stage.classList.contains("tall")) { stage.classList.toggle("tall", tall); layoutSoon(); }
+  }
+  // The larger proportional viewport requested for the diagram remains
+  // independent of the scene and the compact details below it.
+  function fitWindow() {
+    const v = $("#view-routing"), h = v.clientHeight;
+    if (v.hidden || !h) return;
+    const px = Math.round(Math.max(360, h * .7)) + "px";
+    if (canvas.style.height !== px) canvas.style.height = px;
+  }
+  // Zoom only transforms the scene. Layout width and breakpoints follow
+  // the viewport at 100%, never its inverse zoom (which stretched cards).
+  function zoomed() {
+    stage.style.transform = scale === 1 ? "" : `scale(${scale})`;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (w && h) {
+      const dx = w - panPadX, dy = h - panPadY;
+      panPadX = w; panPadY = h;
+      stage.style.left = panPadX + "px";
+      stage.style.top = panPadY + "px";
+      const sw = w + "px";
+      if (stage.style.width !== sw) stage.style.width = sw;
+      stage.classList.toggle("max560", w <= 560);
+      if (panReady && (dx || dy)) {
+        sized(...own(), true);
+        if (viewTouched) { canvas.scrollLeft += dx; canvas.scrollTop += dy; }
+      }
+    }
+    tallness();
+    setText(zAt, Math.round(scale * 100) + "%");
+    atLabel();
+    zOut.disabled = scale <= ZOOM_MIN + 1e-3;
+    zIn.disabled = scale >= ZOOM_MAX - 1e-3;
+  }
+  // zoomTo zooms to k, what is under the pointer (else the window's
+  // middle) left where it is
+  function zoomTo(k, at) {
+    k = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, k));
+    if (Math.abs(k - scale) < 1e-4 || !canvas.clientWidth) return;
+    viewTouched = true;
+    const c = canvas.getBoundingClientRect();
+    const px = at ? at.clientX - c.left : canvas.clientWidth / 2, py = at ? at.clientY - c.top : canvas.clientHeight / 2;
+    const x = (canvas.scrollLeft + px - panPadX) / scale, y = (canvas.scrollTop + py - panPadY) / scale;
+    scaleTo(k);
+    canvas.scrollLeft = x * k + panPadX - px;
+    canvas.scrollTop = y * k + panPadY - py;
+  }
+  function scaleTo(k) {
+    scale = k;
+    try { localStorage.setItem("magpie.routingStageZoom", String(Math.round(k * 1e4) / 1e4)); } catch {}
+    zoomed();
+    sized(...own(), true);
+    scrolled = (canvas.scrollTop - panPadY) / scale;
+    layoutSoon();
+  }
+  // Drag the blank canvas with a mouse or a single touch. A movement
+  // threshold preserves clicks; capture keeps a pan going outside it.
+  let drag = null, dragged = false;
+  canvas.addEventListener("pointerdown", (e) => {
+    if (!e.isPrimary || e.button !== 0 || e.target.closest("button, a, input, select, textarea, summary, [role='button']")) return;
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, left: canvas.scrollLeft, top: canvas.scrollTop };
+    dragged = false;
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!drag || drag.id !== e.pointerId) return;
+    if (e.pointerType === "mouse" && !(e.buttons & 1)) { endDrag(e); dragged = false; return; }
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!dragged && Math.hypot(dx, dy) < 4) return;
+    if (!dragged) {
+      viewTouched = true;
+      dragged = true;
+      canvas.setPointerCapture(e.pointerId);
+      canvas.classList.add("panning");
+    }
+    e.preventDefault();
+    canvas.scrollLeft = drag.left - dx;
+    canvas.scrollTop = drag.top - dy;
+  });
+  const endDrag = (e) => {
+    if (!drag || drag.id !== e.pointerId) return;
+    drag = null;
+    if (e.type === "pointercancel") dragged = false;
+    canvas.classList.remove("panning");
+    if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+  };
+  for (const name of ["pointerup", "pointercancel", "lostpointercapture"]) canvas.addEventListener(name, endDrag);
+  canvas.addEventListener("click", (e) => { if (dragged) { e.preventDefault(); e.stopPropagation(); dragged = false; } }, true);
+  const STEPS = [.5, .67, .75, .8, .9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+  zIn.onclick = () => zoomTo(STEPS.find((s) => s > scale + 1e-3) ?? ZOOM_MAX);
+  zOut.onclick = () => zoomTo(STEPS.findLast((s) => s < scale - 1e-3) ?? ZOOM_MIN);
+  zAt.onclick = () => { viewTouched = true; zoomTo(1); positionView(null); saveView(); };
+  // Ctrl (⌘ on a Mac) and the wheel zoom the stage and not the page, over
+  // it or its zoom; so does a trackpad's pinch where it comes as Ctrl and
+  // the wheel (Chromium; WebKit's gesture events aren't handled)
+  const wheelZoom = (e) => {
+    viewTouched = true;
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    const d = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+    zoomTo(scale * Math.exp(-d * .0025), pane.contains(e.target) ? e : null);
+  };
+  for (const e of [pane, zoomBar]) e.addEventListener("wheel", wheelZoom, { passive: false });
+  function zoomWords() {
+    zOut.title = t("Zoom the flow out");
+    zIn.title = t("Zoom the flow in");
+    zAt.title = t("Reset the flow's zoom to 100%");
+    for (const b of [zOut, zIn]) b.setAttribute("aria-label", b.title);
+    atLabel();
+  }
+  // the readout says the zoom it is at, then what it does
+  function atLabel() { setAttr(zAt, "aria-label", zAt.textContent + " · " + zAt.title); }
+  zoomed();
+  // a window grown (fitWindow, the view's width) gives back blank room at its foot
+  new ResizeObserver(() => { zoomed(); roomBack(); }).observe(canvas, { box: "border-box" });
   // the list is as tall as leaves the stage in sight above it: the reader
   // scrolls the list, not the page, and a request picked plays in view.
   // Its top stays where it is as it is sized, so a row just clicked does too
@@ -7872,12 +8098,9 @@ function routingPage(part) {
   // list in the next frame, not inside this round of them
   let fitting = 0;
   const fitSoon = () => { if (!fitting) fitting = requestAnimationFrame(() => { fitting = 0; fitReqs(); }); };
-  new ResizeObserver(fitSoon).observe($("#view-routing"));
+  new ResizeObserver(() => { fitWindow(); fitSoon(); }).observe($("#view-routing"));
   new ResizeObserver(fitSoon).observe(box);
   words();
   start();
-  // the tray panel's line of today's totals is asked for at once, not
-  // after the trace's first answer, which it doesn't need (CyberCaius)
-  if (pBox) loadToday();
   poll();
 }

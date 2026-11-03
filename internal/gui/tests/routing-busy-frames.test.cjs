@@ -4,9 +4,9 @@
 // every flight, and each pose measured every path it flies along and the
 // wire ends it meets anew — getTotalLength and getPointAtLength took ~10 s
 // of a 40 s look at a busy page — and each render formatted every row's
-// token counts with a new formatter. A path is measured again only when it
-// moves, its points are read from its d, and the numbers still read in
-// the page's language.
+// token counts with a new formatter (the counts are Usage's now; the bar on
+// formatters stays). A path is measured again only when it moves, and its
+// points are read from its d.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -85,8 +85,6 @@ const init = () => {
   window.requestAnimationFrame = (cb) => raf((ts) => { n.frames++; cb(ts); });
 };
 
-const grouped = { en: "120,000", de: "120.000", zh: "120,000" };
-
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
   for (const lang of ["en", "zh", "de"]) {
     test(`${engine} ${lang}: flights in the air don't measure their paths every frame`, async (t) => {
@@ -138,9 +136,6 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert(pt <= 2 * len, `${pt} points asked of the browser along the ${len} d's measured`);
       // the rows' numbers come from one formatter, not one per number
       assert(fmt < 200, `${fmt} numbers formatted one formatter each over ${frames} frames`);
-      // and they still read in the page's language
-      const tip = await page.locator(".rt-req .rt-metric.tokens").first().getAttribute("title");
-      assert(tip.includes(grouped[lang]), `token breakdown reads ${JSON.stringify(tip)}`);
       assert.deepEqual(errors, []);
     });
   }

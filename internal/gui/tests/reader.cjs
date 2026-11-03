@@ -55,23 +55,58 @@ async function reach(page, locator) {
     // draws again in between (Routing's account rows, a row whose numbers
     // moved) hands it the element just replaced, out of the page, a box of
     // zeros at the window's top that reads as in sight (#2658)
-    const at = await locator.evaluateAll((es) => {
+    const at = await locator.evaluateAll((es, BOX_OF) => {
       const e = es.length === 1 ? es[0] : null, view = e?.closest(".view");
       if (!view) return null;
+      const boxOf = new Function("return " + BOX_OF)();
       const b = e.getBoundingClientRect(), v = view.getBoundingClientRect();
       const x = b.left + b.width / 2, y = b.top + b.height / 2;
       const inside = b.top >= v.top && b.bottom <= v.bottom, hit = document.elementFromPoint(x, y);
-      return { clear: inside && !!hit && (e === hit || e.contains(hit)), down: y > v.top + v.height / 2 };
-    });
+      // in a box of the view's that scrolls of its own (Routing's stage in
+      // its window), out of that box's sight: the box is wheeled, over the
+      // part of it in sight, once there is enough of it in sight
+      const s = boxOf(e, view);
+      let inner = null;
+      if (s) {
+        const r = s.getBoundingClientRect(), top = Math.max(r.top, v.top), bottom = Math.min(r.bottom, v.bottom);
+        if ((b.top < r.top || b.bottom > r.bottom) && bottom - top >= 40) inner = { x: r.left + r.width / 2, y: (top + bottom) / 2, down: b.top >= r.top };
+      }
+      return { clear: inside && !!hit && (e === hit || e.contains(hit)), down: y > v.top + v.height / 2, inner };
+    }, BOX_OF);
     // drawn again between two looks, or not drawn yet: look again
     if (!at) { await page.waitForTimeout(40); continue; }
     if (at.clear) { await page.waitForTimeout(300); return; }
+    if (at.inner) {
+      stalls = (await wheeledIn(page, locator, at.inner, at.inner.down ? 60 : -60)) ? 0 : stalls + 1;
+      if (stalls >= 3) break;
+      continue;
+    }
     // landed, or the view is at its end and the wheel moves nothing: three
     // of those in turn and the control can't be brought clear
     stalls = (await wheeled(page, id, at.down ? 20 : -20)) ? 0 : stalls + 1;
     if (stalls >= 3) break;
   }
   throw new Error("control did not come clear into sight: " + JSON.stringify({ view: v, target: await locator.boundingBox() }));
+}
+
+// boxOf: the box between a control and its view that scrolls of its own,
+// if any; passed to the page as its source
+const boxOf = (e, view) => {
+  const scrolls = (n) => n.scrollHeight > n.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(n).overflowY);
+  for (let n = e.parentElement; n && n !== view; n = n.parentElement) if (scrolls(n)) return n;
+  return null;
+};
+const BOX_OF = boxOf.toString();
+
+// wheeledIn sends one wheel over such a box and waits for it to scroll;
+// false when it didn't in a second (it is at its end)
+async function wheeledIn(page, locator, at, dy) {
+  const box = await locator.evaluateHandle((e, BOX_OF) => new Function("return " + BOX_OF)()(e, e.closest(".view")), BOX_OF);
+  const was = await box.evaluate((n) => n?.scrollTop);
+  if (was == null) return false;
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.wheel(0, dy);
+  return page.waitForFunction(([n, was]) => n.scrollTop !== was, [box, was], { timeout: 1000 }).then(() => true, () => false);
 }
 
 // viewOf: the id of the view the control is in ("" for none), read once

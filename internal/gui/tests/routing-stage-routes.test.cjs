@@ -16,6 +16,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
+const { reach } = require("./reader.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
 const iso = (s = 0) => new Date(Date.now() - s * 1e3).toISOString();
@@ -124,10 +125,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
 
         // the pointer on Kimi Code's row is on Kimi Code's row
         const k = page.locator(".rt-accts > li", { has: page.locator(".who", { hasText: /^Kimi Code \(China\)$/ }) });
-        // (tall enough that nothing scrolls: a scroll under the pointer is
-        // the test's, not the page's)
+        // (wheeled to first, in the stage's window, as a reader would: a
+        // scroll under the pointer is the test's, not the page's)
         await page.setViewportSize({ width, height: 1600 });
-        await page.waitForFunction(() => document.querySelector(".rt-accts > li:last-child").getBoundingClientRect().bottom < innerHeight);
+        await reach(page, k);
         await k.hover();
         await page.waitForFunction(() => document.querySelector(".rt-accts > li:hover")?.title.split("\n")[0] === "kimi-code-cn");
 

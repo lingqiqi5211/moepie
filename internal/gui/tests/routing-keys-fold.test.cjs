@@ -220,8 +220,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       // Relay's two keys and Solo's one, each its own row
       const rows = () => acts.locator(".rt-act:not(.rt-keys) .nm b").allTextContents();
       assert.deepEqual(await rows(), ["relay-1", "relay-2", "solo-1"]);
-      // wheeled to, as a reader would (the page holds still for a script's scroll)
-      await page.mouse.move(300, 300);
+      // wheeled to, as a reader would (the page holds still for a script's
+      // scroll), over the page's gutter: over the stage's window it scrolls that
+      const view = await page.locator("#view-routing").boundingBox();
+      await page.mouse.move(view.x + 3, 300);
       for (let i = 0; i < 20 && (await sum.boundingBox()).y > 500; i++) {
         await page.mouse.wheel(0, 120);
         await page.waitForTimeout(150);

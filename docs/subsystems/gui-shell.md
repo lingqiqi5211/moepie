@@ -38,6 +38,26 @@ three.
 
 ## Constraints and failure behavior
 
+### Routing canvas
+
+The live diagram sits in a fixed viewport (70% of the view height, at least
+360 px). Zoom transforms the whole scene at 50–200%; its layout width,
+column proportions and breakpoints do not change with the zoom. The scene
+has panning room on every side, including when smaller than the viewport.
+Dragging the canvas or a node’s non-control area pans with native scrolling;
+a movement threshold preserves clicks. Ctrl/⌘ + wheel zooms around the
+pointer; buttons zoom around the center. The percentage button restores
+100% and centers the diagram. A first visit centers a small scene; a tall
+scene starts beside the first accounts. Pan and zoom are kept across reloads,
+with the saved view applied after trace data has laid out the scene. Hidden
+or zero-sized observer measurements never replace the saved scene size.
+Virtual account rows and wire coordinates
+use the scene’s scroll origin and scale. Expanded groups branch from the
+heading’s lower edge within the child indentation, avoiding a hook around
+the incoming curve. The outer page stays still when the canvas moves.
+Verification: `routing-stage-canvas.test.cjs` (English and Chinese) and
+`routing-many-keys.test.cjs`.
+
 ### Allowance card refreshes
 
 A card refresh applies only the requested account from the API's full
