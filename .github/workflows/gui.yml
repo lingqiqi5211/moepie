@@ -23,8 +23,8 @@ permissions:
 
 jobs:
   # A few of the browser tests, on Chromium only: motion, languages, the
-  # plugin pages, session lists, archive previews, hidden-page polling and the
-  # provider editor's frame through folds, resize and reopen.
+  # plugin pages, session lists, archive previews, hidden-page polling
+  # and the provider editor's frame through folds, resize and reopen.
   # The rest still run by hand (internal/gui/tests/README.md).
   gui-critical:
     runs-on: ubuntu-latest
@@ -56,6 +56,7 @@ jobs:
             reduce-motion.test.cjs skeleton-pulse.test.cjs tray-bird.test.cjs \
             i18n-keys.test.cjs header-relang.test.cjs lightweight.test.cjs \
             plugin-kernel.test.cjs plugin-page.test.cjs \
+            privacy-usage-stats.test.cjs \
             sessions-paging.test.cjs sessions-folder-paging.test.cjs \
             sessions-manage-paging.test.cjs sessions-talk.test.cjs \
             request-archive.test.cjs request-archive-usage.test.cjs \

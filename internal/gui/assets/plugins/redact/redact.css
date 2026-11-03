@@ -392,8 +392,9 @@ body.window .msk-onebar::before { inset: -6px calc(var(--bar, 0px) - 16px) -6px 
   .mf-remote { grid-area: 3 / 1; }
   .mf-wire { grid-area: 2 / 1; display: block; }
   .mf-net { top: 50%; bottom: auto; left: 4px; right: 4px; margin: -1px 0 0; border-left: 0; border-top: 2px dashed var(--line); }
-  .mf-wlabel { position: absolute; top: 50%; left: 14px; padding: 0 8px; writing-mode: horizontal-tb; transform: translateY(-50%); }
-  .mf-run { position: absolute; top: -8px; bottom: -8px; left: 50%; width: 12px; height: auto; margin: 0 0 0 -6px; }
+  .mf-wlabel { position: absolute; top: 50%; left: 4px; padding: 0 8px 0 0; writing-mode: horizontal-tb; transform: translateY(-50%); }
+  /* (stretch: an absolute box centred, as the wide layout's, is its packet's height, 0, and doesn't cross) */
+  .mf-run { position: absolute; top: -8px; bottom: -8px; left: 50%; align-self: stretch; width: 12px; height: auto; margin: 0 0 0 -6px; }
   .mf-dir { --r: 90deg; position: absolute; top: 50%; left: 50%; margin: -10px 0 0 -10px; }
   .mf-back .mf-dir { --r: -90deg; }
   .mf-pkt { top: auto; bottom: 0; right: 0; width: 12px; height: 18px; }

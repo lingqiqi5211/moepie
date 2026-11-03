@@ -21,6 +21,7 @@ func init() {
 	pluginrt.Register(pluginrt.Manifest{
 		ID: "search", API: "^1", Requires: []string{"settings", "gateway"}, Essential: true,
 		Name: "Web search", Sub: "Models that can't search the web search with a provider that can, or a search API",
+		Group: pluginrt.GroupGateway, Order: 5, Where: []string{"Settings › Models"},
 		One: "1 search source set up", Many: "{n} search sources set up",
 		InUse: InUse,
 		Apply: func(c *pluginrt.Ctx) error {

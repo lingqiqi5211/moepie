@@ -43,6 +43,14 @@ type Manifest struct {
 	Essential bool
 	// Name and Sub say what it is, in English; the window translates them
 	Name, Sub string
+	// Group is the part of Plugins › Built-in it is listed in: GroupPages,
+	// GroupGateway or GroupIntegrations; Order its place in it, lowest first
+	Group string
+	Order int
+	// Where are the places in the window it shows, in English, each a path
+	// of the window's own names ("Settings › Observability"); the window
+	// translates each name
+	Where []string
 	// One and Many say what of it is in use, of 1 or of {n}
 	One, Many string
 	// InUse counts what the user has made with it (groups, warm-ups, items
@@ -73,6 +81,13 @@ type Manifest struct {
 
 // Schema is the schema of the plugin's Settings, nil for one with none.
 func (m Manifest) Schema() *Schema { return m.schema }
+
+// The groups Plugins › Built-in lists the built-in plugins in.
+const (
+	GroupPages        = "pages"        // a page the sidebar can do without
+	GroupGateway      = "gateway"      // how requests are routed or sent
+	GroupIntegrations = "integrations" // outside services, or on a schedule
+)
 
 // Part is one thing a plugin puts in the window: a Slot and a Key in it.
 type Part struct{ Slot, Key string }

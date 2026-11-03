@@ -16,9 +16,10 @@ const assets = path.resolve(__dirname, "../assets");
 const ids = ["ssn", "passport", "iban", "birthday", "mac", "serial", "home", "userhost", "ip", "bucket"];
 // the user turned SSNs off and IP addresses on; the rest are as by default
 const want = { ssn: "off", passport: "on", iban: "on", birthday: "on", mac: "on", serial: "on", home: "off", userhost: "off", ip: "on", bucket: "off" };
-// the names and words in English, read from app.js, to see each is translated
+// the names and words in English, read from the redact plugin's
+// settings.js, to see each is translated
 const kinds = (() => {
-  const src = require("node:fs").readFileSync(path.join(assets, "app.js"), "utf8");
+  const src = require("node:fs").readFileSync(path.join(assets, "plugins/redact/settings.js"), "utf8");
   const list = src.slice(src.indexOf("\nconst REDACT_KINDS = ["), src.indexOf("\n];", src.indexOf("\nconst REDACT_KINDS = [")));
   return [...list.matchAll(/^  \["(\w+)", "((?:[^"\\]|\\.)*)", "((?:[^"\\]|\\.)*)"/gm)].map((m) => [m[1], JSON.parse(`"${m[2]}"`), JSON.parse(`"${m[3]}"`)]);
 })();

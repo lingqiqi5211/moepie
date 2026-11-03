@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -14,6 +16,17 @@ import (
 	"github.com/yetone/magpie/internal/settings"
 	_ "github.com/yetone/magpie/plugins/all"
 )
+
+// No built-in has settings now (the Gateway page's callsPage is gone):
+// this one stands in for one, essential so every preset keeps it on, its
+// title one i18n.js says.
+type fixtureSettings struct {
+	Queue int `json:"queue" title:"Queue size" enum:"10,20,50,100"`
+}
+
+func init() {
+	pluginrt.Register(pluginrt.Manifest{ID: "settings-fixture", Essential: true, Settings: fixtureSettings{Queue: 20}})
+}
 
 func builtinHome(t *testing.T) http.Handler {
 	h := t.TempDir()
@@ -54,14 +67,14 @@ func TestBuiltinSwitch(t *testing.T) {
 		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 			t.Fatal(err)
 		}
-		if len(out) != 14 {
+		if len(out) != 15 { // and settings-fixture
 			t.Fatalf("the built-ins: %+v", out)
 		}
 		for _, b := range out {
 			// the Gateway, Routing and Usage pages, the routing strategies,
 			// the gateway middleware, privacy masking, web search, key
 			// limits and plugin tools are essential: on in every preset
-			if b.On != (b.ID == "budget" || b.ID == "library" || b.ID == "gateway" || b.ID == "middleware" || b.ID == "redact" || b.ID == "rotation" || b.ID == "routing" || b.ID == "search" || b.ID == "tools" || b.ID == "usage") || b.On != (b.State == pluginrt.Active) {
+			if b.On != (b.ID == "budget" || b.ID == "library" || b.ID == "gateway" || b.ID == "middleware" || b.ID == "redact" || b.ID == "rotation" || b.ID == "routing" || b.ID == "search" || b.ID == "settings-fixture" || b.ID == "tools" || b.ID == "usage") || b.On != (b.State == pluginrt.Active) {
 				t.Fatalf("after library on: %+v", out)
 			}
 		}
@@ -185,48 +198,74 @@ func TestBootSaysWhereItsGatewayListens(t *testing.T) {
 
 // A plugin's settings are set only as their schema allows, kept in
 // plugins.yml, and handed to the page in boot.js; a request says on or
-// config, not both.
+// config, not both, and one with no settings takes none.
 func TestBuiltinConfig(t *testing.T) {
 	h := builtinHome(t)
 	if _, err := pluginrt.Settle(); err != nil {
 		t.Fatal(err)
 	}
-	gw := func() builtinJSON {
+	fx := func() builtinJSON {
 		for _, b := range builtinsState() {
-			if b.ID == "gateway" {
+			if b.ID == "settings-fixture" {
 				return b
 			}
 		}
-		t.Fatal("no gateway plugin")
+		t.Fatal("no settings-fixture plugin")
 		return builtinJSON{}
 	}
-	if b := gw(); b.Schema == nil || b.Schema.Properties["callsPage"] == nil || b.Config["callsPage"] != int64(20) {
+	if b := fx(); b.Schema == nil || b.Schema.Properties["queue"] == nil || b.Config["queue"] != int64(20) {
 		t.Fatalf("before: %+v", b)
 	}
-	if rec := postBuiltin(h, `{"id":"gateway","config":{"callsPage":50}}`); rec.Code != http.StatusOK {
+	if rec := postBuiltin(h, `{"id":"settings-fixture","config":{"queue":50}}`); rec.Code != http.StatusOK {
 		t.Fatalf("50: %d %s", rec.Code, rec.Body)
 	}
-	if b := gw(); b.Config["callsPage"] != int64(50) || !b.On {
+	if b := fx(); b.Config["queue"] != int64(50) || !b.On {
 		t.Fatalf("after 50: %+v", b)
 	}
 	for _, bad := range []string{
-		`{"id":"gateway","config":{"callsPage":30}}`,
-		`{"id":"gateway","config":{"other":1}}`,
-		`{"id":"gateway","on":true,"config":{"callsPage":10}}`,
-		`{"id":"gateway"}`,
-		`{"id":"library","config":{"callsPage":10}}`,
+		`{"id":"settings-fixture","config":{"queue":30}}`,
+		`{"id":"settings-fixture","config":{"other":1}}`,
+		`{"id":"settings-fixture","on":true,"config":{"queue":10}}`,
+		`{"id":"settings-fixture"}`,
+		`{"id":"library","config":{"queue":10}}`,
+		`{"id":"gateway","config":{"callsPage":10}}`,
 	} {
 		if rec := postBuiltin(h, bad); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: %d %s", bad, rec.Code, rec.Body)
 		}
 	}
-	if b := gw(); b.Config["callsPage"] != int64(50) {
+	if b := fx(); b.Config["queue"] != int64(50) {
 		t.Fatalf("a refused one written: %+v", b)
 	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/boot.js", nil))
-	if !strings.Contains(rec.Body.String(), `"pluginConfig":{"gateway":{"callsPage":50}}`) {
+	if !strings.Contains(rec.Body.String(), `"pluginConfig":{"settings-fixture":{"queue":50}}`) {
 		t.Fatalf("boot.js: %s", rec.Body)
+	}
+}
+
+// A plugins.yml kept from before the Gateway page's callsPage went still
+// reads: the key stays in the file, and the page is handed no config.
+func TestBuiltinConfigGone(t *testing.T) {
+	h := builtinHome(t)
+	if err := os.MkdirAll(filepath.Dir(pluginrt.Path()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pluginrt.Path(), []byte("preset: all\nsettled: 1\nplugins:\n  - id: gateway\n    config:\n      callsPage: 50\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range builtinsState() {
+		if b.Broken != "" || b.ID == "gateway" && (!b.On || b.Schema != nil) {
+			t.Fatalf("an old callsPage: %+v", b)
+		}
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/boot.js", nil))
+	if strings.Contains(rec.Body.String(), "callsPage") {
+		t.Fatalf("boot.js: %s", rec.Body)
+	}
+	if b, _ := os.ReadFile(pluginrt.Path()); !strings.Contains(string(b), "callsPage: 50") {
+		t.Fatalf("the file: %s", b)
 	}
 }
 
@@ -302,6 +341,10 @@ func TestBuiltinsTranslated(t *testing.T) {
 		block, _, _ = strings.Cut(block, "\n  },")
 		for _, m := range pluginrt.Registered() {
 			says := []string{m.Name, m.Sub, m.One, m.Many}
+			// each name of a place, as the window translates them
+			for _, w := range m.Where {
+				says = append(says, strings.Split(w, " › ")...)
+			}
 			if sc := m.Schema(); sc != nil {
 				for _, p := range sc.Properties {
 					says = append(says, p.Title, p.Description)
@@ -317,5 +360,86 @@ func TestBuiltinsTranslated(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// Plugins › Built-in lists each plugin in its group and its place there,
+// as the API says them: every one of magpie's in one of the three, the
+// pages in the sidebar's order; each listed with the pages has a page of
+// the sidebar (redact has one too, but is listed with the gateway
+// features, for what it does to requests); each place it shows is a path
+// of the window's names.
+func TestBuiltinsGrouped(t *testing.T) {
+	h := builtinHome(t)
+	type at struct {
+		group string
+		order int
+	}
+	want := map[string]at{
+		"sessions": {pluginrt.GroupPages, 1}, "library": {pluginrt.GroupPages, 2}, "routing": {pluginrt.GroupPages, 3}, "gateway": {pluginrt.GroupPages, 4}, "usage": {pluginrt.GroupPages, 5},
+		"redact": {pluginrt.GroupGateway, 1}, "rotation": {pluginrt.GroupGateway, 2}, "groups": {pluginrt.GroupGateway, 3}, "budget": {pluginrt.GroupGateway, 4},
+		"search": {pluginrt.GroupGateway, 5}, "middleware": {pluginrt.GroupGateway, 6}, "tools": {pluginrt.GroupGateway, 7},
+		"otel": {pluginrt.GroupIntegrations, 1}, "warmups": {pluginrt.GroupIntegrations, 2},
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/api/plugins/builtin", nil))
+	var out []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, b := range out {
+		id, _ := b["id"].(string)
+		if id == "settings-fixture" {
+			continue
+		}
+		seen++
+		g, _ := b["group"].(string)
+		o, _ := b["order"].(float64)
+		if (at{g, int(o)}) != want[id] {
+			t.Errorf("%s: group %q, order %v, want %v", id, g, o, want[id])
+		}
+		where, _ := b["where"].([]any)
+		if id != "tools" && len(where) == 0 {
+			t.Errorf("%s says nowhere it shows", id)
+		}
+		for _, w := range where {
+			if s, _ := w.(string); s == "" || strings.Count(s, " › ") < 1 {
+				t.Errorf("%s: where %q is no path", id, w)
+			}
+		}
+	}
+	if seen != len(want) {
+		t.Fatalf("%d built-ins, want %d: %v", seen, len(want), out)
+	}
+	for _, m := range pluginrt.Registered() {
+		if m.Group == pluginrt.GroupPages && !slices.ContainsFunc(m.Parts, func(p pluginrt.Part) bool { return p.Slot == "nav.page" }) {
+			t.Errorf("%s is listed with the pages and has none", m.ID)
+		}
+	}
+}
+
+// Every data-feature of the page is a built-in plugin's: one that isn't
+// would never be off, or always.
+func TestDataFeatureKnown(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("assets", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]bool{}
+	for _, m := range pluginrt.Registered() {
+		ids[m.ID] = true
+	}
+	n := 0
+	for _, m := range regexp.MustCompile(`data-feature(?:-off)?="([^"]*)"`).FindAllSubmatch(raw, -1) {
+		for _, id := range strings.Fields(string(m[1])) {
+			n++
+			if !ids[id] {
+				t.Errorf("data-feature %q is no built-in plugin's", id)
+			}
+		}
+	}
+	if n == 0 {
+		t.Fatal("no data-feature found")
 	}
 }

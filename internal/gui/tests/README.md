@@ -2599,9 +2599,9 @@ its error boundary, with the Gateway page, the first page a plugin draws
 says "This page stopped working", the error and Try again (role alert,
 translated, no sideways scroll); nothing escapes as a page error, Providers
 still opens, and back on the page nothing half drawn shows. Fixed, Try again
-draws the page whole, translated, with its Connect fold working. The page's
-`callsPage` setting shows 10 calls at a time from boot.js's `pluginConfig`,
-and 50 once Plugins › Built-in sets it. Chromium and WebKit, every language,
+draws the page whole, translated, with its Connect fold working. A plugin's
+setting reaches its code (`ctx.config`, then `ctx.onConfig`) from boot.js's
+`pluginConfig`, and again once Plugins › Built-in sets it. Chromium and WebKit, every language,
 1100 and 420 points.
 
 ```sh

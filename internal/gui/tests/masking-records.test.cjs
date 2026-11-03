@@ -9,8 +9,8 @@
 // a value lights its places. A request held back says why and offers to
 // mask instead; one whose text is gone (a restart, or older than the
 // newest kept) shows the lines that are left. Masking off and nothing
-// masked, the card offers to turn it on. A masked call on the Gateway page
-// and a key= in the address open its request. Nothing is left in English,
+// masked, the card offers to turn it on. A masked request on the Routing
+// page and a key= in the address open its request. Nothing is left in English,
 // nothing is wider than the window, and a click scrolls nothing.
 // Every language, Chromium and WebKit, 1100 and 640px; the API is faked.
 const assert = require("node:assert/strict");
@@ -87,9 +87,16 @@ function serve(lang, sum, asked, opts = {}) {
       return json(settings);
     }
     if (url.pathname === "/api/providers") return json({ providers: [{ id: "anthropic", name: "Anthropic", icon: "anthropic", agents: [], models: [] }, { id: "openai", name: "OpenAI", icon: "openai", agents: [], models: [] }], presets: [], excluded: [],
-      gateway: { running: true, window: true, mine: true, url: "http://127.0.0.1:3999", models: 0, groups: [],
-        calls: [{ id: 7, time: ago(120e3), agent: "claude", model: "claude-opus-4-1", from: "anthropic", to: "anthropic", status: 200, ms: 900, masked: { n: 3, distinct: 2, kinds: { API_KEY: 2, EMAIL: 1 }, by: { rule: 2 }, key: K2 } },
-          { id: 8, time: ago(60e3), agent: "claude", model: "claude-opus-4-1", from: "anthropic", to: "anthropic", status: 200, ms: 700, masked: { n: 0, distinct: 0, warned: 2, key: K3 } }] } });
+      gateway: { running: true, window: true, mine: true, url: "http://127.0.0.1:3999", models: 0, groups: [] } });
+    // the Routing page's requests: one masked, and a later one whose values went as written
+    if (url.pathname === "/api/gateway/trace" && opts.trace) {
+      if (url.searchParams.get("wait")) await new Promise((r) => setTimeout(r, 20e3));
+      const via = { id: "anthropic", provider: "anthropic", name: "Anthropic", kind: "provider", model: "claude-opus-4-1" };
+      const done = (id, ms, masked) => ({ id, seq: id, time: ago(ms), agent: "claude", model: "anthropic/claude-opus-4-1", provider: "anthropic", order: [via],
+        tries: [{ id: via.id, model: "claude-opus-4-1", start: ago(ms), done: true, status: 200, ms: 900 }], done: true, status: 200, ms: 900, tokens: 300, served: "claude-opus-4-1", masked });
+      return json({ mine: true, now: new Date().toISOString(), seq: 8, totals: { requests: 2, rerouted: 0, errors: 0 },
+        routes: [done(8, 60e3, { n: 0, distinct: 0, warned: 2, key: K3 }), done(7, 120e3, { n: 3, distinct: 2, kinds: { API_KEY: 2, EMAIL: 1 }, by: { rule: 2 }, key: K2 })] });
+    }
     if (url.pathname === "/api/groups") return json({ groups: [], models: [] });
     if (url.pathname === "/api/plugins") return json({ plugins: [] });
     if (url.pathname === "/api/privacy-model") return json({ supported: true, installed: false, size: 1.6e9 });
@@ -458,20 +465,22 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     }
   }
 
-  test(`${engine}: a masked call on the Gateway page, and a key in the address, open its request`, async (t) => {
-    const { browser, page, errors } = await open(engine, "en", 1100, summary, "?view=gateway");
+  test(`${engine}: a masked request on the Routing page, and a key in the address, open its request`, async (t) => {
+    const { browser, page, errors } = await open(engine, "en", 1100, summary, "?view=routing", { trace: true });
     t.after(() => browser.close());
-    const badge = page.locator("#activity .call .mask-badge:not(.warn)");
-    await badge.waitFor();
-    // a call whose values only went as written, as the user set (#1977)
-    const warned = page.locator("#activity .call .mask-badge.warn");
+    // a request whose values only went as written, as the user set (#1977)
+    const warned = page.locator(".rt-log-head .mask-badge.warn");
+    await warned.waitFor();
     assert.equal(await warned.textContent(), "2");
     assert.equal(await warned.getAttribute("title"), "2 values went to the vendor as written, as you set");
+    // the one before it, picked: what was masked, its record a click away
+    await page.locator(".rt-req").nth(1).click();
+    const badge = page.locator(".rt-log-head .mask-badge:not(.warn)");
+    await badge.waitFor();
     assert.equal(await badge.textContent(), "3");
     assert.match(await badge.getAttribute("title"), /^3 values masked before it went to the vendor: API keys 2, Emails 1$/);
     await badge.click();
     await page.locator("#view-masking #maskOne .msk-msg").first().waitFor();
-    assert.equal(await page.locator("#activity .call-item.open").count(), 0, "the click wasn't the row's");
     assert.match(await page.locator("#maskOne .msk-when").textContent(), /\d/);
     // the tray panel's badge opens the window on key=
     await page.goto("http://magpie.test/?view=masking&key=" + K1);

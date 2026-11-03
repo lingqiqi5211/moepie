@@ -23,12 +23,12 @@ the plugin host) are a different thing; see
 | Part | What it does | Source |
 | --- | --- | --- |
 | Registry | A plugin calls `pluginrt.Register(Manifest)` from `init`. `Registered` lists them by id; two with one id panic. `plugins/all` imports every plugin, and only `main.go` imports `plugins/all`, so core code and its tests run without any. | [`pluginrt.go`](../../internal/pluginrt/pluginrt.go), [`plugins/all/all.go`](../../plugins/all/all.go) |
-| Manifest | `ID`, `API` (a caret range of the host API, `"^1"`; `pluginrt.API` is `"1.0"`), `Requires` and `Provides` (services), `Essential`, `Name`/`Sub` (English; the window translates them), `One`/`Many` (what is in use, of 1 or `{n}`), `InUse`, `Apply`, `Parts` (`{Slot, Key}`: the window's parts it is), `Defaults` (its config), `Settings` (a struct of its settings, made into `Defaults` and a schema at `Register`) and `Client` (its files in the window, under `internal/gui/assets/plugins/<id>/`: scripts, its `i18n.js` and a `.css`). | [`pluginrt.go`](../../internal/pluginrt/pluginrt.go) |
+| Manifest | `ID`, `API` (a caret range of the host API, `"^1"`; `pluginrt.API` is `"1.0"`), `Requires` and `Provides` (services), `Essential`, `Name`/`Sub` (English; the window translates them), `Group` (where Plugins › Built-in lists it: `GroupPages`, `GroupGateway` or `GroupIntegrations`), `Order` (its place in that group, lowest first), `Where` (the places in the window it shows, each a path of the window's own names, `"Settings › Observability"`, translated a name at a time), `One`/`Many` (what is in use, of 1 or `{n}`), `InUse`, `Apply`, `Parts` (`{Slot, Key}`: the window's parts it is), `Defaults` (its config), `Settings` (a struct of its settings, made into `Defaults` and a schema at `Register`) and `Client` (its files in the window, under `internal/gui/assets/plugins/<id>/`: scripts, its `i18n.js` and a `.css`). | [`pluginrt.go`](../../internal/pluginrt/pluginrt.go) |
 | Lifecycle | `Runtime.Reconcile(on, config)`. Off first: every plugin no longer wanted, and every one requiring a service one of those provided, is disposed newest first. Then on: each wanted plugin whose requirements are provided (by `Core`, `settings`, `providers`, `gateway`, `window`, or an active plugin) is applied, again and again until no more can be. States: `off`, `pending` (waiting for a service, logged), `active`, `failed` (Apply returned an error or panicked, or the API range doesn't match; what it registered before is undone), `disposed`. A failed plugin never stops the others. | [`pluginrt.go`](../../internal/pluginrt/pluginrt.go) |
 | Ctx | What `Apply` gets: `OnDispose(f)`, `Contribute(slot, key)`, `Provide(name, v)` (withdrawn when it goes), `Service(name)`, and its composed `Config`. Disposers run in reverse, each one's panic logged and the rest still run. | [`pluginrt.go`](../../internal/pluginrt/pluginrt.go) |
 | plugins.yml | `appdir.Config()/plugins.yml`: `preset` (`essentials` or `all`; `all` unless the user picks Essentials), `settled` (the defaults the file was last brought up to) and `plugins`, rows of `{id, enabled, config}` holding only what the user set. | [`config.go`](../../internal/pluginrt/config.go) |
 | Settings schema | `SchemaOf(Settings)` makes a JSON Schema object of the struct, in its fields' order (`x-order`): each exported field with a json name is a setting, of `bool`, an int, `float64` or `string`, with tags `title` (English; the window translates it), `description`, `enum` (comma separated) and `min`/`max`. Its values are the defaults. A field a form can't draw, or a tag that doesn't parse, panics at `Register`. `Schema.Validate` takes a value only as the schema allows it (a JSON float64 or a YAML int for an integer); `SetConfig(id, config)` writes the user's row through it, and `Compose` leaves out a value edited into plugins.yml by hand that it doesn't allow, so the default stands. | [`schema.go`](../../internal/pluginrt/schema.go), [`config.go`](../../internal/pluginrt/config.go) |
-| Built-in plugins | `groups`, `library`, `otel`, `sessions`, `warmups` (P0), `gateway` (P1), the Gateway page, which is Essential and in use while a gateway key is there (`access.List`), and `routing` (P2), the Routing page, Essential and in use while the user has a routing group, since the page is where groups are made and changed. `rotation` (P3), the routings besides Smart, is Essential and in use while a provider or group is routed by one of them. `middleware` (P3), the JS gateway middleware, is Essential and in use while plugins.json has a middleware on (`middleware.On`). `redact` (P3), privacy masking, is Essential and in use while Settings → Privacy asks for any masking (`masking.Wanted`). `search` (P3), magpie's web search, is Essential and in use while a search API is set up or a searcher is picked. `budget` (P3), key limits, is Essential and in use while a gateway key has a limit. `usage` (P2), the Usage page, is Essential too, with no `InUse`: what it shows the gateway counts anyway, and the tray panel's Usage tab still shows the allowances with it off. The Gateway page's one setting, `callsPage` (10, 20, 50 or 100; 20), is how many recent calls the page shows at a time. The other five aren't Essential. Each one's `InUse` counts what the user made with it: routing groups not Auto and not hidden, library items given to agents, a collector sent to, gateway conversations recorded, warm-ups and check-ins on. | [`plugins/`](../../plugins) |
+| Built-in plugins | `groups`, `library`, `otel`, `sessions`, `warmups` (P0), `gateway` (P1), the Gateway page, which is Essential and in use while a gateway key is there (`access.List`), and `routing` (P2), the Routing page, Essential and in use while the user has a routing group, since the page is where groups are made and changed. `rotation` (P3), the routings besides Smart, is Essential and in use while a provider or group is routed by one of them. `middleware` (P3), the JS gateway middleware, is Essential and in use while plugins.json has a middleware on (`middleware.On`). `redact` (P3), privacy masking, is Essential and in use while Settings → Privacy asks for any masking (`masking.Wanted`). `search` (P3), magpie's web search, is Essential and in use while a search API is set up or a searcher is picked. `budget` (P3), key limits, is Essential and in use while a gateway key has a limit. `usage` (P2), the Usage page, is Essential too, with no `InUse`: what it shows the gateway counts anyway, and the tray panel's Usage tab still shows the allowances with it off. The other five aren't Essential. Each one's `InUse` counts what the user made with it: routing groups not Auto and not hidden, library items given to agents, a collector sent to, gateway conversations recorded, warm-ups and check-ins on. | [`plugins/`](../../plugins) |
 
 The boundary is checked by `TestPluginsImportOnlyCore`: no package outside
 `plugins/` imports one (but `main.go`, through `plugins/all`), a plugin never
@@ -77,7 +77,8 @@ plugins' scripts and `app.js`, all classic scripts sharing one scope. It is
   window's locale), a field for a number (kept to its range, `aria-invalid`
   when not) or text.
 - **Settings.** Plugins › Built-in draws the rows of each plugin on, with a
-  schema, from `ui.form` under its row (`.feat-set`), and a change posts
+  schema, from `ui.form` behind its card's Settings button (`.feat-set`,
+  in `.feat-sets`), and a change posts
   `{id, config}`; `applyFeatures` hands each plugin's config to
   `magpie.configure`, which calls its `onConfig` only when it changed.
 
@@ -92,7 +93,15 @@ app.js and app.css: its styles, its sidebar and header buttons
 (`data-feature="gateway"` in index.html), and `decideEntry`, which the model
 info card shares. `TestBuiltinClientsLoaded` holds index.html to load every
 plugin's `Client` script between kernel.js and app.js, and its stylesheet in
-the head, each with its `?v=`.
+the head, each with its `?v=`. `settings.js`, loaded after app.js, draws the
+page's Settings, a fold under Connect: Gateway address, Model ids without
+the provider, Allowed addresses (while shared), Web pages that may call
+magpie and Browser access, Settings › Network and sharing's till 10-31 and
+written through the same `settings/*` routes; Share on local network is the
+card's own choice, the one control for it. With the page turned off, a row
+in Network and sharing (`data-feature-off="gateway"`, `renderGatewayOff`)
+says where they went and opens Plugins › Built-in; the gateway keeps
+serving with them.
 
 ## Pages moved out (P2)
 
@@ -455,15 +464,17 @@ remembering its layer (`Source`):
   `TestSettleBringsUpAnEssentialsInstall`, `TestBrokenFileIsKept`).
 - `go test ./internal/pluginrt/ -run 'TestSchemaOf|TestValidate|TestSetConfig'`.
 - `go test ./internal/gui/ -run 'TestBuiltin|TestBootSaysBuiltinsOff'`
-  (`TestBuiltinConfig`, `TestBuiltinClientsLoaded`).
+  (`TestBuiltinConfig`, `TestBuiltinClientsLoaded`, `TestBuiltinsGrouped`).
 - `i18n-keys`, `gui-de`, `gui-ja`, `gui-zh-tw`, and a moved page's own
   tests (`sessions-*`, `session-*`, `sess-*`; `library-*`, `skill-*`,
   `mcp-*`, `found-skill-*`) in Chromium and WebKit.
-- `internal/gui/tests/builtins.test.cjs` (the settings form) and
-  `plugin-kernel.test.cjs` (the boundary, Try again, `callsPage` from
-  boot.js and from a change) in Chromium and WebKit, every language, 1100,
-  800 and 420 points; the Gateway page's own tests (`gateway-*`,
-  `recent-calls-*`) unchanged.
+- `internal/gui/tests/builtins.test.cjs` (the settings form),
+  `builtins-cards.test.cjs` (the groups and cards, light and dark, 420
+  points) and
+  `plugin-kernel.test.cjs` (the boundary, Try again, a plugin's setting
+  from boot.js and from a change) in Chromium and WebKit, every language,
+  1100, 800 and 420 points; the Gateway page's own tests (`gateway-*`,
+  `recent-call-bodies`) unchanged.
 - P3 observer: `go test ./internal/usage/ -run 'TestObserver|TestBodiesStayOutOfTheLog'`,
   `go test ./internal/gateway/ -run 'TestObserverPoint|OTel|Deferred'`,
   `go test ./internal/otlp/ ./plugins/otel/`

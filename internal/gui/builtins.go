@@ -16,7 +16,10 @@ import (
 // page hides whatever is marked data-feature="<id>" while the plugin isn't
 // active.
 //
-// One in use stays on: its switch can't be turned off, and its row says
+// The tab lists them by their Group (pages, gateway features,
+// integrations), each in its Order, a card each saying Where it shows.
+//
+// One in use stays on: its switch can't be turned off, and its card says
 // what uses it. Every install, a new one too, has them all on until the
 // user says otherwise.
 // TestBuiltinsTranslated asks each string of every plugin of every
@@ -26,9 +29,14 @@ import (
 // shows (On: active, which plugins.yml or its use makes it), the user's
 // own choice, and what of it is in use.
 type builtinJSON struct {
-	ID     string          `json:"id"`
-	Name   string          `json:"name"`
-	Sub    string          `json:"sub"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Sub  string `json:"sub"`
+	// Group is the part of the tab it is listed in, Order its place there,
+	// Where the places it shows (pluginrt.Manifest)
+	Group  string          `json:"group"`
+	Order  int             `json:"order,omitempty"`
+	Where  []string        `json:"where,omitempty"`
 	On     bool            `json:"on"`
 	Chosen bool            `json:"chosen"`
 	Source pluginrt.Source `json:"source"`
@@ -64,7 +72,7 @@ func builtinsState() []builtinJSON {
 	out := []builtinJSON{}
 	for _, m := range pluginrt.Registered() {
 		c, s := byID[m.ID], st[m.ID]
-		j := builtinJSON{ID: m.ID, Name: m.Name, Sub: m.Sub, On: s.State == pluginrt.Active, Chosen: c.Chosen, Source: c.Source, State: s.State, Why: s.Why, InUse: c.InUse, Parts: s.Parts, Schema: m.Schema(), Config: c.Config}
+		j := builtinJSON{ID: m.ID, Name: m.Name, Sub: m.Sub, Group: m.Group, Order: m.Order, Where: m.Where, On: s.State == pluginrt.Active, Chosen: c.Chosen, Source: c.Source, State: s.State, Why: s.Why, InUse: c.InUse, Parts: s.Parts, Schema: m.Schema(), Config: c.Config}
 		if err != nil {
 			j.Broken, j.Chosen = err.Error(), j.On
 		}

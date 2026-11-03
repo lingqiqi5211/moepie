@@ -214,6 +214,7 @@ for (const engine of engines) {
     now = await motion();
     assert.deepEqual(now.bad, []);
     assert(now.names.includes(width < 760 ? "mf-out-y" : "mf-out"), "a packet crosses to the model");
+    assert(await page.locator(".mf-run").evaluate((n, narrow) => (narrow ? n.offsetHeight : n.offsetWidth) > 2 * n.firstChild.offsetHeight, width < 760), "with room to cross the line");
     await page.locator(".mf-node").nth(3).click();
     now = await motion();
     assert(now.names.includes(width < 760 ? "mf-back-y" : "mf-back"), "a packet crosses back");

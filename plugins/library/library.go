@@ -12,6 +12,7 @@ func init() {
 	pluginrt.Register(pluginrt.Manifest{
 		ID: "library", API: "^1", Requires: []string{"window"},
 		Name: "Library", Sub: "Instructions, MCP servers, skills and hooks, kept once and given to every agent",
+		Group: pluginrt.GroupPages, Order: 2, Where: []string{"Work › Library"},
 		One: "1 item given to agents", Many: "{n} items given to agents",
 		InUse:  lib.InUse,
 		Parts:  []pluginrt.Part{{Slot: "nav.page", Key: "library"}},

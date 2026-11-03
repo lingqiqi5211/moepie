@@ -7,7 +7,7 @@
 // Now every setting row's line wraps beside its control. In the window (not
 // browser mode, which wrapped at a phone's width already), in every
 // language, at 1000px and 440px, in both engines, on every part of Settings
-// and on Plugins › Built-in (the same rows):
+// and on Plugins › Built-in (its cards, a name and line beside a switch):
 // - no row's line is cut: each is as wide as its words, with no ellipsis;
 // - the row's control stays inside the row, at its own width, and the page
 //   doesn't scroll sideways.
@@ -33,10 +33,10 @@ function settings(lang) {
   };
 }
 
-// Plugins › Built-in's rows: a name, what it is, a switch (builtins.test.cjs)
+// Plugins › Built-in's cards: a name, what it is, a switch (builtins.test.cjs)
 const builtins = [
-  { id: "groups", name: "Routing groups", sub: "Several models agents pick as one: each request goes to the right one, and to the next when one fails", on: true, chosen: true, source: "preset", state: "active", inUse: 0 },
-  { id: "warmups", name: "Warm-up and check-in", sub: "Start a subscription's usage window at a time you pick, and claim vendors' daily check-in credits", on: true, chosen: false, source: "in use", state: "active", inUse: 2, use: "{n} warm-ups and check-ins on" },
+  { id: "groups", group: "gateway", name: "Routing groups", sub: "Several models agents pick as one: each request goes to the right one, and to the next when one fails", on: true, chosen: true, source: "preset", state: "active", inUse: 0 },
+  { id: "warmups", group: "integrations", name: "Warm-up and check-in", sub: "Start a subscription's usage window at a time you pick, and claim vendors' daily check-in credits", on: true, chosen: false, source: "in use", state: "active", inUse: 2, use: "{n} warm-ups and check-ins on" },
 ];
 
 function serve(lang) {
@@ -60,10 +60,11 @@ function serve(lang) {
   };
 }
 
-// every shown setting row's lines and controls, in the part shown
-const measure = (scope) => {
+// every shown setting row's lines and controls, in the part shown; a
+// Built-in card is a row with its switch in its top line
+const measure = ([scope, row = ".row.pref", val = ":scope > .val"]) => {
   const shown = (e) => e.getClientRects().length && !e.closest("[hidden]");
-  const rows = [...document.querySelectorAll(`${scope} .row.pref`)].filter(shown);
+  const rows = [...document.querySelectorAll(`${scope} ${row}`)].filter(shown);
   const cut = [], out = [];
   for (const r of rows) {
     const rb = r.getBoundingClientRect();
@@ -72,7 +73,7 @@ const measure = (scope) => {
       const cs = getComputedStyle(s);
       if (s.scrollWidth > s.clientWidth + 1 || cs.whiteSpace === "nowrap") cut.push({ text: s.textContent.slice(0, 80), scroll: s.scrollWidth, width: s.clientWidth, whiteSpace: cs.whiteSpace });
     }
-    const v = r.querySelector(":scope > .val");
+    const v = r.querySelector(val);
     if (v && shown(v)) {
       const b = v.getBoundingClientRect();
       if (b.right > rb.right + 0.5 || b.left < rb.left - 0.5) out.push({ row: r.querySelector(".name")?.textContent, val: [b.left, b.right], rowBox: [rb.left, rb.right] });
@@ -104,7 +105,7 @@ for (const engine of engines) {
         await openPart(page, part);
         await page.locator(`#setPage-${part}`).waitFor();
         await settingsDrawn(page);
-        const m = await page.evaluate(measure, `#setPage-${part}`);
+        const m = await page.evaluate(measure, [`#setPage-${part}`]);
         seen += m.rows;
         assert.deepEqual(m.cut, [], `${part}: a row's line is cut short`);
         assert.deepEqual(m.out, [], `${part}: a row's control runs out of its row`);
@@ -120,12 +121,12 @@ for (const engine of engines) {
         assert.equal(whole, true, `${sel} is cut`);
       }
 
-      // Plugins › Built-in: the same rows
+      // Plugins › Built-in: the same lines, on cards
       // (its tab is the page's own strip's first below 1024 points)
       await page.goto("http://magpie.test/?view=plugins");
       await page.locator("#view-plugins .lib-tabs .opt").first().press("Enter");
       await page.locator("#builtinList .feat-row").first().waitFor();
-      const m = await page.evaluate(measure, "#builtinList");
+      const m = await page.evaluate(measure, ["#builtinList", ".feat-row", ':scope > .feat-top > [role="switch"]']);
       assert.ok(m.rows >= builtins.length, `built-in rows: ${m.rows}`);
       assert.deepEqual(m.cut, [], "a built-in plugin's line is cut short");
       assert.deepEqual(m.out, [], "a built-in plugin's switch runs out of its row");

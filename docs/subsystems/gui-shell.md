@@ -113,6 +113,19 @@ the incoming curve. The outer page stays still when the canvas moves.
 Verification: `routing-stage-canvas.test.cjs` (English and Chinese) and
 `routing-many-keys.test.cjs`.
 
+### Release dialogs
+
+The window imports [`whatsnew.js`](../../internal/gui/assets/whatsnew.js)
+only when opening What's new or the update confirmation. The core keeps the
+existing fork release feed, API/language selection and startup checks; the
+module keeps the existing dialog rendering, links and focus behavior. Issue
+references still link to yetone/magpie, while fork release URLs stay with
+lingqiqi5211/moepie. The tray panel and an occupied modal update directly;
+a failed optional import also leaves the update able to proceed. A failed
+What's new import reports the existing load error. Assets retain the server's
+ETag/revalidation policy; the module is outside the initial script budget.
+Verification: `whatsnew-lazy.test.cjs`, `update-notes-ask.test.cjs` and
+`TestCoreScriptBudget`.
 ### Allowance card refreshes
 
 A card refresh applies only the requested account from the API's full

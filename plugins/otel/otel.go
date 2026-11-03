@@ -19,6 +19,7 @@ func init() {
 	pluginrt.Register(pluginrt.Manifest{
 		ID: "otel", API: "^1", Requires: []string{"window", "settings", "gateway"},
 		Name: "Observability", Sub: "Send each request's traces and metrics to an OpenTelemetry collector, such as Langfuse",
+		Group: pluginrt.GroupIntegrations, Order: 1, Where: []string{"Settings › Observability"},
 		One: "Sending to a collector", Many: "Sending to a collector",
 		// on while settings.json or MAGPIE_OTEL_ENABLED says to send: off,
 		// nothing would

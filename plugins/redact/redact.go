@@ -20,6 +20,7 @@ func init() {
 	pluginrt.Register(pluginrt.Manifest{
 		ID: "redact", API: "^1", Requires: []string{"settings", "gateway"}, Essential: true,
 		Name: "Privacy masking", Sub: "Secrets, personal data and your own words go to vendors as placeholders, and come back as they were",
+		Group: pluginrt.GroupGateway, Order: 1, Where: []string{"Insights › Masking", "Settings › Privacy"},
 		One: "Masking is on", Many: "Masking is on",
 		InUse: InUse,
 		// Insights › Masking: what masking did, request by request

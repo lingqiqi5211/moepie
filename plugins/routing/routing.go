@@ -14,6 +14,7 @@ func init() {
 	pluginrt.Register(pluginrt.Manifest{
 		ID: "routing", API: "^1", Requires: []string{"window", "gateway"}, Essential: true,
 		Name: "Routing", Sub: "Each request as the gateway routes it, the accounts it weighed and what each answered, and your routing groups",
+		Group: pluginrt.GroupPages, Order: 3, Where: []string{"Models › Routing"},
 		One: "1 group in use", Many: "{n} groups in use",
 		InUse:  provider.NamedGroups,
 		Parts:  []pluginrt.Part{{Slot: "nav.page", Key: "routing"}},

@@ -95,12 +95,12 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const tips = (sort) => page.locator(`.segs.sortby[data-sort="${sort}"] .opt`).evaluateAll((os) => os.map((o) => o.title));
 
         // the Library's MCP servers: A→Z first, whatever order magpie gave them in
-        // (the MCP router's row below them is no server, and isn't sorted)
+        // (the MCP router's row, #2679, is a list of its own)
         const serverNames = () => names("#view-library .lib-list:not(.lib-hublist) .lib-row > .who > .name");
         const openLib = async () => {
           await page.goto("http://magpie.test/");
           await page.locator('button[data-view="library"]').click();
-          await page.locator("#view-library .lib-body:not(.lib-skel) .lib-row").first().waitFor();
+          await page.locator("#view-library .lib-body:not(.lib-skel) .lib-row:not(.lib-hub)").first().waitFor();
         };
         await openLib();
         assert.deepEqual(await serverNames(), ["Alpha", "beta", "gamma"]);
@@ -126,7 +126,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await openLib();
         assert.deepEqual(await skillNames(), ["pear", "mango", "kiwi", "cherry", "apple"]);
         await page.locator(":is(#view-library .lib-tabs .opt, .nav-s):visible").nth(1).click();
-        await page.locator("#view-library .lib-body:not(.lib-skel) .lib-list .lib-row").first().waitFor();
+        await page.locator("#view-library .lib-body:not(.lib-skel) .lib-list:not(.lib-hublist) .lib-row").first().waitFor();
         assert.deepEqual(await serverNames(), ["gamma", "beta", "Alpha"]);
         await page.locator(":is(#view-library .lib-tabs .opt, .nav-s):visible").nth(2).click();
         await pick("libSkills", 0);

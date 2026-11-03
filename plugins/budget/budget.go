@@ -21,6 +21,7 @@ func init() {
 	pluginrt.Register(pluginrt.Manifest{
 		ID: "budget", API: "^1", Requires: []string{"settings", "gateway"}, Essential: true,
 		Name: "Key limits", Sub: "Hold each gateway key to the tokens or estimated cost you set for it",
+		Group: pluginrt.GroupGateway, Order: 4, Where: []string{"Models › Gateway"},
 		One: "1 key with a limit", Many: "{n} keys with a limit",
 		InUse: InUse,
 		Apply: func(c *pluginrt.Ctx) error {

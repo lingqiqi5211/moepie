@@ -10,6 +10,7 @@ func init() {
 	pluginrt.Register(pluginrt.Manifest{
 		ID: "usage", API: "^1", Requires: []string{"window"}, Essential: true,
 		Name: "Usage", Sub: "Your allowances, what was spent and on what, each request, and what filled the context window",
+		Group: pluginrt.GroupPages, Order: 5, Where: []string{"Insights › Usage"},
 		Parts:  []pluginrt.Part{{Slot: "nav.page", Key: "usage"}},
 		Client: []string{"i18n.js", "client.js", "page.js"},
 	})

@@ -485,7 +485,7 @@ body.side-nav :is(#view-library .lib-headacts) { flex-wrap: nowrap; }
    run left over the title. First the buttons give their words up for
    their icons, the name kept as the button's and its tooltip; only then
    is the title cut: its first parts go, then its last is cut at its end */
-body.side-nav :is(#view-library .lib-headacts, #view-plugins .pm-mirror) { flex: none; }
+body.side-nav :is(#view-library .lib-headacts, #view-plugins .pm-mirror, #view-plugins .pm-shows) { flex: none; }
 body.side-nav #view-plugins .pm-find { min-width: 120px; }
 body.side-nav.tools-tight :is(#view-library .lib-headacts button, #view-plugins .pm-mirror) > span:not(.lib-mini, .lib-switch) { display: none; }
 body.side-nav .crumb { max-width: var(--crumb-max, none); }
@@ -3599,11 +3599,39 @@ body:not(.side-nav) #view-settings .set-head.stuck::before { box-shadow: 0 1px 0
 .set-searching .set-page::before { content: attr(data-part); display: block; margin: 4px 2px 6px; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
 .set-none { margin: 18px 2px; font-size: 13px; color: var(--muted); text-align: center; }
 .set-page > .list:not(:last-child) { margin-bottom: 8px; }
-/* Plugins › Built-in: what the list is over its rows, and a row in use
-   saying what uses it under its switch, which can't be turned off */
+/* Plugins › Built-in: what the list is over its groups, each a grid of
+   cards as wide as fits; a card says where it shows, what uses it (its
+   switch then can't be turned off), and has its settings behind a button */
 .feat-say { margin: 2px 4px 10px; font-size: 12px; line-height: 1.45; color: var(--muted); }
 .set-searching .feat-say { display: none; }
-.row.pref .sub.feat-why { color: var(--muted); font-size: 11px; }
+.feat-groups { display: flex; flex-direction: column; gap: 22px; }
+.feat-groups:focus { outline: none; } /* focused only when the card that had it went */
+.feat-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 0 2px 10px; }
+.feat-title { margin: 0; font-size: 13.5px; font-weight: 600; color: var(--fg); }
+.feat-n { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.feat-gsub { flex: 1 1 240px; min-width: 0; font-size: 12px; color: var(--muted); }
+.feat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 10px; }
+.feat-row { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.feat-row.off { background: var(--card-2); }
+.feat-top { display: flex; align-items: flex-start; gap: 10px; }
+.feat-top .who { flex: 1 1 0; min-width: 0; }
+.feat-top .name { font-weight: 600; color: var(--fg); overflow-wrap: anywhere; }
+.feat-row.off .name { color: var(--fg-2); }
+.feat-top .sub { margin-top: 2px; font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+.feat-ic { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: var(--pill); color: var(--fg-2); }
+.feat-top .lib-switch { flex: none; margin-top: 7px; }
+/* saving: busy, not disabled, so it keeps the focus */
+.feat-top .lib-switch[aria-busy="true"] { opacity: .6; cursor: progress; }
+.feat-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.feat-chip { min-width: 0; padding: 2px 7px; border-radius: 5px; background: var(--pill); color: var(--fg-2); font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.feat-chip.feat-why { background: var(--green-soft); color: var(--green); }
+.feat-chip.feat-lock { background: var(--amber-soft); color: var(--amber); }
+.feat-gear { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border: 0; border-radius: 5px; background: none; font: inherit; font-size: 12px; color: var(--accent); cursor: pointer; }
+.feat-gear:hover { background: var(--accent-soft); }
+.feat-gear svg { transform: rotate(-90deg); transition: transform .15s var(--ease); }
+.feat-gear[aria-expanded="true"] svg { transform: none; }
+.feat-sets { border-top: 1px solid var(--line-2); }
+.feat-none { margin: 24px 4px; font-size: 12.5px; color: var(--muted); text-align: center; }
 /* the local model's row says a download, a device or an error in full */
 #privacyModelRow .val { gap: 8px; }
 #privacyModelRow .sub { white-space: normal; overflow-wrap: anywhere; }
@@ -3660,14 +3688,14 @@ body:not(.side-nav) #view-settings .set-head.stuck::before { box-shadow: 0 1px 0
 .mask-try-note { font-size: 11.5px; color: var(--muted); }
 .mask-try-note.block { color: var(--red); font-weight: 500; }
 
-/* a request's masked values, on Recent calls and the Routing page */
+/* a request's masked values, on the Routing page */
 .mask-badge { flex: none; display: inline-flex; align-items: center; gap: 3px; height: 18px; padding: 0 6px 0 5px; border: 0; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 11px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; cursor: default; }
 .mask-badge:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .mask-badge:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent-soft), inset 0 0 0 1px var(--accent); }
 .mask-badge.warn { background: var(--amber-soft); color: var(--amber); }
 .mask-badge.warn:hover { background: color-mix(in srgb, var(--amber) 22%, transparent); }
 /* a plugin's settings, under its row (kernel.js ui.form) */
-.row.pref.feat-set { min-height: 44px; padding-left: 30px; }
+.feat-sets .row.pref.feat-set { min-height: 44px; padding: 8px 0; }
 .row.pref.feat-set .name { font-size: 12.5px; }
 .row.pref .set-field { flex: none; width: 120px; height: 24px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); }
 .row.pref .set-field[type=number] { width: 72px; text-align: right; }

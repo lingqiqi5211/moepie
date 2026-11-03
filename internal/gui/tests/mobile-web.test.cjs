@@ -354,6 +354,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
                 await current.locator("#view-plugins .lib-tabs .opt").first().evaluate((b) => b.remove());
                 await current.waitForTimeout(350);
               }
+              // Built-in's tab has its count, as Installed's: until BASE_REF
+              // has it, the tab is compared with its name alone;
+              // builtins.test.cjs covers the count.
+              else if (view === "plugins" && !baselineFile("plugins.js").includes("pm-shows")) {
+                await current.locator("#view-plugins .lib-tabs .opt").first().evaluate((b) => { b.textContent = b.textContent.split(" · ")[0]; });
+                await current.waitForTimeout(350);
+              }
               // Usage's lists fold under their headings and the tokens tile's
               // label is a pop-up (#2378): until BASE_REF has them, each is
               // put back to the plain label it was, and the rest of the page

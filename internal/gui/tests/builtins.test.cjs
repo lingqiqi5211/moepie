@@ -4,11 +4,13 @@
 // plugins.yml. Off, a plugin's parts leave the window: its page leaves the
 // nav — the sidebar's and the header's — and an address kept for it opens
 // Agents, its Settings tab goes. One in use can't be switched off: its
-// switch is on and disabled and its row says what uses it, in the page's
+// switch is on and disabled and its card says what uses it, in the page's
 // language. Switched on, a page's tab is back at once. A plugins.yml that
 // doesn't parse says so and no switch moves. The tab is first on the
-// Plugins page, with no search field. Every language, both layouts and a
-// narrow window; no backend, the API is faked here.
+// Plugins page, with no search field. A card each, in its group (pages,
+// gateway features, integrations) in its place there; its settings behind
+// a button. Every language, both layouts and a narrow window; no backend,
+// the API is faked here.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -17,22 +19,23 @@ const { chromium, webkit } = require("playwright");
 
 const assets = path.resolve(__dirname, "../assets");
 
-// as plugins/*'s manifests say them, in pluginrt.Registered's order (by id)
+// as plugins/*'s manifests say them, in pluginrt.Registered's order (by id),
+// each in its group of the tab, its place there, and saying where it shows
 const PLUGINS = [
-  { id: "budget", name: "Key limits", sub: "Hold each gateway key to the tokens or estimated cost you set for it", one: "1 key with a limit", many: "{n} keys with a limit" },
-  { id: "gateway", name: "Gateway page", sub: "The gateway's state and keys, how to connect a client, its models and recent calls", one: "1 gateway key", many: "{n} gateway keys" },
-  { id: "groups", name: "Routing groups", sub: "Several models agents pick as one: each request goes to the right one, and to the next when one fails", one: "1 group in use", many: "{n} groups in use" },
-  { id: "library", name: "Library", sub: "Instructions, MCP servers, skills and hooks, kept once and given to every agent", one: "1 item given to agents", many: "{n} items given to agents" },
-  { id: "middleware", name: "JS gateway plugins", sub: "Run the JavaScript gateway plugins: middleware on agents' requests and replies, routings and usage observers", one: "1 gateway plugin on", many: "{n} gateway plugins on" },
-  { id: "otel", name: "Observability", sub: "Send each request's traces and metrics to an OpenTelemetry collector, such as Langfuse", one: "Sending to a collector", many: "Sending to a collector" },
-  { id: "redact", name: "Privacy masking", sub: "Secrets, personal data and your own words go to vendors as placeholders, and come back as they were", one: "Masking is on", many: "Masking is on" },
-  { id: "rotation", name: "Routing strategies", sub: "The routings besides Smart: In order, Until used up, In turn, Least used first, Weekly pace, By weight, Free first, Speed first and Cheapest first", one: "1 provider or group routed so", many: "{n} providers and groups routed so" },
-  { id: "routing", name: "Routing", sub: "Each request as the gateway routes it, the accounts it weighed and what each answered, and your routing groups", one: "1 group in use", many: "{n} groups in use" },
-  { id: "search", name: "Web search", sub: "Models that can't search the web search with a provider that can, or a search API", one: "1 search source set up", many: "{n} search sources set up" },
-  { id: "sessions", name: "Sessions", sub: "Your agents' past conversations: read, search, resume and export them", one: "Recording gateway conversations", many: "Recording gateway conversations" },
-  { id: "tools", name: "Plugin tools", sub: "Offer the tools your plugins give to every agent, as an MCP server", one: "1 plugin gives tools", many: "{n} plugins give tools" },
-  { id: "usage", name: "Usage", sub: "Your allowances, what was spent and on what, each request, and what filled the context window" },
-  { id: "warmups", name: "Warm-up and check-in", sub: "Start a subscription's usage window at a time you pick, and claim vendors' daily check-in credits", one: "1 warm-up or check-in on", many: "{n} warm-ups and check-ins on" },
+  { id: "budget", group: "gateway", order: 4, where: ["Models › Gateway"], name: "Key limits", sub: "Hold each gateway key to the tokens or estimated cost you set for it", one: "1 key with a limit", many: "{n} keys with a limit" },
+  { id: "gateway", group: "pages", order: 4, where: ["Models › Gateway"], name: "Gateway page", sub: "The gateway's state, keys and settings, how to connect a client and its models", one: "1 gateway key", many: "{n} gateway keys" },
+  { id: "groups", group: "gateway", order: 3, where: ["Models › Routing"], name: "Routing groups", sub: "Several models agents pick as one: each request goes to the right one, and to the next when one fails", one: "1 group in use", many: "{n} groups in use" },
+  { id: "library", group: "pages", order: 2, where: ["Work › Library"], name: "Library", sub: "Instructions, MCP servers, skills and hooks, kept once and given to every agent", one: "1 item given to agents", many: "{n} items given to agents" },
+  { id: "middleware", group: "gateway", order: 6, where: ["Extend › Plugins"], name: "JS gateway plugins", sub: "Run the JavaScript gateway plugins: middleware on agents' requests and replies, routings and usage observers", one: "1 gateway plugin on", many: "{n} gateway plugins on" },
+  { id: "otel", group: "integrations", order: 1, where: ["Settings › Observability"], name: "Observability", sub: "Send each request's traces and metrics to an OpenTelemetry collector, such as Langfuse", one: "Sending to a collector", many: "Sending to a collector" },
+  { id: "redact", group: "gateway", order: 1, where: ["Insights › Masking", "Settings › Privacy"], name: "Privacy masking", sub: "Secrets, personal data and your own words go to vendors as placeholders, and come back as they were", one: "Masking is on", many: "Masking is on" },
+  { id: "rotation", group: "gateway", order: 2, where: ["Models › Providers"], name: "Routing strategies", sub: "The routings besides Smart: In order, Until used up, In turn, Least used first, Weekly pace, By weight, Free first, Speed first and Cheapest first", one: "1 provider or group routed so", many: "{n} providers and groups routed so" },
+  { id: "routing", group: "pages", order: 3, where: ["Models › Routing"], name: "Routing", sub: "Each request as the gateway routes it, the accounts it weighed and what each answered, and your routing groups", one: "1 group in use", many: "{n} groups in use" },
+  { id: "search", group: "gateway", order: 5, where: ["Settings › Models"], name: "Web search", sub: "Models that can't search the web search with a provider that can, or a search API", one: "1 search source set up", many: "{n} search sources set up" },
+  { id: "sessions", group: "pages", order: 1, where: ["Work › Sessions"], name: "Sessions", sub: "Your agents' past conversations: read, search, resume and export them", one: "Recording gateway conversations", many: "Recording gateway conversations" },
+  { id: "tools", group: "gateway", order: 7, where: [], name: "Plugin tools", sub: "Offer the tools your plugins give to every agent, as an MCP server", one: "1 plugin gives tools", many: "{n} plugins give tools" },
+  { id: "usage", group: "pages", order: 5, where: ["Insights › Usage"], name: "Usage", sub: "Your allowances, what was spent and on what, each request, and what filled the context window" },
+  { id: "warmups", group: "integrations", order: 2, where: ["Settings › Allowances"], name: "Warm-up and check-in", sub: "Start a subscription's usage window at a time you pick, and claim vendors' daily check-in credits", one: "1 warm-up or check-in on", many: "{n} warm-ups and check-ins on" },
 ];
 // the Essentials preset, picked by the user: all off but the Gateway, Routing
 // and Usage pages, the routing strategies, the gateway middleware, privacy
@@ -40,26 +43,27 @@ const PLUGINS = [
 // and two routing groups the user made
 const START = { budget: [true, 0], gateway: [true, 0], groups: [false, 2], library: [false, 0], middleware: [true, 0], otel: [false, 0], redact: [true, 0], rotation: [true, 0], routing: [true, 0], search: [true, 0], sessions: [false, 0], tools: [true, 0], usage: [true, 0], warmups: [false, 0] };
 
-// the Gateway page's settings, as pluginrt.SchemaOf makes them
-const GATEWAY_SCHEMA = {
+// no built-in has settings now (the Gateway page's callsPage is gone): a
+// fixture's on the Gateway page's row, as pluginrt.SchemaOf makes them
+const FIXTURE_SCHEMA = {
   type: "object",
-  properties: { callsPage: { type: "integer", title: "Recent calls at a time", description: "How many of the gateway's recent calls the page shows, and how many more each Show more adds", enum: [10, 20, 50, 100], default: 20 } },
-  "x-order": ["callsPage"],
+  properties: { queue: { type: "integer", title: "Queue size", enum: [10, 20, 50, 100], default: 20 } },
+  "x-order": ["queue"],
 };
 
 function builtins(st, broken, config) {
   return PLUGINS.map((p) => {
     const [chosen, inUse] = st[p.id];
     const on = chosen || inUse > 0;
-    const f = { id: p.id, name: p.name, sub: p.sub, on, chosen, source: inUse > 0 && !chosen ? "in use" : "preset", state: on ? "active" : "off", inUse, use: inUse === 1 ? p.one : inUse > 1 ? p.many : undefined, broken };
-    if (p.id === "gateway") Object.assign(f, { schema: GATEWAY_SCHEMA, config });
+    const f = { id: p.id, name: p.name, sub: p.sub, group: p.group, order: p.order, where: p.where, on, chosen, source: inUse > 0 && !chosen ? "in use" : "preset", state: on ? "active" : "off", inUse, use: inUse === 1 ? p.one : inUse > 1 ? p.many : undefined, broken };
+    if (p.id === "gateway") Object.assign(f, { schema: FIXTURE_SCHEMA, config });
     return f;
   });
 }
 
 function server(lang, posts, broken) {
   const st = structuredClone(START);
-  const config = { callsPage: 20 };
+  const config = { queue: 20 };
   const list = () => builtins(st, broken, config);
   const cur = () => ({
     theme: "light", lang, tray: "panel", currency: "usd", textSize: 100, redactWords: [],
@@ -83,7 +87,7 @@ function server(lang, posts, broken) {
       const { id, on, config: change } = req.postDataJSON();
       if (change) {
         posts.push([id, change]);
-        if (broken || ![10, 20, 50, 100].includes(change.callsPage)) return route.fulfill({ status: 400, json: { error: "callsPage: not one of [10 20 50 100]" } });
+        if (broken || ![10, 20, 50, 100].includes(change.queue)) return route.fulfill({ status: 400, json: { error: "queue: not one of [10 20 50 100]" } });
         Object.assign(config, change);
         return json(list());
       }
@@ -115,8 +119,11 @@ const viewShown = (page) => page.evaluate(() => [...document.querySelectorAll("m
 const KEPT = ["agents", "providers", "routing", "gateway", "usage", "masking", "plugins"];
 const rowsOf = (page) => page.evaluate(() => [...document.querySelectorAll("#builtinList .feat-row")].map((r) => {
   const b = r.querySelector('[role="switch"]');
-  return { id: r.dataset.id, name: r.querySelector(".name").textContent, on: b.getAttribute("aria-checked"), disabled: b.disabled, why: r.querySelector(".feat-why")?.textContent || "" };
+  return { id: r.dataset.id, name: r.querySelector(".name").textContent, on: b.getAttribute("aria-checked"), disabled: b.disabled, why: r.querySelector(".feat-why")?.textContent || "", lock: r.querySelector(".feat-lock")?.textContent || "" };
 }));
+// the tab's groups, each its cards' ids in order
+const groupsOf = (page) => page.evaluate(() => [...document.querySelectorAll("#builtinList .feat-group")].map((g) => [g.dataset.group, [...g.querySelectorAll(".feat-row")].map((r) => r.dataset.id)]));
+const GROUPS = ["pages", "gateway", "integrations"].map((g) => [g, PLUGINS.filter((p) => p.group === g).sort((a, b) => a.order - b.order).map((p) => p.id)]);
 
 // the Plugins page's tabs: the sidebar's, from 1024 points, or the page's
 // own strip
@@ -155,18 +162,22 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await page.goto("http://magpie.test/?view=plugins");
         await pluginTabs(page, side).first().waitFor();
         // Built-in first, in the page's language
+        // with how many, once they are read
+        await page.waitForFunction((side) => /14$/.test(document.querySelector(side ? ".nav-sub:not(.leaving) .nav-s" : "#view-plugins .lib-tabs .opt").textContent.trim()), side);
         const first = (await pluginTabs(page, side).first().textContent()).trim();
-        assert.equal(first, await page.evaluate(() => t("Built-in")), where);
+        assert.equal(first, await page.evaluate((side) => t("Built-in") + (side ? "14" : " · 14"), side), where);
         if (lang !== "en") assert.notEqual(first, "Built-in", `${where}: Built-in translated`);
         await builtinTab(page, side);
         assert.ok(await page.locator("#view-plugins .pm-find").isHidden(), `${where}: no search on Built-in`);
         const rows = await rowsOf(page);
         const want = await page.evaluate((ps) => ps.map((p) => ({ id: p.id, name: t(p.name) })), PLUGINS);
-        assert.deepEqual(rows.map((r) => ({ id: r.id, name: r.name })), want, `${where}: a row each, by the table`);
+        assert.deepEqual(rows.map((r) => ({ id: r.id, name: r.name })).sort((a, b) => a.id.localeCompare(b.id)), want, `${where}: a card each, by the table`);
+        assert.deepEqual(await groupsOf(page), GROUPS, `${where}: in their groups`);
         // the groups in use: on, can't be switched off, saying why
         const g = rows.find((r) => r.id === "groups");
         assert.deepEqual([g.on, g.disabled], ["true", true], `${where}: in use, locked`);
         assert.equal(g.why, await page.evaluate(() => t("{n} groups in use", { n: 2 })), where);
+        assert.equal(g.lock, await page.evaluate(() => t("In use, so it stays on")), where);
         if (lang !== "en") assert.notEqual(g.why, "2 groups in use", `${where}: why translated`);
         const gw = rows.find((r) => r.id === "gateway");
         assert.deepEqual([gw.on, gw.disabled], ["true", false], `${where}: the Gateway page, on`);
@@ -180,24 +191,31 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         }
         const us = rows.find((r) => r.id === "usage");
         assert.deepEqual([us.on, us.disabled], ["true", false], `${where}: the Usage page, on`);
-        for (const r of rows.filter((r) => !["budget", "groups", "gateway", "middleware", "redact", "rotation", "routing", "search", "tools", "usage"].includes(r.id))) assert.deepEqual([r.on, r.disabled, r.why], ["false", false, ""], `${where}: ${r.id}`);
+        for (const r of rows.filter((r) => !["budget", "groups", "gateway", "middleware", "redact", "rotation", "routing", "search", "tools", "usage"].includes(r.id))) assert.deepEqual([r.on, r.disabled, r.why, r.lock], ["false", false, "", ""], `${where}: ${r.id}`);
         await page.locator('#builtinList [data-id="groups"] [role="switch"]').click({ force: true });
         await page.waitForTimeout(100);
         assert.deepEqual(posts, [], `${where}: a locked switch posts nothing`);
         // nothing wider than the window
         assert.ok(await page.evaluate(() => { const v = document.querySelector("#view-plugins"); return v.scrollWidth <= v.clientWidth + 1; }), `${where}: fits`);
 
-        // the Gateway page's setting, under its row, from its schema: in
+        // a plugin's setting, behind its card's Settings, from its schema: in
         // the page's language, its value in the app's menu, saved as picked
-        const set = page.locator('#builtinList .feat-set[data-of="gateway"][data-setting="callsPage"]');
-        assert.equal(await set.locator(".name").textContent(), await page.evaluate(() => t("Recent calls at a time")), where);
-        if (lang !== "en") assert.notEqual(await set.locator(".name").textContent(), "Recent calls at a time", `${where}: translated`);
-        assert.equal(await page.evaluate(() => document.querySelector('#builtinList .feat-set').previousElementSibling.dataset.id), "gateway", `${where}: under its row`);
+        const set = page.locator('#builtinList .feat-set[data-of="gateway"][data-setting="queue"]');
+        const gear = page.locator('#builtinList [data-id="gateway"] .feat-gear');
+        assert.equal(await gear.getAttribute("aria-expanded"), "false", where);
+        assert.ok(await set.isHidden(), `${where}: settings folded`);
+        await gear.click();
+        assert.equal(await gear.getAttribute("aria-expanded"), "true", where);
+        await set.waitFor();
+        assert.equal(await set.locator(".name").textContent(), await page.evaluate(() => t("Queue size")), where);
+        if (lang !== "en") assert.notEqual(await set.locator(".name").textContent(), "Queue size", `${where}: translated`);
+        assert.equal(await page.evaluate(() => document.querySelector('#builtinList .feat-set').closest(".feat-row").dataset.id), "gateway", `${where}: in its card`);
         assert.equal((await set.locator(".proto.pick").textContent()).trim(), "20", where);
         await set.locator(".proto.pick").click();
         await page.locator(".proto-menu .pm-item", { hasText: "50" }).click();
         await page.waitForFunction(() => document.querySelector('#builtinList .feat-set .proto.pick')?.textContent.trim() === "50");
-        assert.deepEqual(posts, [["gateway", { callsPage: 50 }]], `${where}: posted`);
+        assert.equal(await gear.getAttribute("aria-expanded"), "true", `${where}: still open, drawn again`);
+        assert.deepEqual(posts, [["gateway", { queue: 50 }]], `${where}: posted`);
         assert.equal(await page.evaluate(() => document.querySelectorAll(".proto-menu").length), 0, `${where}: the menu closed`);
         posts.length = 0;
         assert.ok(await page.evaluate(() => { const v = document.querySelector("#view-plugins"); return v.scrollWidth <= v.clientWidth + 1; }), `${where}: the setting fits`);

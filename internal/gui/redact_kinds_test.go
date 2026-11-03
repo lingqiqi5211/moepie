@@ -9,12 +9,12 @@ import (
 	"github.com/yetone/magpie/internal/redact"
 )
 
-// Settings lists the kinds of personal data the gateway masks, in
-// REDACT_KINDS, with what each is until the user chooses: the same ids, in
-// the same order, with the same defaults as redact.Categories, so a toggle
-// shows what is masked.
+// Settings lists the kinds of personal data the gateway masks, in the
+// redact plugin's REDACT_KINDS, with what each is until the user
+// chooses: the same ids, in the same order, with the same defaults as
+// redact.Categories, so a toggle shows what is masked.
 func TestRedactKindsAreRedacts(t *testing.T) {
-	js, err := os.ReadFile("assets/app.js")
+	js, err := os.ReadFile("assets/plugins/redact/settings.js")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,6 +33,6 @@ func TestRedactKindsAreRedacts(t *testing.T) {
 		}
 	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
-		t.Fatalf("app.js REDACT_KINDS: %v\nredact.Categories: %v", got, want)
+		t.Fatalf("settings.js REDACT_KINDS: %v\nredact.Categories: %v", got, want)
 	}
 }

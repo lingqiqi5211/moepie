@@ -20,6 +20,7 @@ func init() {
 	pluginrt.Register(pluginrt.Manifest{
 		ID: "rotation", API: "^1", Requires: []string{"providers", "gateway"}, Essential: true,
 		Name: "Routing strategies", Sub: "The routings besides Smart: In order, Until used up, In turn, Least used first, Weekly pace, By weight, Free first, Speed first and Cheapest first",
+		Group: pluginrt.GroupGateway, Order: 2, Where: []string{"Models › Providers"},
 		One: "1 provider or group routed so", Many: "{n} providers and groups routed so",
 		InUse: inUse,
 		Parts: []pluginrt.Part{{Slot: "part", Key: "rotation"}},

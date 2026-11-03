@@ -3,7 +3,7 @@
 // page a plugin adds (plugins/gateway). A page whose code throws breaks
 // only itself: it says what broke and offers Try again, and the other
 // pages go on; Try again draws it once its code works. A plugin's setting
-// reaches its page: from boot.js before the first paint, and when Plugins
+// reaches its code: from boot.js before the first paint, and when Plugins
 // › Built-in changes it. Every language, both engines, a narrow window.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -12,18 +12,10 @@ const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
 
 const assets = path.resolve(__dirname, "../assets");
-const now = Date.now();
-const calls = Array.from({ length: 60 }, (_, i) => ({
-  time: new Date(now - (i + 1) * 60e3).toISOString(),
-  agent: "fixture",
-  model: `fixture/model-${i}`,
-  status: 200,
-  ms: 900,
-}));
 const providers = {
   providers: [{ id: "fixture", name: "Fixture", icon: "generic", models: [{ id: "model-0", name: "Model", on: true }], agents: [] }],
   presets: [],
-  gateway: { running: true, window: true, mine: true, url: "http://127.0.0.1:3999", calls, groups: [] },
+  gateway: { running: true, window: true, mine: true, url: "http://127.0.0.1:3999", groups: [] },
 };
 
 // the Gateway page's code, broken while window.__break says so: its
@@ -36,6 +28,11 @@ const BREAK = `
     return real();
   };
 })();
+// a plugin that keeps each setting its code is given
+magpie.plugin("fixture", (ctx) => {
+  window.__given = [ctx.config.n];
+  ctx.onConfig((c) => window.__given.push(c.n));
+});
 `;
 
 function serve(lang, config) {
@@ -95,12 +92,12 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         // back on the page, still broken, it still says so and draws nothing
         await page.evaluate(() => show("gateway"));
         await card.waitFor();
-        assert.equal(await page.locator("#view-gateway #activity").count(), 0, `${where}: nothing half drawn`);
+        assert.equal(await page.locator("#view-gateway #gwRequests").count(), 0, `${where}: nothing half drawn`);
 
         // fixed, Try again draws it whole, and it keeps working
         await page.evaluate(() => { window.__break = false; });
         await card.locator(".slot-again").click();
-        await page.locator("#activity .call-item").first().waitFor();
+        await page.locator("#gwRequests").waitFor();
         assert.equal(await card.count(), 0, `${where}: the card gone`);
         assert.ok((await page.locator("#gateway").evaluate((g) => g.childElementCount)) > 0, `${where}: the status card`);
         // its markup came back translated, and its wiring with it
@@ -115,33 +112,28 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     }
   });
 
-  test(`${engine}: the Gateway page shows as many recent calls at a time as its setting says`, async (t) => {
+  test(`${engine}: a plugin's setting reaches its code, from boot.js and from Plugins › Built-in`, async (t) => {
     const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
     t.after(() => browser.close());
     for (const lang of ["en", "zh", "zh-TW", "ja", "de"]) {
-      const where = `${engine} ${lang}`;
-      const context = await browser.newContext({ viewport: { width: 420, height: 700 }, reducedMotion: "reduce" });
-      const page = await context.newPage();
-      page.setDefaultTimeout(5000);
-      page.setDefaultNavigationTimeout(60000);
-      const errors = [];
-      page.on("pageerror", (e) => errors.push(e.message));
-      await page.route("**/*", serve(lang, { gateway: { callsPage: 10 } }));
-      await page.goto("http://magpie.test/?view=gateway");
-      const rows = page.locator("#activity .call-item");
-      await rows.first().waitFor();
-      // from boot.js, before the first paint
-      assert.equal(await rows.count(), 10, `${where}: boot.js's 10`);
-      const more = page.locator("#activity .activity-more");
-      assert.equal(await more.textContent(), await page.evaluate(() => t("Show {n} more", { n: 10 })), where);
-      await more.evaluate((b) => b.click());
-      assert.equal(await rows.count(), 20, `${where}: 10 more`);
-      // Plugins › Built-in sets 50 (applyFeatures with the list it posts back)
-      await page.evaluate(() => applyFeatures([{ id: "gateway", on: true, schema: { type: "object", properties: {}, "x-order": [] }, config: { callsPage: 50 } }]));
-      await page.waitForFunction(() => document.querySelectorAll("#activity .call-item").length === 50);
-      assert.equal(await more.textContent(), await page.evaluate(() => t("Show {n} more", { n: 10 })), `${where}: the 10 left`);
-      assert.deepEqual(errors, [], where);
-      await context.close();
+    const context = await browser.newContext({ viewport: { width: 420, height: 700 }, reducedMotion: "reduce" });
+    const page = await context.newPage();
+    page.setDefaultTimeout(5000);
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.route("**/*", serve(lang, { fixture: { n: 10 } }));
+    await page.goto("http://magpie.test/?view=gateway");
+    await page.locator("#gwRequests").waitFor();
+    // from boot.js, as the plugin set itself up
+    assert.deepEqual(await page.evaluate(() => window.__given), [10]);
+    // Plugins › Built-in sets 50 (applyFeatures with the list it posts back);
+    // the same again is no change
+    const set = (n) => page.evaluate((n) => applyFeatures([{ id: "fixture", on: true, schema: { type: "object", properties: {}, "x-order": [] }, config: { n } }]), n);
+    await set(50);
+    await set(50);
+    assert.deepEqual(await page.evaluate(() => window.__given), [10, 50]);
+    assert.deepEqual(errors, []);
+    await context.close();
     }
   });
 }

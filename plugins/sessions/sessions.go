@@ -13,6 +13,7 @@ func init() {
 	pluginrt.Register(pluginrt.Manifest{
 		ID: "sessions", API: "^1", Requires: []string{"window"},
 		Name: "Sessions", Sub: "Your agents' past conversations: read, search, resume and export them",
+		Group: pluginrt.GroupPages, Order: 1, Where: []string{"Work › Sessions"},
 		One: "Recording gateway conversations", Many: "Recording gateway conversations",
 		InUse: func() (int, error) {
 			s, err := settings.LoadChecked()

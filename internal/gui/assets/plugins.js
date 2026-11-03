@@ -23,7 +23,12 @@
   let failed = "";       // why what's installed couldn't be loaded
   let failedList = "";   // ...and the plugins suggested
   let tab = "discover", regBox;
-  try { tab = localStorage.getItem("magpie.pluginTab") || tab; } catch {}
+  // Plugins › moepie (the packs, gone) kept gives way to Built-in
+  try {
+    const kept = localStorage.getItem("magpie.pluginTab");
+    if (kept === "moepie") tab = "builtin";
+    else if (["builtin", "discover", "installed"].includes(kept)) tab = kept;
+  } catch {}
   let query = "";
   let hits = null;       // npm's answer for query: { q, list } | { q, loading } | { q, error }
   let searchTimer = 0;
@@ -827,7 +832,7 @@
 
   function head() {
     const n = mine?.plugins?.length || 0;
-    const tabs = segs([["builtin", t("Built-in")], ["discover", t("Discover")], ["installed", t("Installed") + (n ? " · " + n : "")]], tab, (id) => {
+    const tabs = segs([["builtin", t("Built-in") + (builtins ? " · " + builtins.length : "")], ["discover", t("Discover")], ["installed", t("Installed") + (n ? " · " + n : "")]], tab, (id) => {
       tab = id;
       try { localStorage.setItem("magpie.pluginTab", id); } catch {}
       searchShown();
@@ -839,7 +844,12 @@
     if (q.value !== query) q.value = query;
     q.setAttribute("aria-label", t("Search plugins"));
     mirror = mirrorSwitch();
-    replaceKeeping(headBox, [tabs, el("span", "grow"), mirror, find]);
+    // Built-in's: all of them, or only those on or off
+    shows = segs([["all", t("All")], ["on", t("On")], ["off", t("Off")]], builtinShow, (id) => { builtinShow = id; drawBody(); });
+    shows.classList.add("pm-shows");
+    shows.setAttribute("role", "group");
+    shows.setAttribute("aria-label", t("Show"));
+    replaceKeeping(headBox, [tabs, el("span", "grow"), mirror, find, shows]);
     searchShown();
     headBox.classList.toggle("stuck", page.scrollTop > 0);
     return headBox;
@@ -850,11 +860,12 @@
   // installed has come, which says how it is set
   let mirrorSaving = false;
   // the built-in plugins are a short list of switches: nothing to search
-  // or fetch through a mirror
-  let mirror = null;
+  // or fetch through a mirror, only those on or off to pick
+  let mirror = null, shows = null, builtinShow = "all";
   function searchShown() {
     find.hidden = tab === "builtin";
     if (mirror) mirror.hidden = !mine || tab === "builtin";
+    if (shows) shows.hidden = tab !== "builtin";
   }
   function mirrorSwitch() {
     const on = !!mine?.mirror;
@@ -918,9 +929,9 @@
     shown = key;
     // the search field keeps its focus: only the body is redrawn while
     // typing, and the GitHub section's field is kept in it
-    if (tab === "installed" || tab === "builtin" || !listings) body.replaceChildren();
-    if (tab === "installed") return drawInstalled();
     if (tab === "builtin") return drawBuiltin();
+    if (tab === "installed" || !listings) body.replaceChildren();
+    if (tab === "installed") return drawInstalled();
     if (failedList && !listings) {
       body.append(el("p", "pm-empty", t("Couldn't load the plugins: {error}", { error: failedList })));
       return;
@@ -1084,15 +1095,20 @@
     } catch (e) {
       builtinsFailed = e.message;
     }
-    if (tab === "builtin") drawBody();
+    draw(); // Built-in's count, and its tab
   }
+  // the list is kept as it is drawn again, so a switch keeps its focus
   function drawBuiltin() {
-    const say = el("p", "feat-say", t("Parts of magpie not everyone needs. Switched off, a part leaves the sidebar, its pages and Settings; magpie works the same either way."));
-    const list = el("div", "list prefs");
-    list.id = "builtinList";
-    body.append(say, list);
-    if (builtinsFailed && !builtins) list.append(el("p", "pm-empty", t(builtinsFailed)));
-    else if (builtins) window.renderBuiltins(list, builtins, (next) => { builtins = next; drawBody(); });
+    let list = body.querySelector(":scope > #builtinList");
+    if (!list) {
+      list = el("div", "feat-groups");
+      list.id = "builtinList";
+      body.replaceChildren(el("p", "feat-say"), list);
+    }
+    list.previousElementSibling.textContent = t("Parts of magpie not everyone needs. Switched off, a part leaves the sidebar, its pages and Settings; magpie works the same either way. One in use stays on, and its card says what uses it.");
+    if (builtinsFailed && !builtins) list.replaceChildren(el("p", "pm-empty", t(builtinsFailed)));
+    else if (builtins) window.renderBuiltins(list, builtins, (next) => { builtins = next; drawBody(); }, builtinShow);
+    else list.replaceChildren();
   }
 
   function drawInstalled() {

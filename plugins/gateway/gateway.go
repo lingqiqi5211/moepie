@@ -17,6 +17,7 @@ func init() {
 	pluginrt.Register(pluginrt.Manifest{
 		ID: "gateway", API: "^1", Requires: []string{"window", "gateway"}, Essential: true,
 		Name: "Gateway page", Sub: "The gateway's state, keys and settings, how to connect a client and its models",
+		Group: pluginrt.GroupPages, Order: 4, Where: []string{"Models › Gateway"},
 		One: "1 gateway key", Many: "{n} gateway keys",
 		InUse: func() (int, error) {
 			keys, err := access.List()
