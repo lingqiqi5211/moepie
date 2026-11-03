@@ -201,7 +201,7 @@ func notAllowed(addr string, unknown bool) string {
 	if unknown {
 		return "magpie couldn't read its settings.json in " + settings.Dir() + ", which holds its allow list, so it answers only this computer until it can, and this request came from " + addr + ": repair that file, or set the list in " + AllowIPsEnv
 	}
-	return "magpie answers only the addresses on its allow list (" + AllowIPsEnv + ", or Settings → Network and sharing → Allowed addresses), and this request came from " + addr + ": add it there to let it in"
+	return "magpie answers only the addresses on its allow list (" + AllowIPsEnv + ", or Gateway → Settings → Allowed addresses), and this request came from " + addr + ": add it there to let it in"
 }
 
 // AllowGuard refuses a request from an address the allow list leaves out,

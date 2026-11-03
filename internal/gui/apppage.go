@@ -20,8 +20,8 @@ import (
 	"github.com/yetone/magpie/internal/settings"
 )
 
-// The app serves its window's page to a browser too, when Settings ›
-// Network and sharing › Browser access says so (jiakun_zhao on X: the page
+// The app serves its window's page to a browser too, when the Gateway
+// page's Settings › Browser access says so (jiakun_zhao on X: the page
 // managed through a Cloudflare tunnel took `magpie web` kept running in a
 // terminal beside the app). It is magpie web's page, served from the app's
 // own process, beside the gateway the app serves: the same key in the

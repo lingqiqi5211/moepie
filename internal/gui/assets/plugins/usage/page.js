@@ -1045,6 +1045,12 @@ window.openUsageRoute = (route) => {
   ledger = null;
   show("usage");
 };
+// the Gateway page's link: the newest requests, the first page of them
+window.openUsageRequests = () => {
+  usageTab = "requests";
+  if (ledOffset) { ledOffset = 0; ledger = null; }
+  show("usage");
+};
 // the one request a route from Routing listed gives way to the list as it
 // was before it
 function ledRouteOff() {

@@ -2,12 +2,10 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
 const { fixture } = require("./fixtures/caller-keys.cjs");
-const { openPart, reach } = require("./reader.cjs");
 
 // coeo91 on Discord: the LAN address picked as Gateway's Base URL went back
 // to 127.0.0.1 after a restart or an update. The address and the gateway key
-// picked in Connect, and the address picked under Share on local network,
-// are kept across reloads; an address the machine doesn't have right now
+// picked in Connect are kept across reloads; an address the machine doesn't have right now
 // (the network not up yet after a start) shows this computer's, and the
 // pick comes back with it.
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
@@ -59,21 +57,6 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await open();
         assert.match(await shown("#connectAddress"), /10\.0\.0\.10:3999\/v1/);
         await page.waitForFunction(() => document.querySelector("#connectKey")?.textContent.includes("Server"));
-
-        // Share on local network's address is kept the same way
-        await page.locator("#prefs").click();
-        await openPart(page, "network");
-        await page.locator("#lanList .lan-address-row").waitFor();
-        // wheeled to as a reader would: the rows above, their lines wrapped
-        // whole (arculongus on Discord), put it below a narrow window, and
-        // Playwright's own scroll to it is undone, its menu opened out of sight
-        await reach(page, page.locator("#lanList .lan-interface"));
-        await pick("#lanList .lan-interface", "10.0.0.10");
-        await page.reload();
-        await page.locator("#prefs").click();
-        await openPart(page, "network");
-        await page.locator("#lanList .lan-address-row").waitFor();
-        assert.match(await shown("#lanList .lan-interface"), /10\.0\.0\.10:3999/);
 
         // nothing on the page is wider than the window
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

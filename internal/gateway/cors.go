@@ -15,8 +15,8 @@ import (
 )
 
 // corsGuard lets the web pages and browser extensions the user listed
-// in Settings › Network (settings.CORSOrigins, #1051) call the gateway
-// from a browser: their
+// on the Gateway page's Settings (settings.CORSOrigins, #1051) call the
+// gateway from a browser: their
 // preflight is answered, and their calls get the headers that let the page
 // read the reply. Such a call carries an enabled gateway key — a page is
 // not an agent the user started, and on loopback a call needs no key, so
@@ -46,8 +46,8 @@ func corsGuard(next http.Handler) http.Handler {
 		origin := r.Header.Get("Origin")
 		if origin == "" || !corsAllowed(origin) {
 			if foreignPage(r, origin) {
-				log.Printf("refused %s %s from the web page %s: not one listed in Settings", r.Method, r.URL.Path, origin)
-				writeError(w, provider.Chat, http.StatusForbidden, "magpie doesn't answer the web page "+origin+": list it in Settings → Network and sharing → Web pages to let it call magpie with a gateway key")
+				log.Printf("refused %s %s from the web page %s: not one listed in the gateway's settings", r.Method, r.URL.Path, origin)
+				writeError(w, provider.Chat, http.StatusForbidden, "magpie doesn't answer the web page "+origin+": list it in Gateway → Settings → Web pages that may call magpie to let it call magpie with a gateway key")
 				return
 			}
 			if origin == "null" && !keyedCaller(r) {

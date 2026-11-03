@@ -398,25 +398,9 @@
     </div>
     <div class="row-head"><span class="label">GitHub</span></div>
     <div class="list prefs" id="githubList"></div>
-    <div class="row-head"><span class="label" data-t>Gateway</span></div>
-    <div class="list prefs" id="portList"></div>
-    <div class="list prefs">
-      <div class="row pref" id="bareIdsRow">
-        <div class="who"><div class="name" data-t>Model ids without the provider</div><div class="sub" data-t>The gateway’s model list also names each model by its own id, as gpt-5.6-sol beside codex/gpt-5.6-sol, for apps moved from another proxy. One that several providers serve goes to them in the Providers order</div></div>
-        <div id="bareIdsSegs"></div>
-      </div>
-      <div class="row pref" id="busyLoadRow">
-        <div class="who"><div class="name" data-t>Busy models last</div><div class="sub" data-t>A model its plugin says is busier than this goes after the others a request could go to, as its vendor makes it wait. One with no load reported in the last 5 minutes keeps its place</div></div>
-        <div id="busyLoadSegs"></div>
-      </div>
-    </div>
-    <div class="row-head"><span class="label" data-t>Local network</span></div>
-    <div class="list prefs" id="lanList"></div>
-    <div class="list prefs" id="allowList"></div>
-    <div class="row-head"><span class="label" data-t>Web pages</span></div>
-    <div class="list prefs" id="corsList"></div>
-    <div class="row-head" id="webPageHead"><span class="label" data-t>Browser access</span></div>
-    <div class="list prefs" id="webPageList"></div>
+    <!-- with the Gateway page off, where its settings went (renderGatewayOff) -->
+    <div class="row-head" data-feature-off="gateway"><span class="label" data-t>Gateway</span></div>
+    <div class="list prefs" id="gwOffList" data-feature-off="gateway"></div>
   </section>
   <section class="set-page" id="setPage-models" role="tabpanel" aria-labelledby="setTab-models">
     <div class="row-head"><span class="label" data-t>Model lists</span></div>

@@ -61,9 +61,8 @@ Copy, translated, and nothing with no key.
 
 `gateway-keys-empty.test.cjs` checks the Gateway page with no gateway key
 yet, as magpie web on a 390px phone: "No gateway keys yet" sits inside the
-list's card, inset from its edges, in the muted colour and size of Recent
-calls' empty line, in Chromium and WebKit, light and dark, and every
-language. A list that can't be read says why in the same card, still there
+list's card, inset from its edges, in the muted colour and smaller than the
+page's text, in Chromium and WebKit, light and dark, and every language. A list that can't be read says why in the same card, still there
 after the page is drawn again; a list read before stays when a later read
 fails, and the error goes to the status line.
 
@@ -74,8 +73,8 @@ CSV export in Chinese and English on Chromium and WebKit. The fixtures do
 not access local credentials. Gateway keys appear only while sharing is on, with one create entry point
 and confirmation before rotation/removal (Cancel and Escape send no mutation).
 Creation, renaming and confirmation focus their controls without scrolling.
-Gateway is the only key-management page;
-Settings controls sharing and shows addresses. The test checks that toggling
+Gateway is the only key-management page, and the card's This computer /
+Local network choice turns sharing on and off. The test checks that toggling
 sharing retains the key, and that a removed default key is recreated as
 Magpie and appears in Gateway without a reload.
 
@@ -87,8 +86,7 @@ Sharing off keeps the original API-key field and hides the gateway-key picker;
 sharing on names the arbitrary local option separately from the Magpie key.
 
 `connect-address-kept.test.cjs` checks that the address and gateway key
-picked in Connect, and the address picked under Share on local network, are
-kept across a reload (a restart or an update opens the page again; coeo91 on
+picked in Connect are kept across a reload (a restart or an update opens the page again; coeo91 on
 Discord). With no local network address yet, this computer's is shown, and
 the pick comes back once the address does. It runs on both engines, at 1100
 and 420 wide, in every language.
@@ -98,10 +96,28 @@ magpie serving the gateway it reads "Quit magpie {v} and take over" and posts
 `/api/gateway/take-over`; once this magpie serves it is "Restart gateway" and
 posts `/api/gateway/restart`; a magpie of the same version gets no button. A
 refusal (a program that isn't magpie on the port) is said under it with the
-program's path and pid; a container's forwarder on the port (OrbStack
-Helper) is said as a container to stop, with `docker stop`, and in dark mode
-the button is bordered so it reads as one. No click scrolls, nothing has a
-left border, in Chinese and English.
+program's path and pid, and the page's Settings it points to unfold when
+folded away, the fold still kept for a reload; a container's forwarder on
+the port (OrbStack Helper) is said as a container to stop, with `docker
+stop`, and in dark mode the button is bordered so it reads as one. No click
+scrolls, nothing has a left border, in Chinese and English.
+
+`gateway-settings-moved.test.cjs` checks that the gateway's settings are the
+Gateway page's: Gateway address, Model ids without the provider, Allowed
+addresses, Web pages that may call magpie and Browser access sit under the
+page's Settings, after Connect, each drawn once; the fold hides them and is
+kept across a reload; Share on local network is the card's choice alone.
+Settings › Network and sharing has only Proxy and GitHub, none of those
+words, and Settings' search finds none of them there. Every language,
+Chromium and WebKit, with the API faked.
+
+`gateway-off-settings.test.cjs` checks Settings › Network and sharing with
+the Gateway page turned off (boot.js's featuresOff has "gateway", and a
+settings read keeps it): a row under a Gateway heading says where the
+gateway's settings went, Settings' search finds it, and its Open Built-in
+opens Plugins › Built-in with the Gateway's switch. With the page on, no row
+is drawn and GitHub is the only heading shown. Every language, Chromium and
+WebKit, with the API faked.
 
 `gateway-key-limit.test.cjs` checks a gateway key's own limit (#585): each
 limited key's badge and line (used, limit, left, reset, requests in flight,
@@ -132,8 +148,8 @@ the request filter is cleared. A caller absent from the period's options clears
 the filter and reloads the unfiltered rows from the first page.
 
 `api-key-theme.test.cjs` checks Gateway's enabled and disabled keys, creation
-and renaming inputs, rotation and key picker, plus Settings' LAN address
-controls against the global palette.
+and renaming inputs, rotation and key picker, plus the Gateway card's sharing choice and
+addresses against the global palette.
 Light and Dark override the OS; System follows live OS palette changes.
 The settings theme picker is also switched and reloaded in Chromium and
 WebKit. No separate colours are defined for gateway keys.
@@ -685,7 +701,7 @@ then it post `settings/plain-names` with `mode: "on"` and `mode: "own"`,
 neither click scrolls the page, the hint isn't cut short and the three fit
 the row at 900px and 560px. English and Chinese, Chromium and WebKit.
 
-`bare-ids.test.cjs` checks Settings › Network and sharing › "Model ids
+`bare-ids.test.cjs` checks the Gateway page's Settings › "Model ids
 without the provider" (love1sbug on X): off by default, On posts
 `settings/bare-ids` with `on: true` on its own and lights On, Off posts it
 back, neither click scrolls the page, the row is drawn in gateway mode, and
@@ -930,7 +946,7 @@ again once more after it is let go and before the click that sets off,
 as Browser access is when the answer to its state comes then (#3922),
 On is posted once. It then
 presses every option control on every Settings tab (49 in English, the
-warm-up, check-in, sync and local network ones included) the same way and
+warm-up, check-in and sync ones included) the same way and
 checks that the control drawn in its place is clicked once on the same
 option. Without the fix no click comes at all. A tap through the redraw is
 posted once, not twice (Chromium only: Playwright can't hold a tap in
@@ -1906,13 +1922,12 @@ typed under More endpoints and goes with it, and Save then posts
 is not picked automatically. A signed-in account (Codex) has no such row.
 Every string has its Chinese; English and Chinese, Chromium and WebKit.
 
-`lan-docker.test.cjs` checks Share on local network in a container (Discord:
-magpie in Docker on a NAS showed the container's own 172.17.x address).
-Opened over the network from `magpie web`, the address is the host the page
-was opened at, on the gateway's port, with an "In a container" row saying so;
-the OpenAI/Anthropic switch keeps that host and doesn't move the page. Opened
-at localhost, the container's address stays and the row says it is the
-container's own and to set `MAGPIE_PUBLIC_URL`. Outside a container nothing
+`lan-docker.test.cjs` checks the Gateway card's local network address in a
+container (Discord: magpie in Docker on a NAS showed the container's own
+172.17.x address). Opened over the network from `magpie web`, the address is
+the host the page was opened at, on the gateway's port, with a line under it
+saying so. Opened at localhost, the container's address stays and the line
+says it is the container's own and to set `MAGPIE_PUBLIC_URL`. Outside a container nothing
 changes. No coloured left border; English and Chinese, Chromium and WebKit,
 with `/api/plugins` faked.
 
@@ -2616,7 +2631,7 @@ does. Both engines, at 440px. The reckoning itself is covered by
 
 ## Browser access
 
-`browser-access.test.cjs` checks Settings › Network and sharing › Browser
+`browser-access.test.cjs` checks the Gateway page's Settings › Browser
 access, the app's own page served to a browser: Off, This computer and
 Local network posted to `/api/web-page`, the link shown with its key as
 "…" and copied whole, New key, the port with Apply and a taken port's

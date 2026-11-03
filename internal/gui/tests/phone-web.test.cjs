@@ -106,7 +106,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
 
     // a setting's name isn't cut to a few letters
     page = await open(browser, phone, true, "settings");
-    const cut = await page.$$eval(".prefs .row.pref:not(.lan-address-row) .who .name", (ns) => ns.filter((n) => n.offsetParent && n.scrollWidth > n.clientWidth + 1).map((n) => n.textContent));
+    const cut = await page.$$eval(".prefs .row.pref .who .name", (ns) => ns.filter((n) => n.offsetParent && n.scrollWidth > n.clientWidth + 1).map((n) => n.textContent));
     assert.deepEqual(cut, [], "every setting's name whole");
     await page.context().close();
 

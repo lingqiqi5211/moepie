@@ -1,9 +1,9 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
-// Settings › Network and sharing › Model ids without the provider (love1sbug
+// The Gateway page's Settings › Model ids without the provider (love1sbug
 // on X: apps moved from CLIProxyAPI ask for gpt-5.6-sol, and magpie's
 // /v1/models only gave codex/gpt-5.6-sol): off by default; On posts
 // settings/bare-ids on its own and lights On, Off posts it back, and neither
-// click scrolls the Settings page. The row is drawn in gateway mode too,
+// click scrolls the page. The row is drawn in gateway mode too,
 // which is where such apps are. Every language, Chromium and WebKit, at a
 // narrow and a wide window; no backend, the API is faked here.
 const assert = require("node:assert/strict");
@@ -37,7 +37,7 @@ function server(lang, gateway, posted) {
     const req = route.request(), url = new URL(req.url());
     const json = (data) => route.fulfill({ json: data });
     if (url.pathname === "/boot.js") return route.fulfill({ contentType: "text/javascript", body: `window.bootPrefs = {lang:"${lang}",theme:"light",web:${gateway}${gateway ? ",gateway:true" : ""}};` });
-    if (url.pathname === "/api/providers") return json({ providers: [], presets: [], excluded: [], gateway: { running: true, window: true } });
+    if (url.pathname === "/api/providers") return json({ providers: [], presets: [], excluded: [], gateway: { running: true, window: true, mine: true, url: "http://127.0.0.1:3425", calls: [], groups: [] } });
     if (url.pathname === "/api/window/fit") return route.fulfill({ status: 204 });
     if (url.pathname === "/wails/runtime.js") return route.fulfill({ contentType: "text/javascript", body: "export const Window = {};" });
     if (url.pathname === "/api/state") return json({ agents: [], profiles: [], settings: { lang, theme: "light" }, fx: cur.fx });
@@ -68,7 +68,7 @@ const want = {
   ja: { name: "プロバイダなしのモデル ID", off: "オフ", on: "オン", sub: "codex/gpt-5.6-sol の隣に gpt-5.6-sol" },
   de: { name: "Modell-IDs ohne Anbieter", off: "Aus", on: "An", sub: "gpt-5.6-sol neben codex/gpt-5.6-sol" },
 };
-const view = (page) => page.locator("#view-settings").evaluate((v) => v.scrollTop);
+const view = (page) => page.locator("#view-gateway").evaluate((v) => v.scrollTop);
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
   for (const width of [420, 900]) {
@@ -94,12 +94,12 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           await browser.close();
         });
         await watchSettingsReads(page);
-        await page.goto("http://magpie.test/?view=settings&tab=network");
+        await page.goto("http://magpie.test/?view=gateway");
         await settingsDrawn(page);
         const segs = page.locator("#bareIdsSegs .opt");
         await segs.first().waitFor();
         const row = page.locator("#bareIdsRow");
-        assert.equal(await page.locator("#usageAlertRow").evaluate((r) => r.hidden), gateway, "gateway mode as faked");
+        assert.equal(await page.evaluate(() => gatewayMode), gateway, "gateway mode as faked");
         assert(await row.isVisible(), "the row is drawn");
         assert.equal((await row.locator(".name").textContent()).trim(), w.name);
         assert((await row.locator(".sub").textContent()).includes(w.sub), "the sub says what it does");
@@ -109,7 +109,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const border = await row.evaluate((r) => getComputedStyle(r).borderLeftWidth);
         assert(border === "0px" || border === "", "no left border accent: " + border);
         // nothing wider than the window at the narrow width
-        assert(await page.locator("#view-settings").evaluate((v) => v.scrollWidth <= v.clientWidth + 1), "the settings scroll sideways");
+        assert(await page.locator("#view-gateway").evaluate((v) => v.scrollWidth <= v.clientWidth + 1), "the page scrolls sideways");
         const rb = await row.boundingBox(), sb = await page.locator("#bareIdsSegs").boundingBox();
         assert(sb.x + sb.width <= rb.x + rb.width + 1, "the switch runs out of its row");
 
@@ -121,7 +121,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         // which the page brought back into view as it took focus, #2370)
         await wheelTo(page, segs.nth(1), 200);
         const before = await view(page);
-        assert(before > 0, "the settings list must scroll to the row");
+        assert(before > 0, "the page must scroll to the row");
         await segs.nth(1).click();
         await page.locator("#bareIdsSegs .opt.on", { hasText: w.on }).waitFor();
         await page.waitForTimeout(400);

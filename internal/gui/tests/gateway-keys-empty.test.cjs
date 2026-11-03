@@ -5,24 +5,28 @@ const { fixture } = require("./fixtures/caller-keys.cjs");
 
 // No gateway key yet (HarriesChen on Discord, 10-25): magpie web on a phone
 // drew "No gateway keys yet" in the body's text, 14px and dark, flush
-// against its card's edges. It is said in its card the way the same page's
-// Recent calls says it has none: muted, small, inset. So is a list that
-// can't be read, and the page's next redraw keeps saying so.
+// against its card's edges. It is said in its card as the app's empty
+// lists say they have none: muted, smaller than the body's text, inset. So
+// is a list that can't be read, and the page's next redraw keeps saying so.
 const NONE = { en: "No gateway keys yet", zh: "尚无网关密钥", "zh-TW": "尚無閘道金鑰", ja: "ゲートウェイキーはまだありません", de: "Noch keine Zugangsschlüssel" };
 
 const look = (page) => page.evaluate(() => {
   const none = document.querySelector("#gatewayKeys .none");
-  const calls = document.querySelector("#activity .none");
+  // the app's muted colour, as an empty list's line has it
+  const probe = document.body.appendChild(document.createElement("span"));
+  probe.style.color = "var(--muted)";
+  const refColor = getComputedStyle(probe).color;
+  probe.remove();
   const card = none.parentElement.getBoundingClientRect();
   const r = document.createRange();
   r.selectNodeContents(none);
   const text = r.getBoundingClientRect();
-  const cs = getComputedStyle(none), ref = getComputedStyle(calls);
+  const cs = getComputedStyle(none);
   return {
     inCard: none.parentElement.matches("#gatewayKeys > .accts"),
     text: none.textContent,
-    color: cs.color, refColor: ref.color,
-    size: cs.fontSize, refSize: ref.fontSize,
+    color: cs.color, refColor,
+    size: parseFloat(cs.fontSize), bodySize: parseFloat(getComputedStyle(document.body).fontSize),
     weight: cs.fontWeight,
     inset: Math.min(text.left - card.left, card.right - text.right, text.top - card.top, card.bottom - text.bottom),
     overflow: document.documentElement.scrollWidth - innerWidth,
@@ -43,12 +47,11 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await page.route("**/*", fixture(lang, theme, [], { lan: true, web: true, keys: [] }));
         await page.goto("http://magpie.test/?view=gateway");
         await page.locator("#gatewayKeys .none").waitFor();
-        await page.locator("#activity .none").waitFor();
         const s = await look(page);
         assert.equal(s.inCard, true, "said inside the list's card");
         assert.equal(s.text, NONE[lang]);
-        assert.equal(s.color, s.refColor, "muted, as Recent calls' empty line");
-        assert.equal(s.size, s.refSize, "the size of Recent calls' empty line");
+        assert.equal(s.color, s.refColor, "muted, as an empty list's line");
+        assert(s.size < s.bodySize, `smaller than the body's text: ${s.size}px, ${s.bodySize}px`);
         assert.equal(s.weight, "400");
         assert(s.inset >= 10, `inset from the card's edges, got ${s.inset}px`);
         assert(s.overflow <= 0, "no sideways scroll at 390px");
@@ -66,14 +69,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     await page.route("**/*", fixture("en", "light", [], { lan: true, web: true, keysError: "gateway keys unreadable" }));
     await page.goto("http://magpie.test/?view=gateway");
     await page.locator("#gatewayKeys .none").waitFor();
-    await page.locator("#activity .none").waitFor();
     // the page drawn again, as the providers' poll does
     await page.evaluate(() => renderGatewayView());
     const s = await look(page);
     assert.equal(s.inCard, true, "said where the list goes, in its card");
     assert.equal(s.text, "gateway keys unreadable");
     assert.equal(s.color, s.refColor);
-    assert.equal(s.size, s.refSize);
+    assert(s.size < s.bodySize);
     assert(s.inset >= 10, `inset from the card's edges, got ${s.inset}px`);
   });
 

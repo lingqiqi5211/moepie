@@ -10,7 +10,7 @@ import (
 )
 
 // A remote magpie is another computer's magpie gateway, shared on its
-// network (Settings → Network and sharing → Share on local network), as a provider: the
+// network (Gateway → Share on local network), as a provider: the
 // computers' agents stay wired by their own magpie, while the providers,
 // routing groups and usage are the one magpie's they all share. Its
 // address serves every API magpie does, so the provider speaks them all

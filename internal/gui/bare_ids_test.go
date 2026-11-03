@@ -10,7 +10,7 @@ import (
 	"github.com/yetone/magpie/internal/settings"
 )
 
-// Settings › Network and sharing › Model ids without the provider posts
+// The Gateway page's Settings › Model ids without the provider posts
 // settings/bare-ids on its own (love1sbug on X): it is saved, the page is
 // answered the settings with it, and off saves it off again.
 func TestBareModelIDsSetting(t *testing.T) {

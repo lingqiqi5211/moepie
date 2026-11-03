@@ -2358,12 +2358,6 @@ body.window .ag-sk-icon { width: 22px; height: 22px; border-radius: 6px; }
 .gw-sk-row { pointer-events: none; }
 .gw-sk-model { width: 190px; height: 10px; }
 .gw-sk-provider { width: 82px; height: 9px; }
-.gw-sk-call { cursor: default; pointer-events: none; }
-.gw-sk-call .skeleton { height: 8px; }
-.gw-sk-call .time { width: 54px; }
-.gw-sk-call .agent { width: 62px; }
-.gw-sk-call .model { width: 150px; }
-.gw-sk-call .result { width: 68px; }
 /* the status card: a dot where the logo would be, the URL as a pill */
 .gwcard { margin: 4px 0 2px; }
 /* the gateway's mark, the sidebar's glyph in a tile, its two lights the
@@ -2425,8 +2419,14 @@ body.window .ag-sk-icon { width: 22px; height: 22px; border-radius: 6px; }
 .gw-keys .gw-key-more { flex: none; color: var(--muted); }
 .gw-keys .gw-key-more:is(:hover, .open) { color: var(--fg); }
 #view-gateway .row-head, #view-usage .row-head { margin: 14px 0 6px; padding: 0 2px; }
+#view-gateway .gw-requests { margin-top: 14px; }
 #view-usage .row-head.quota-head { margin: 6px 0 6px; }
 #view-gateway .row-head .note { font-size: 11px; color: var(--faint); }
+/* the page's Settings, the rows Settings draws (.prefs), a list each; one
+   with nothing to show (Allowed addresses, not shared) takes no room */
+.gw-settings { flex: none; }
+.gw-settings > .list + .list { margin-top: 8px; }
+.gw-settings > .list:empty { display: none; }
 /* providers switched off, folded below the ones on */
 #view-providers .off-head { margin: 14px 0 6px; padding: 0 2px; flex: none; }
 #view-providers .off-head .note { font-size: 11px; color: var(--faint); }
@@ -2498,25 +2498,7 @@ body.window .ag-sk-icon { width: 22px; height: 22px; border-radius: 6px; }
 .row.model:hover .copy, .row.model.selected .copy { opacity: 1; }
 .row.model .copy.done { opacity: 1; }
 
-/* recent calls */
-.activity { padding: 5px 8px 6px; font-size: 11.5px; }
-.activity .none { padding: 8px 6px; color: var(--muted); line-height: 1.45; }
-.activity .activity-more { display: flex; align-items: center; justify-content: center; width: 100%; height: 25px; margin-top: 2px; font-size: 11px; color: var(--muted); }
-.call-item + .call-item { border-top: 1px solid transparent; }
-.call-item.open { margin: 2px 0 5px; border-radius: 8px; background: var(--card-2); box-shadow: inset 0 0 0 1px var(--line-2); overflow: hidden; }
-.call { display: flex; align-items: center; gap: 10px; height: 24px; padding: 0 6px; border-radius: 6px; white-space: nowrap; cursor: pointer; outline: none; }
-.call:hover { background: var(--pill); }
-.call:focus-visible { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 2px var(--accent-soft); }
-.call-chev { width: 10px; height: 16px; display: inline-flex; align-items: center; justify-content: center; color: var(--faint); flex: none; transition: transform .15s ease-out, color .12s; }
-.call:hover .call-chev { color: var(--muted); }
-.call-item.open .call-chev { transform: rotate(90deg); }
-.call .when { color: var(--faint); font-variant-numeric: tabular-nums; }
-.call .a { color: var(--fg-2); flex: 0 0 auto; max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
-.call .m { font-family: var(--code-font, var(--code)); font-size: 11px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; }
-:where(html[data-fonts]) .call .m { font-style: var(--code-style, inherit); font-weight: var(--code-weight, inherit); font-stretch: var(--code-stretch, 100%); }
-.call .p { color: var(--muted); }
-.call .st { color: var(--green); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
-.call-item.bad .st { color: var(--red); }
+/* a call's request and response bodies (callBodyPanel) */
 .call-details { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1px; border-top: 1px solid var(--line-2); background: var(--line-2); }
 .call-body { min-width: 0; background: var(--card); }
 .call-body-head { height: 29px; padding: 0 8px 0 10px; display: flex; align-items: center; gap: 7px; color: var(--muted); }
@@ -3086,7 +3068,7 @@ body.window .ag-sk-icon { width: 22px; height: 22px; border-radius: 6px; }
 .sheet .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1px 12px; }
 .sheet .none { padding: 14px 2px; color: var(--muted); font-size: 12px; }
 #gwModels .none { padding: 16px; color: var(--muted); font-size: 12px; text-align: center; }
-/* no gateway key yet: said in its card as Recent calls says it has none */
+/* no gateway key yet: said in its card */
 #gatewayKeys .none { padding: 13px 14px; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
 #view-gateway .row-head .find { margin-right: 8px; }
 /* a row of the add sheet: an icon and a name, no frame; a row already
@@ -3786,9 +3768,6 @@ input.words.search-key, input.words.search-url { flex: 1 1 120px; width: auto; m
 .prefs .val.searcher-then-list > .rt-cond { min-width: 0; max-width: 100%; }
 .searcher-then-n { color: var(--muted); font-variant-numeric: tabular-nums; }
 .side-effort .effort-ic svg { width: 100%; height: 100%; }
-.row.pref.lan-address-row { position: relative; height: 50px; transition: height .28s var(--ease); }
-.row.pref.lan-address-row .who { position: absolute; top: 16px; left: 14px; }
-.prefs .lan-address-row .val { max-width: 64%; }
 /* Browser access: a link per address, each with its copy button */
 .prefs .web-page-link-row .val { max-width: 64%; gap: 6px; }
 .web-page-links { display: flex; flex-direction: column; align-items: flex-end; min-width: 0; }
@@ -3799,26 +3778,6 @@ input.words.search-key, input.words.search-url { flex: 1 1 120px; width: auto; m
   .row.pref.web-page-mode { flex-wrap: wrap; row-gap: 8px; }
   .row.pref.web-page-mode .who { flex: 1 1 100%; }
   .prefs .web-page-mode .val { max-width: 100%; }
-}
-.lan-address-controls { position: absolute; inset: 0; pointer-events: none; }
-.lan-address-controls > * { position: absolute; pointer-events: auto; }
-.row.pref .proto.pick.lan-interface { top: 13px; right: 40px; width: 240px; max-width: calc(100% - 40px); margin-left: 0; font: var(--code-style, normal) var(--code-weight, 400) 12px var(--code-font, var(--code)); font-stretch: var(--code-stretch, 100%); transition: top .28s var(--ease), background .12s, color .12s; }
-.lan-interface .lan-url { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lan-address-controls .lan-address-text { top: 16px; right: 40px; width: 240px; max-width: calc(100% - 40px); font: var(--code-style, normal) var(--code-weight, 400) 12px var(--code-font, var(--code)); font-stretch: var(--code-stretch, 100%); transition: top .28s var(--ease); }
-.lan-address-controls .segs { top: 12px; right: 286px; margin-left: 0; transition: right .28s var(--ease); }
-.lan-copy { top: 14px; right: 12px; display: inline-flex; transition: top .28s var(--ease); }
-.row.pref.lan-container .sub { white-space: normal; }
-.pop.proto-menu.lan-address-menu { width: min(320px, calc(100vw - 16px)); max-height: min(360px, 70vh); overflow-y: auto; }
-.lan-address-menu .pm-name { font: var(--code-style, normal) var(--code-weight, 400) 12px var(--code-font, var(--code)); font-stretch: var(--code-stretch, 100%); }
-@media (max-width: 600px) {
-  .row.pref.lan-address-row { height: 76px; }
-  .lan-address-controls .segs { right: 12px; }
-  .row.pref .proto.pick.lan-interface { top: 44px; }
-  .lan-address-controls .lan-address-text { top: 47px; }
-  .lan-copy { top: 45px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .row.pref.lan-address-row, .row.pref .proto.pick.lan-interface, .lan-address-controls .lan-address-text, .lan-address-controls .segs, .lan-copy { transition: none; }
 }
 /* the community row's way in: Discord's own colour, quiet until hovered */
 .prefs .val .discord {
@@ -4074,7 +4033,7 @@ body.panel .modal { padding: 16px 12px; }
   /* A row's trailing pills go to a second line on a phone rather than
      squeeze its name to a letter or push its switch out of the card
      (zaidu259434 on X): the empty ::after is the line break. */
-  body.web :is(.row.provider, .row.model, .row.gw, .call)::after { content: ""; order: 1; flex-basis: 100%; }
+  body.web :is(.row.provider, .row.model, .row.gw)::after { content: ""; order: 1; flex-basis: 100%; }
   body.web :is(.row.provider, .row.model) { flex-wrap: wrap; row-gap: 3px; }
   body.web :is(.row.provider, .row.model) > .who { flex: 1 1 0; }
   body.web .row.provider > .key { order: 2; margin-left: 37px; }
@@ -4085,10 +4044,6 @@ body.panel .modal { padding: 16px 12px; }
   body.web .row.gw > .who { flex: 1 1 0; min-width: 0; }
   body.web .row.gw .sub { white-space: normal; }
   body.web .row.gw > .gw-fix { order: 2; margin-left: 39px; max-width: calc(100% - 39px); }
-  body.web .call { flex-wrap: wrap; height: auto; min-height: 24px; padding: 3px 6px; }
-  body.web .call > .m { order: 2; margin-left: 20px; min-width: 0; }
-  body.web .call > .p { order: 3; }
-  body.web .call > .st { max-width: none; }
   /* a key's or account's own buttons follow its name on a line of their own */
   body.web .acc { flex-wrap: wrap; row-gap: 4px; }
   body.web .acc > .grow { flex: 1 0 100%; height: 0; margin: -2px 0; }

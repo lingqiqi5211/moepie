@@ -47,7 +47,7 @@ Send `magpie-<your-app-id>` (`Authorization: Bearer magpie-acme`, or
 log and the routing rules that match on agents. Without it, magpie counts
 the call by the first word of your `User-Agent` (`Acme/1.4 (darwin)` is
 `Acme`); an SDK's own User-Agent (`OpenAI/JS …`, `ai-sdk/…`) would count it
-as that SDK. From another computer (Settings → Network and sharing → Share on local network) the
+as that SDK. From another computer (Gateway → Share on local network) the
 key must be one of the user's gateway keys, and the User-Agent names your
 app.
 

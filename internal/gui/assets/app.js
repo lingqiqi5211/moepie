@@ -13380,7 +13380,7 @@ function quotaError(err, q) {
   // a remote magpie's card (remote_quotas.go)
   if (/^nothing read on that magpie yet/.test(err)) return t("Nothing read on that computer yet — refresh this card to have it read");
   if (/^remote magpie doesn't share its quotas/.test(err)) return t("That computer's magpie doesn't share its quotas yet — update magpie there");
-  if (/^remote magpie isn't shared/.test(err)) return t("That computer's magpie isn't shared — turn on Settings → Network and sharing → Share on local network there");
+  if (/^remote magpie isn't shared/.test(err)) return t("That computer's magpie isn't shared — turn on Gateway → Share on local network there");
   if (/^remote magpie didn't take this key/.test(err)) return t("That computer's magpie didn't take this key — use one of its gateway keys in this provider");
   if (/^couldn't reach the remote magpie/.test(err)) return t("Couldn't reach that computer's magpie — check that it is running and its address");
   // a remote magpie's gateway key card (#1547, remote_key_limits.go)
@@ -19668,6 +19668,7 @@ function renderSettings() {
   renderTrayUsage(s, keep);
   renderProxy(s, keep);
   renderGitHubToken(s);
+  renderGatewayOff();
   renderImages(s, keep);
   renderSearch(s, keep);
   renderModelLists(s, keep);
@@ -19677,11 +19678,6 @@ function renderSettings() {
   renderDiscovery(s, keep);
   renderSessionReads(s);
   renderOTel(s, keep);
-  renderPort(s);
-  renderBareIds(s);
-  renderLAN(s);
-  renderAllow(s);
-  renderCORS(s);
   renderSync();
 
   const about = $("#about");
@@ -21869,6 +21865,33 @@ function pmSub(m) {
   if (m.on) return t("On: the model starts with the next request");
   if (m.installed) return t("Off. The model is downloaded ({size})", { size: fmtBytes(m.size) });
   return t("Names, addresses and passwords no rule can find, found by a model that runs on this computer. Turning it on downloads {size} once", { size: fmtBytes(m.size) });
+}
+
+// renderGatewayOff: with the Gateway page turned off, Network and sharing
+// says where the gateway's settings went (the page's Settings, till 10-31
+// rows here) and opens Plugins › Built-in, where the page is turned back
+// on. The gateway still serves with them.
+function renderGatewayOff() {
+  const box = $("#gwOffList");
+  if (!featuresOff.has("gateway")) return void box.replaceChildren();
+  const r = el("div", "row pref");
+  r.id = "gwOffRow";
+  const who = el("div", "who");
+  who.append(el("div", "name", t("The gateway's settings")), el("div", "sub",
+    t("Its address, model ids without the provider, allowed addresses, web pages that may call magpie and Browser access are on the Gateway page, turned off in Plugins › Built-in. The gateway still serves with them")));
+  const go = el("button", "", t("Open Built-in"));
+  go.type = "button";
+  go.onclick = () => openPluginTab("builtin");
+  const val = el("div", "val");
+  val.append(go);
+  r.append(who, val);
+  box.replaceChildren(r);
+}
+async function openPluginTab(tab) {
+  try { localStorage.setItem("magpie.pluginTab", tab); } catch { /* not kept */ }
+  if (mode !== "window") return void api("window/main?view=plugins", {}).catch(() => {});
+  if (!await show("plugins")) return;
+  window.pluginTabTo?.(tab); // after show, whose Installed for updates would win
 }
 
 // ---------- what masking swapped (maskrec) ----------

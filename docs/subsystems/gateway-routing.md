@@ -1598,7 +1598,7 @@ only `codex/gpt-5.6-sol`. A bare request already routes (Model resolution,
 above); the list didn't offer it. "Provider in model names" (`PlainNames`)
 changes labels only, never ids.
 
-Settings › Network and sharing › Model ids without the provider,
+Gateway › Settings › Model ids without the provider,
 `POST /api/settings/bare-ids` (`settings.BareModelIDs`,
 `provider.SetBareModelIDs`), off by default. On, `models` lists every row
 it listed before, unchanged and first, then one row per bare model id

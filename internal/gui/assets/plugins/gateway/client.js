@@ -1,6 +1,6 @@
 // The Gateway page (plugins/gateway): the gateway's state and its keys
-// (keys.js), how to connect a client, its models and its recent calls. It
-// is a page the plugin adds to the window (kernel.js): its markup is the
+// (keys.js), how to connect a client and its models; its calls are in
+// Usage › Requests, a row away. It is a page the plugin adds to the window (kernel.js): its markup is the
 // html below, and the shell draws it through its hooks — loading before
 // the state is in, draft from the state kept, render with the new one —
 // behind the kernel's error boundary.
@@ -19,19 +19,16 @@ let decideModel = localStorage.getItem("magpie.decideModel") || ""; // the Syste
 // is set up once and seldom read again (the owner)
 let connectFolded = true;
 try { connectFolded = localStorage.getItem("magpie.gwConnectFolded") !== "0"; } catch {}
-const expandedCalls = new Set(); // recent-call ids whose wire bodies are open
-const callBodies = new Map(); // callRow → its bodies, read when it is opened (#1521)
-// recent calls drawn a page at a time, as many as the plugin's setting
-// says (callsPage)
-let callsPage = 20;
-let callsShown = callsPage;
+// the page's Settings (settings.js) folded away under their heading: open
+// until folded, as they came here from Settings › Network and sharing
+let gwSettingsFolded = false;
+try { gwSettingsFolded = localStorage.getItem("magpie.gwSettingsFolded") === "1"; } catch {}
 
 function renderGatewayLoading() {
   const page = $("#view-gateway");
   page.classList.add("loading");
   page.setAttribute("aria-busy", "true");
   $("#connectNote").textContent = "";
-  $("#callsNote").textContent = "";
   $("#copyModels").hidden = true;
 
   const gateway = $("#gateway");
@@ -58,14 +55,6 @@ function renderGatewayLoading() {
     row.append(el("span", "skeleton gw-sk-model"), el("span", "grow"), el("span", "skeleton gw-sk-provider"));
     models.append(row);
   }
-
-  const activity = $("#activity");
-  activity.replaceChildren();
-  for (let i = 0; i < 4; i++) {
-    const row = el("div", "call gw-sk-call");
-    row.append(el("span", "skeleton time"), el("span", "skeleton agent"), el("span", "skeleton model"), el("span", "grow"), el("span", "skeleton result"));
-    activity.append(row);
-  }
 }
 
 function renderGatewayView() {
@@ -82,7 +71,15 @@ function renderGatewayView() {
   if (gatewayKeyDraft === null && gatewayLimit === null && !$("#gatewayKeys .rename-in")) renderGatewayKeys();
   renderConnect();
   renderGatewayModels();
-  renderActivity();
+}
+
+// the Settings fold: the section shows once read, unless folded away
+function gwSettingsFold() {
+  const fold = $("#foldGwSettings");
+  if (!fold) return;
+  fold.setAttribute("aria-expanded", String(!gwSettingsFolded));
+  fold.title = t(gwSettingsFolded ? "Show the settings" : "Fold the settings away");
+  $("#gwSettings").hidden = gwSettingsFolded || !gwSettingsSeen;
 }
 
 // The status card's button (leslie_luo on Discord: told to quit the older
@@ -109,6 +106,12 @@ function gatewayFixButton(g, older) {
     let out;
     try { out = await api(older ? "gateway/take-over" : "gateway/restart", {}); } catch (e) { out = { reason: "error", error: e.message }; }
     gatewayFix = { busy: false, err: out?.ok ? "" : gatewayFixSays(out || {}), when };
+    // a port held by another program says to move the gateway under
+    // Settings below: unfolded for it, the fold kept as it was for a reload
+    if (["not-magpie", "container", "taken"].includes(out?.reason) && gwSettingsFolded) {
+      gwSettingsFolded = false;
+      gwSettingsFold();
+    }
     try { await loadProviders(); } catch {}
     renderGateway();
   };
@@ -119,17 +122,17 @@ function gatewayFixButton(g, older) {
 function gatewayFixSays(o) {
   const p = { port: o.port || "", pid: o.pid || "", path: o.path || "", v: o.version || "", error: o.error || "" };
   switch (o.reason) {
-    case "not-magpie": return t("Port {port} is held by {path} (pid {pid}), which isn't magpie, so magpie leaves it alone. Quit it yourself, or move the gateway to another port in Settings.", p);
+    case "not-magpie": return t("Port {port} is held by {path} (pid {pid}), which isn't magpie, so magpie leaves it alone. Quit it yourself, or move the gateway to another port under Settings below.", p);
     // leslie_luo on Discord: an old magpie in OrbStack, its helper named
     // as the program to quit
-    case "container": return t("Port {port} is forwarded by {path} (pid {pid}) to a container or a VM: the magpie {v} answering there runs inside it, out of this magpie's reach. Stop that container (docker ps lists it, docker stop <name> stops it, or stop it in OrbStack or Docker Desktop), or move this magpie's gateway to another port in Settings.", p);
+    case "container": return t("Port {port} is forwarded by {path} (pid {pid}) to a container or a VM: the magpie {v} answering there runs inside it, out of this magpie's reach. Stop that container (docker ps lists it, docker stop <name> stops it, or stop it in OrbStack or Docker Desktop), or move this magpie's gateway to another port under Settings below.", p);
     case "unseen": return t("magpie can't see which process holds port {port}: it runs as another user or as administrator. Quit it there.", p);
     case "denied": return t("magpie {v} (pid {pid}, {path}) runs as another user or as administrator, so this magpie can't quit it. Quit it there.", p);
     case "stuck": return t("magpie {v} (pid {pid}) didn't quit. End it in your system's process list (Activity Monitor, Task Manager).", p);
     case "respawned": return t("Something started magpie on port {port} again at once ({path}, pid {pid}): a login item or a service keeps it running (a LaunchAgent, a systemd unit, a scheduled task). Remove that, then try again.", p);
     case "taken": return p.pid
-      ? t("Port {port} is in use by {path} (pid {pid}): quit it, or move the gateway to another port in Settings.", p)
-      : t("Port {port} is in use by another program: quit it, or move the gateway to another port in Settings.", p);
+      ? t("Port {port} is in use by {path} (pid {pid}): quit it, or move the gateway to another port under Settings below.", p)
+      : t("Port {port} is in use by another program: quit it, or move the gateway to another port under Settings below.", p);
     case "other": return t("magpie {v} serves the gateway, and it isn't older than this one: quit it there to serve the gateway here.", p);
   }
   return t("The gateway couldn't be served here: {error}", p);
@@ -237,9 +240,21 @@ function renderGateway() {
 }
 
 // Share on local network, set on the page that hands out its keys (the
-// owner): the same setting as Settings › Network and sharing, and every
-// address the gateway answers on, each to copy.
+// owner), and every address the gateway answers on, each to copy.
 let gatewayLanBusy = false;
+// lanShown: the local network addresses the gateway is offered at, and a
+// line on them when magpie runs in a container. In a container magpie
+// finds only the container's own addresses; the page opened over the
+// network was reached at the host's, so the gateway is offered there, on
+// its port.
+function lanShown(urls, container) {
+  if (!container) return { urls, sub: "" };
+  const host = location.hostname, port = urls.length ? new URL(urls[0]).port : "";
+  if (web && host && port && !/^(localhost|127\.|\[::1\]$)/.test(host))
+    return { urls: ["http://" + host + ":" + port], // an IPv6 hostname comes bracketed
+      sub: t("Where this page was opened, on the gateway’s port; MAGPIE_PUBLIC_URL sets another") };
+  return { urls, sub: t("The container’s own addresses, which other devices can’t reach: set MAGPIE_PUBLIC_URL to the host’s") };
+}
 function renderGatewayLan() {
   const g = providers.gateway;
   const box = $("#gatewayLan");
@@ -256,6 +271,7 @@ function renderGatewayLan() {
         gatewayLanBusy = false;
         if (view !== "gateway" || !providers) return;
         renderGatewayView();
+        renderGatewaySettings(); // Allowed addresses shows while shared
         if (providers.gateway.lan) loadGatewayKeys();
       });
   });
@@ -276,13 +292,8 @@ function renderGatewayLan() {
   // (#1551)
   const shown = web && g.publicURL || g.url;
   line(t(shown === g.url ? "This computer" : "Public address"), shown);
-  if (g.lan) {
-    const { urls, sub } = lanShown(g.lanURLs || [], prefs?.lanContainer);
-    urls.filter((u) => u !== shown).forEach((u, i) => line(i ? "" : t("Local network"), u));
-    if (!urls.length) list.append(el("div", "gw-url-none", t("This computer has no local network address right now")));
-    if (sub) list.append(el("div", "gw-url-none", sub));
-  }
   box.append(list);
+  if (g.lan) renderGatewayAddress({ ...prefs, lan: true, lanURLs: g.lanURLs || [] });
 }
 
 // One entry per API the gateway serves: where each SDK's base URL points,
@@ -599,8 +610,7 @@ function renderConnect() {
 }
 
 let modelQuery = "";
-// The model list can be folded away, so Recent calls sits under Connect;
-// the fold is remembered.
+// The model list can be folded away; the fold is remembered.
 let modelsFolded = false;
 try { modelsFolded = localStorage.getItem("magpie.gwModelsFolded") === "1"; } catch {}
 
@@ -612,7 +622,7 @@ function renderGatewayModels() {
   fold.setAttribute("aria-expanded", String(!modelsFolded));
   fold.title = t(modelsFolded ? "Show the models" : "Fold the models away");
   $("#modelsCount").textContent = all.length ? String(all.length) : "";
-  list.hidden = modelsFolded && all.length > 0;
+  list.hidden = modelsFolded;
   // the search sits in the section head, beside Copy all ids; typing
   // redraws only the list, so it keeps its focus
   let q = $("#findModel");
@@ -666,109 +676,7 @@ function renderGatewayModels() {
   }
 }
 
-// A recent call's bodies, which /api/providers leaves out: forty calls'
-// bodies made every refresh of it 20 MB (#1521).
-function loadCallBodies(c, id) {
-  const pending = { busy: true };
-  callBodies.set(id, pending);
-  api(`gateway/call?id=${encodeURIComponent(c.id)}`)
-    .then((body) => { if (callBodies.get(id) === pending) callBodies.set(id, body); })
-    .catch((e) => { if (callBodies.get(id) === pending) callBodies.set(id, { error: t(e.message) }); })
-    .finally(() => { if (view === "gateway" && providers) renderActivity(); });
-}
-
-// a recent call's row: by the gateway's number for it, as two calls of
-// one agent to one model can come in the same instant
-const callRow = (c) => (c.id ? `#${c.id}` : `${c.time}|${c.agent}|${c.model}`);
-
-function renderActivity() {
-  const g = providers.gateway;
-  // what calls left the ring keep, they let go of
-  const ids = new Set(g.calls.map(callRow));
-  for (const id of callBodies.keys()) if (!ids.has(id)) callBodies.delete(id);
-  for (const id of expandedCalls) if (!ids.has(id)) expandedCalls.delete(id);
-  const box = $("#activity");
-  // a body being read keeps its place as new calls come in
-  const kept = new Map();
-  for (const item of box.querySelectorAll(".call-item[data-id]")) kept.set(item.dataset.id, [...item.querySelectorAll("pre")].map((p) => p.scrollTop));
-  box.replaceChildren();
-  $("#callsNote").textContent = g.running && !g.mine ? t("shown by the magpie that serves the gateway") : "";
-  const calls = g.calls.slice(0, callsShown);
-  if (!calls.length) { box.append(el("div", "none", t("No requests yet. Point an agent at a model, or run the example above; every call shows up here as it happens."))); return; }
-  for (const c of calls) {
-    const id = callRow(c);
-    const open = expandedCalls.has(id);
-    const item = el("div", "call-item" + (open ? " open" : "") + (c.status >= 400 ? " bad" : ""));
-    const r = el("div", "call");
-    r.setAttribute("role", "button");
-    r.setAttribute("tabindex", "0");
-    r.setAttribute("aria-expanded", String(open));
-    const chev = el("span", "call-chev");
-    chev.append(svg(CHEV_R, 11, 1.6));
-    r.append(chev);
-    r.append(el("span", "when", new Date(c.time).toLocaleTimeString(intlLang(), { hour: "2-digit", minute: "2-digit", second: "2-digit" })));
-    r.append(el("span", "a", c.agent || "—"));
-    r.append(el("span", "m", c.model));
-    r.append(el("span", "p", c.from === c.to ? c.from : `${c.from} → ${c.to}`));
-    // what masking kept from the vendor, its record a click away
-    if (c.masked?.n || c.masked?.warned) r.append(maskedBadge(c.masked));
-    r.append(el("span", "grow"));
-    r.append(el("span", "st", c.error ? `${c.status} ${c.error}` : `${c.status} · ${ledTook(c.ms)}` + (c.ttft ? " · " + t("TTFT {ms}", { ms: ledTook(c.ttft) }) : "")));
-    r.title = open ? t("Hide request and response bodies") : t("Show request and response bodies");
-    const toggle = () => {
-      if (expandedCalls.has(id)) expandedCalls.delete(id); else expandedCalls.add(id);
-      renderActivity();
-    };
-    r.onclick = toggle;
-    r.onkeydown = (ev) => {
-      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggle(); }
-    };
-    item.append(r);
-    if (open) {
-      if (!callBodies.has(id)) loadCallBodies(c, id);
-      const body = callBodies.get(id);
-      const details = el("div", body.busy || body.error ? "" : "call-details");
-      if (body.busy) details.append(el("div", "none", t("Fetching…")));
-      else if (body.error) {
-        details.append(el("div", "call-archive-err", body.error));
-        const retry = el("button", "text", t("Try again"));
-        retry.onclick = () => { loadCallBodies(c, id); renderActivity(); };
-        details.append(retry);
-      } else details.append(
-        callBodyPanel("Request Body", body.requestBody, body.requestTruncated, undefined, id + "|req"),
-        callBodyPanel("Response Body", body.responseBody, body.responseTruncated, id),
-      );
-      item.dataset.id = id;
-      item.append(details);
-    }
-    box.append(item);
-  }
-  if (g.calls.length > calls.length) {
-    const more = el("button", "text activity-more");
-    more.textContent = t("Show {n} more", { n: Math.min(callsPage, g.calls.length - calls.length) });
-    more.onclick = () => {
-      callsShown = Math.min(g.calls.length, callsShown + callsPage);
-      renderActivity();
-    };
-    box.append(more);
-  }
-  for (const item of box.querySelectorAll(".call-item[data-id]")) {
-    const tops = kept.get(item.dataset.id) || [];
-    item.querySelectorAll("pre").forEach((p, i) => { if (tops[i]) p.scrollTop = tops[i]; });
-  }
-}
-
-
 magpie.plugin("gateway", (ctx) => {
-  const configured = () => {
-    callsPage = ctx.config.callsPage || 20;
-    callsShown = callsPage;
-  };
-  configured();
-  ctx.onConfig(() => {
-    configured();
-    magpie.call("gateway", "calls");
-  });
   ctx.slots.add("page", {
     key: "gateway",
     title: "Gateway",
@@ -787,12 +695,36 @@ magpie.plugin("gateway", (ctx) => {
 <p class="usage-note gw-keys-off" id="gatewayKeysOff" hidden data-t>Gateway keys are for other computers, and for a tunnel to this one such as Cloudflare Tunnel: they are added here once Share on local network is on. Agents on this computer need none.</p>
 <div class="row-head"><button class="fold" id="foldConnect" aria-expanded="true" aria-controls="connect"><span class="label" data-t>Connect</span></button><span class="grow"></span><span class="note" id="connectNote"></span></div>
 <section class="list connect" id="connect"></section>
+<div class="row-head"><button class="fold" id="foldGwSettings" aria-expanded="true" aria-controls="gwSettings"><span class="label" data-t>Settings</span></button></div>
+<section class="gw-settings" id="gwSettings" hidden>
+  <div class="list prefs" id="portList"></div>
+  <div class="list prefs">
+    <div class="row pref" id="bareIdsRow">
+      <div class="who"><div class="name" data-t>Model ids without the provider</div><div class="sub" data-t>The gateway’s model list also names each model by its own id, as gpt-5.6-sol beside codex/gpt-5.6-sol, for apps moved from another proxy. One that several providers serve goes to them in the Providers order</div></div>
+      <div id="bareIdsSegs"></div>
+    </div>
+    <div class="row pref" id="busyLoadRow">
+      <div class="who"><div class="name" data-t>Busy models last</div><div class="sub" data-t>A model its plugin says is busier than this goes after the others a request could go to, as its vendor makes it wait. One with no load reported in the last 5 minutes keeps its place</div></div>
+      <div id="busyLoadSegs"></div>
+    </div>
+  </div>
+  <div class="list prefs" id="allowList"></div>
+  <div class="list prefs" id="corsList"></div>
+  <div class="row-head" id="webPageHead"><span class="label" data-t>Browser access</span></div>
+  <div class="list prefs" id="webPageList"></div>
+</section>
 <div class="row-head"><button class="fold" id="foldModels" aria-expanded="true" aria-controls="gwModels"><span class="label" data-t>Models</span><span class="note" id="modelsCount"></span></button><span class="grow"></span><button class="text" id="copyModels" data-t>Copy all ids</button></div>
 <div class="list" id="gwModels"></div>
-<div class="row-head"><span class="label" data-t>Recent calls</span><span class="grow"></span><span class="note" id="callsNote"></span></div>
-<div class="list activity" id="activity"></div>
+<div class="list prefs gw-requests" data-feature="usage">
+  <div class="row pref">
+    <div class="who"><div class="name" data-t>Requests</div><div class="sub" data-t>Each call through the gateway as it comes, with what it sent and got back, on Usage › Requests</div></div>
+    <div class="val"><button id="gwRequests" type="button" data-t>Open</button></div>
+  </div>
+</div>
 `,
     mount() {
+      // its calls are Usage's, the newest first
+      $("#gwRequests").onclick = () => window.openUsageRequests?.();
       $("#foldConnect").prepend(svg(CHEV_R, 11, 1.6));
       $("#foldConnect").onclick = () => {
         connectFolded = !connectFolded;
@@ -800,6 +732,14 @@ magpie.plugin("gateway", (ctx) => {
         renderConnect();
         backToReader($("#view-gateway"));
       };
+      $("#foldGwSettings").prepend(svg(CHEV_R, 11, 1.6));
+      $("#foldGwSettings").onclick = () => {
+        gwSettingsFolded = !gwSettingsFolded;
+        try { localStorage.setItem("magpie.gwSettingsFolded", gwSettingsFolded ? "1" : "0"); } catch {}
+        gwSettingsFold();
+        backToReader($("#view-gateway"));
+      };
+      gwSettingsFold();
       $("#foldModels").prepend(svg(CHEV_R, 11, 1.6));
       $("#foldModels").onclick = () => {
         modelsFolded = !modelsFolded;
@@ -819,28 +759,25 @@ magpie.plugin("gateway", (ctx) => {
       if (!$("#gateway").childElementCount) renderGatewayView();
     },
     // The page is looked at and left open: coming back to the window
-    // redraws it only when something on it changed, and when only the calls
-    // did, only them (an account's last sign-in check isn't on it).
+    // redraws it only when something on it changed (the gateway's calls
+    // aren't on it, nor an account's last sign-in check).
     render(was) {
       const json = (a) => JSON.stringify(a, (k, v) => (k === "seen" ? undefined : v));
       const same = (a, b) => json(a) === json(b);
-      if (was && !$("#view-gateway").classList.contains("loading") && same({ ...was, gateway: { ...was.gateway, calls: 0 } }, { ...providers, gateway: { ...providers.gateway, calls: 0 } })) {
-        if (!same(was.gateway.calls, providers.gateway.calls)) renderActivity();
-      } else renderGatewayView();
+      if (!was || $("#view-gateway").classList.contains("loading") || !same({ ...was, gateway: { ...was.gateway, calls: 0 } }, { ...providers, gateway: { ...providers.gateway, calls: 0 } })) renderGatewayView();
       // and what each key has used of its limits, read on open only before
       refreshGatewayKeys();
+      // its settings, drawn again only when they changed (the window back)
+      if (was) loadGatewaySettings().catch(() => {});
     },
-    // the recent calls again, a page of them (the setting changed)
-    calls() {
-      if (view === "gateway" && providers && !$("#view-gateway").classList.contains("loading")) renderActivity();
-    },
-    open: loadGatewayKeys,
+    // its keys and its settings, read each time it opens
+    open: () => Promise.all([loadGatewayKeys(), loadGatewaySettings().catch((e) => status(t(e.message), "err"))]),
   });
 });
 
-// A recorded call's request and response bodies, drawn here for the
-// recent calls and shared with Usage's ledger and Routing's trace, which
-// read the same calls (callBodyPanel); moved out of app.js, the core.
+// A recorded call's request and response bodies, drawn for Usage's
+// ledger and Routing's trace, which read the gateway's recent calls
+// (callBodyPanel); moved out of app.js, the core.
 // a streamed reply's body is read as its reply, its events or as it came;
 // the pick is one for every call and kept, the events drawn per call
 let sseView = "events";

@@ -1,8 +1,9 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
 // Allowed addresses (lc on Discord: magpie in Docker on a public host):
-// Settings › Network, under Share on local network, lists the IPs and CIDR
-// ranges other computers may reach magpie from at all. Shown while magpie
-// is shared or listens on the network, not otherwise. One is added from a
+// the Gateway page's Settings list the IPs and CIDR ranges other computers
+// may reach magpie from at all. Shown while magpie is shared or listens on
+// the network, not otherwise, and as the card's Share on local network is
+// turned on. One is added from a
 // field and its Add button (or Enter), saved as the gateway cleaned it,
 // and taken away with its Remove; one that isn't an address, and a list
 // that would shut out the page saving it, are refused in the page's
@@ -57,6 +58,11 @@ function server(lang, posts, over) {
     if (url.pathname === "/wails/runtime.js") return route.fulfill({ contentType: "text/javascript", body: "export const Window = {};" });
     if (url.pathname === "/api/state") return json({ agents: [], profiles: [], settings: { lang, theme: "light" }, fx: s.fx });
     if (url.pathname === "/api/settings") return json(s);
+    if (url.pathname === "/api/settings/lan") {
+      s.lan = route.request().postDataJSON().on;
+      return json(s);
+    }
+    if (url.pathname === "/api/providers") return json({ providers: [], gateway: { running: true, mine: true, url: s.gateway, lan: s.lan, lanURLs: s.lanURLs, calls: [], groups: [] } });
     if (url.pathname === "/api/settings/allowips") {
       const body = route.request().postDataJSON();
       posts.push(body.ips);
@@ -96,7 +102,7 @@ async function open(browser, lang, posts, over) {
   page.on("pageerror", (e) => errors.push(e.message));
   await page.route("**/*", server(lang, posts, over));
   await watchSettingsReads(page);
-  await page.goto("http://127.0.0.1:4999/?view=settings&tab=network");
+  await page.goto("http://127.0.0.1:4999/?view=gateway");
   await settingsDrawn(page);
   return { page, errors };
 }
@@ -118,7 +124,7 @@ async function fits(box) {
 }
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
-  test(engine + ": allowed addresses are listed under Share on local network (lc)", async (t) => {
+  test(engine + ": allowed addresses are listed in the Gateway page's Settings (lc)", async (t) => {
     assert(["chromium", "webkit"].includes(engine), "BROWSER must be chromium or webkit");
     const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
     t.after(() => browser.close());
@@ -136,9 +142,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     });
 
     await t.test("hidden while magpie answers only this computer", async () => {
-      const { page, errors } = await open(browser, "en", [], { lan: false, lanURLs: [] });
-      await page.locator("#lanList .row").first().waitFor();
+      const { page, errors } = await open(browser, "en", [], { lan: false, lanURLs: ["http://192.168.1.20:3425"] });
+      await page.locator("#portList .row").first().waitFor();
       assert.equal(await page.locator("#allowList .row").count(), 0);
+      assert(!(await page.locator("#allowList").isVisible()), "an empty list takes no room");
+      // shared from the card's one control, the list comes in under it
+      await page.locator("#gatewayLan .gw-share .opt", { hasText: "Local network" }).click();
+      await page.locator("#allowList .rule-row").waitFor();
       assert.deepEqual(errors, []);
       await page.context().close();
     });
@@ -164,7 +174,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal(await page.locator("#allowList select").count(), 0);
         await fits(box);
 
-        const view = page.locator("#view-settings");
+        const view = page.locator("#view-gateway");
         const scroll = () => view.evaluate((v) => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => ok(v.scrollTop)))));
         await view.hover();
         for (let i = 0; i < 40; i++) {
@@ -236,7 +246,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       // only this one: the old address taken away leaves the page out
       await box.locator(".allow-ip-row", { hasText: "172.16.0.0/12" }).waitFor();
       // scrolled with the wheel, as a reader would, until both rows show
-      await page.locator("#view-settings").hover();
+      await page.locator("#view-gateway").hover();
       for (let i = 0; i < 40; i++) {
         const r = await box.locator(".allow-ip-row").last().boundingBox();
         if (r && r.y > 60 && r.y + r.height < 460) break;
@@ -255,7 +265,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.equal((await fix.textContent()).trim(), await page.evaluate((s) => t(s, { addr: "203.0.113.50" }), en.fix));
       assert.equal(await fix.getAttribute("title"), await page.evaluate((s) => t(s), en.fixTip));
       await fits(box);
-      const view = page.locator("#view-settings");
+      const view = page.locator("#view-gateway");
       const scroll = () => view.evaluate((v) => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => ok(v.scrollTop)))));
       const before = await scroll();
       await fix.click();

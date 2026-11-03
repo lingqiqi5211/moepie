@@ -71,7 +71,7 @@ func errPortTaken(p int) error {
 }
 
 // setPort moves the gateway to port p (0 for the default) — the port in
-// Settings' Gateway address (Magic_zero on Discord: 3425 was taken, and a port of one's
+// the Gateway page's Gateway address (Magic_zero on Discord: 3425 was taken, and a port of one's
 // own is easier to tell apart): it checks nothing listens there, saves it,
 // moves the gateway this magpie serves (or starts it, when the port it was
 // on was taken), and then every agent connected to magpie, whose configs

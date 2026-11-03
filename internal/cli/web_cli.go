@@ -62,12 +62,12 @@ func webCmd(args []string) error {
 		}
 		return nil
 	}
-	// the app serves this page on this port already (Settings › Network
-	// and sharing › Browser access): its own is the one to open
+	// the app serves this page on this port already (Gateway ›
+	// Settings › Browser access): its own is the one to open
 	if a, k := gui.AppPage(); a != "" && samePort(a, addr) && answers(a) {
 		link := webLink(a, k)
 		fmt.Println(green.Render("●"), "the magpie app serves this page:", bold.Render(link))
-		fmt.Println(muted.Render("  Settings › Network and sharing › Browser access turns it off"))
+		fmt.Println(muted.Render("  Gateway › Settings › Browser access turns it off"))
 		if open {
 			openInBrowser(link)
 		}

@@ -30,7 +30,7 @@ const goroutinesUsage = `usage: magpie goroutines [<file>]
   folder, and never over a file that is there. magpie then prints the file and which
   process it is of: send both. The dump holds function names, source lines and the path of
   the magpie program, with arguments as numbers only, not keys or messages.
-  It asks the gateway at the port in Settings' Gateway address (or MAGPIE_ADDR) over loopback.`
+  It asks the gateway at the port in the Gateway page's Gateway address (or MAGPIE_ADDR) over loopback.`
 
 // goroutinesWait bounds the ask: a dump of thousands of goroutines is
 // written in well under a second, so a magpie that doesn't answer in this

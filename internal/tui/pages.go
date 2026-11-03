@@ -689,8 +689,8 @@ func addCmd(p provider.Provider) tea.Cmd {
 
 // endpointAsk asks for the address of a vendor reached at the user's own
 // (pr.Endpoint is its example): a remote magpie's, as the other
-// computer's magpie shows it in Settings → Network and sharing, under
-// Share on local network.
+// computer's magpie shows it on its Gateway page, under Share on local
+// network.
 // Nothing typed is said to be needed, as the app's editor says it.
 func endpointAsk(pr provider.PresetDef, crumbs []string, now string, then func(string) tea.Cmd) ask {
 	in := newInput(pr.Endpoint)

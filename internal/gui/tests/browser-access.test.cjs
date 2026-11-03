@@ -1,5 +1,5 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
-// Settings › Network and sharing › Browser access (jiakun_zhao on X: the
+// The Gateway page's Settings › Browser access (jiakun_zhao on X: the
 // page managed through a Cloudflare tunnel took `magpie web` kept running in
 // a terminal beside the app). Off, This computer or Local network, posted to
 // /api/web-page; once on, the link (its key shown as "…", copied whole), a
@@ -45,6 +45,7 @@ function server(lang, web, posts, gets) {
       if (body.newKey || !wp.key) wp.key = body.newKey && wp.key ? "fedcba9876543210fedcba9876543210" : KEY;
       return json(say());
     }
+    if (url.pathname === "/api/providers") return json({ providers: [], gateway: { running: true, mine: true, url: "http://127.0.0.1:3425", calls: [], groups: [] } });
     if (url.pathname === "/api/settings") return json({ lang, theme: "light", gateway: "http://127.0.0.1:3425", lan: false, lanURLs: [], version: "0.1.900", dir: "/config/magpie", fx: { rate: 7.2, at: new Date().toISOString(), stale: false } });
     if (url.pathname === "/api/plugins") return json({ plugins: [] });
     if (url.pathname === "/api/usage/quotas") return json([]);
@@ -78,7 +79,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       page.on("pageerror", (e) => errors.push(e.message));
       await page.route("**/*", server(lang, web, posts, gets));
       await watchSettingsReads(page);
-      await page.goto("http://localhost:3430/?view=settings&tab=network");
+      await page.goto("http://localhost:3430/?view=gateway");
       await settingsDrawn(page);
       // the page's own word for an English string
       const tr = (s, vars) => page.evaluate(([s, vars]) => t(s, vars), [s, vars]);
@@ -136,7 +137,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal(await list.locator(".web-page-link-row code").count(), 2);
         assert.equal((await list.locator(".web-page-warn .name").textContent()).trim(), await tr("Not encrypted"));
 
-        assert.equal(await page.locator("#setPage-network select").count(), 0, "no native select");
+        assert.equal(await page.locator("#gwSettings select").count(), 0, "no native select");
         for (const r of await list.locator(".row.pref").all()) {
           const border = await r.evaluate((e) => getComputedStyle(e).borderLeftWidth);
           assert(border === "0px" || border === "", "no left border accent: " + border);

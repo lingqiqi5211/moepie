@@ -33,7 +33,7 @@ const cpuUsage = `usage: magpie cpu [<file>] [--seconds N]
   magpie then prints the file, the CPU time the process used while recording and its
   goroutines: send both. The profile holds where the time went (function names, source
   lines) and the path of the magpie program, not keys or messages; go tool pprof <file>
-  reads it. It asks the gateway at the port in Settings' Gateway address (or MAGPIE_ADDR) over loopback.`
+  reads it. It asks the gateway at the port in the Gateway page's Gateway address (or MAGPIE_ADDR) over loopback.`
 
 // cpuArgs reads magpie cpu's arguments: the file, "" for the default, and
 // the seconds to record.

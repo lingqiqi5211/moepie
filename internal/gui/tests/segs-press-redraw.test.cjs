@@ -213,9 +213,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       test(`${engine} ${lang} ${width}px: every Settings option pressed through a redraw clicks its new self once`, async (t) => {
         const posted = [];
         // the warm-up and check-in tabs, two Codex accounts' own warm-up
-        // times, a card beside the tray icon and the local network's address
-        // shown, so their controls are drawn. Not here: Gateway mode (a
-        // browser's page only) and the Omarchy bar icon (Omarchy only).
+        // times and a card beside the tray icon, so their controls are
+        // drawn. Not here: Gateway mode (a browser's page only) and the
+        // Omarchy bar icon (Omarchy only).
         const st = { workbuddy: true, trae: true, minimax: true, qoder: true, codexUsers: ["a@example.test", "b@example.test"],
           checkinPlugins: [{ id: "one", name: "One", on: false }, { id: "two", name: "Two", on: true }],
           trayUsages: ["codex|a@example.test"], lan: true, lanURLs: ["http://192.168.1.2:3999"] };
@@ -284,7 +284,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           } else await sweep(tab);
         }
         assert.deepEqual(missed, [], "controls the redraw left in place");
-        // Theme, Language, Text size, … each warm-up's and check-in's, Proxy, the local network's, Privacy's, OTel's, Sync's, About's
+        // Theme, Language, Text size, … each warm-up's and check-in's, Proxy, Privacy's, OTel's, Sync's, About's
         assert(done.size >= 49, `only ${done.size} controls: ${[...done].join(", ")}`);
         assert.deepEqual(posted, [], "a stopped click saved something");
         assert.deepEqual(errors, []);

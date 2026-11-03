@@ -4,7 +4,6 @@ const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
 const { fixture, keyAction, confirmKeyAction } = require("./fixtures/caller-keys.cjs");
-const { openPart } = require("./reader.cjs");
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
   for (const lang of ["en", "zh"]) {
@@ -72,20 +71,18 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await page.waitForTimeout(150);
       assert(events.some((e) => e.action === "export" && e.query.includes("callerKey=laptop") && !e.query.includes("key=") && !e.query.includes("user=")));
       await page.reload();
-      await page.locator("#prefs").click();
-      await openPart(page, "network");
-      const share = page.locator("#lanList").getByRole("button", { name: lang === "zh" ? "开启" : "On", exact: true });
-      await share.waitFor();
-      // Real wheel input lets the page remember the reader's scroll position.
-      const bounds = await share.boundingBox();
-      await page.mouse.move(500, 400);
-      await page.mouse.wheel(0, bounds.y - 250);
-      await share.click();
-      await page.locator("#lanList .lan-address-row").waitFor();
-      assert.equal(await page.locator("#lanList").getByRole("button", { name: w.copy, exact: true }).count(), 0,
-        "Settings does not duplicate key management");
       await page.locator("#nav").getByRole("button", { name: lang === "zh" ? "网关" : "Gateway", exact: true }).click();
+      // Share on local network is the Gateway card's choice; sharing (here
+      // again, the fixture's magpie shared without its key) makes the LAN
+      // key, shown in the page's keys without a reload
+      const share = page.locator("#gatewayLan .gw-share .opt", { hasText: lang === "zh" ? "局域网" : "Local network" });
+      const alone = page.locator("#gatewayLan .gw-share .opt", { hasText: lang === "zh" ? "本机" : "This computer" });
+      await alone.click();
+      await page.waitForFunction(() => document.querySelectorAll("#gatewayLan .gw-url").length === 1);
+      await share.click();
       await page.waitForFunction(() => document.querySelectorAll("#gatewayKeys .acc[data-key]").length === 5);
+      assert.equal(await page.locator("#gatewayLan").getByRole("button", { name: w.copy, exact: true }).count(), 0,
+        "the share choice does not duplicate key management");
       let lanRow = page.locator("#gatewayKeys .acc[data-key]", { has: page.locator(".rename", { hasText: /^Magpie$/ }) });
       const lanID = await lanRow.getAttribute("data-key");
       const before = await lanRow.locator(".plan").textContent();
@@ -111,21 +108,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.equal(events.filter((e) => e.action === "remove-key").length, 0);
       await confirmKeyAction(page, lanRow, w.remove);
       await page.waitForFunction(() => document.querySelectorAll("#gatewayKeys .acc[data-key]").length === 4);
-      await page.locator("#prefs").click();
-      // Settings comes back where the reader left it, its tabs under the
-      // header: a reader wheels up to them. A scroll that isn't the
-      // reader's, as Playwright's before a click, is put back (#1554), so
-      // WebKit's click waited on a tab the header covered.
-      await page.mouse.move(500, 400);
-      await page.mouse.wheel(0, -2000);
-      await page.waitForFunction(() => document.querySelector("#view-settings").scrollTop === 0);
-      await openPart(page, "network");
-      await page.locator("#lanList .lan-address-row").waitFor();
-      await page.locator("#lanList").getByRole("button", { name: lang === "zh" ? "关闭" : "Off", exact: true }).click();
-      await page.locator("#lanList .lan-address-row").waitFor({ state: "detached" });
+      await alone.click();
+      await page.waitForFunction(() => document.querySelectorAll("#gatewayLan .gw-url").length === 1);
       await share.click();
-      await page.locator("#lanList .lan-address-row").waitFor();
-      await page.locator("#nav").getByRole("button", { name: lang === "zh" ? "网关" : "Gateway", exact: true }).click();
       await page.waitForFunction(() => document.querySelectorAll("#gatewayKeys .acc[data-key]").length === 5);
       lanRow = page.locator("#gatewayKeys .acc[data-key]", { has: page.locator(".rename", { hasText: /^Magpie$/ }) });
       assert.notEqual(await lanRow.getAttribute("data-key"), lanID, "recreated LAN key appears without a page reload");
@@ -135,7 +120,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await confirmKeyAction(page, tablet, w.remove);
       await page.waitForFunction(() => document.querySelectorAll("#gatewayKeys .acc[data-key]").length === 4);
       await page.setViewportSize({ width: 560, height: 740 });
-      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
+      // the narrow window's nav bar settles a frame after the resize (it
+      // stood 22px over the edge for that frame under load)
+      await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth, null, { timeout: 2000 });
       assert.deepEqual(errors, []);
       if (process.env.ARTIFACT_DIR) {
         await fs.mkdir(process.env.ARTIFACT_DIR, { recursive: true });

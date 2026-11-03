@@ -5,8 +5,8 @@
 // to; once this one serves, it is "Restart gateway" and restarts it. A
 // magpie of this version serving it gets no button. What stood in the way
 // (a program that isn't magpie on the port) is said under it, naming the
-// process. No click scrolls the page, nothing has a left border, in English
-// and Chinese.
+// process, and the page's Settings it points to unfold. No click scrolls
+// the page, nothing has a left border, in English and Chinese.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -52,7 +52,7 @@ const words = {
   en: {
     quit: "Quit magpie 0.1.550 and take over", restart: "Restart gateway", running: "running",
     notMagpie: /Port 3999 is held by \/usr\/bin\/python3 \(pid 4242\), which isn't magpie/,
-    container: /Port 3999 is forwarded by \/Applications\/OrbStack\.app\/.*OrbStack Helper \(pid 873\) to a container or a VM: the magpie 0\.1\.552 .*docker stop <name>.*another port in Settings/,
+    container: /Port 3999 is forwarded by \/Applications\/OrbStack\.app\/.*OrbStack Helper \(pid 873\) to a container or a VM: the magpie 0\.1\.552 .*docker stop <name>.*another port under Settings below/,
   },
   zh: {
     quit: "关闭 magpie 0.1.550 并接管网关", restart: "重启网关", running: "运行中",
@@ -95,11 +95,21 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const fix = page.locator("#gateway .gw-fix");
         assert.equal((await fix.textContent()).trim(), w.quit);
         assert(await noLeftAccent(fix), "the button has a left border");
+        // the Settings it points to folded away: unfolded for it, the fold
+        // still kept for a reload. Folded through the DOM: a pointer click
+        // scrolls the fold into sight, and the scroll check below would
+        // measure from there
+        await page.waitForFunction(() => document.querySelector("#portList")?.childElementCount);
+        await page.locator("#foldGwSettings").evaluate((b) => b.click());
+        assert.equal(await page.locator("#gwSettings").isHidden(), true);
         const before = await scrolls(page);
         await fix.click();
         await page.locator("#gateway .sub.err").waitFor();
         assert.deepEqual(world.posts, ["/api/gateway/take-over"]);
         assert.match(await page.locator("#gateway .sub.err").textContent(), w.notMagpie);
+        assert.equal(await page.locator("#gwSettings").isVisible(), true, "Settings below unfolded");
+        assert.equal(await page.locator("#foldGwSettings").getAttribute("aria-expanded"), "true");
+        assert.equal(await page.evaluate(() => localStorage.getItem("magpie.gwSettingsFolded")), "1");
         assert(await noLeftBorder(page.locator("#gateway .sub.err")), "the error has a left border");
         assert.equal(await scrolls(page), before, "the click scrolled the page");
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "the page scrolls sideways");

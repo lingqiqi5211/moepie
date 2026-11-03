@@ -4,8 +4,7 @@
 // .pop.proto-menu had max-height:none with no overflow, so the menu ran off
 // the window's bottom edge — the last subscriptions were unreachable, and
 // scrolling did nothing because the box itself never scrolled. It now clamps
-// to min(360px,70vh) and scrolls, as its siblings (.sess-menu,
-// .lan-address-menu) already did. This opens the picker with enough accounts
+// to min(360px,70vh) and scrolls, as its sibling .sess-menu already did. This opens the picker with enough accounts
 // to overflow, checks the menu stays inside the viewport and scrolls to the
 // last row, and that a click still picks it. English and Chinese, Chromium
 // and WebKit; no backend, the API is faked here.

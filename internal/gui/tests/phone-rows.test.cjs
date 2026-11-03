@@ -2,8 +2,8 @@
 // A row on a phone (zaidu259434 on X: 移动端适配真的希望优化下). At 360px a
 // provider's row squeezed its name to a letter or two beside its key pill
 // and agent icons, and pushed its switch past the card; a gateway key's row
-// cut its name and its buttons; a model's badges, a call's model and path,
-// and a routed request's reasoning beside its upstream were cut to "m…".
+// cut its name and its buttons; a model's badges and a routed request's
+// reasoning beside its upstream were cut to "m…".
 // On a phone the trailing parts go to a line of their own: nothing on the
 // page runs off the side, no text in a row is cut to a sliver, and every
 // control in a row is inside it. Both engines, every language; the API is
@@ -117,7 +117,7 @@ function broken(sel) {
 
 const pages = [
   { view: "providers", rows: ".row.provider", wait: "#view-providers .row.provider" },
-  { view: "gateway", rows: ".row.gw, #gwModels .row.model, #activity .call, #gatewayKeys .acc[data-key]", wait: "#gatewayKeys .acc[data-key]" },
+  { view: "gateway", rows: ".row.gw, #gwModels .row.model, .gw-requests .row, #gatewayKeys .acc[data-key]", wait: "#gatewayKeys .acc[data-key]" },
   // the requests are today's in the history: open the day
   { view: "routing", rows: ".rt-req", wait: ".rt-day >> nth=1", open: (page) => page.locator(".rt-day").nth(1).click(), then: ".rt-req .upstream" },
 ];

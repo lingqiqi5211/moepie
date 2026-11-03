@@ -511,7 +511,7 @@ dee@example.com`); otherwise it appears as **account not recorded**, never
 inferred from today's sign-in. OTLP export never carries the account.
 
 One magpie can serve several computers (an office one, a personal one):
-share it on the network (Settings → Network and sharing → Share on local network), and on each
+share it on the network (Gateway → Share on local network), and on each
 other computer add it as a **Remote magpie** — in the app's Add sheet, under
 its own heading, Another computer's magpie, after On this machine; on the
 TUI's Providers page (`a`, then its address and key; `w` changes the address,
@@ -602,7 +602,7 @@ works. Changing one starts nothing by itself. See
 [provider-plugins.md](subsystems/provider-plugins.md#a-plugins-own-options).
 
 The gateway issues **gateway keys** for clients, separate from a provider's
-upstream API keys. Turn on **Settings → Network and sharing → Share on local network**, then open
+upstream API keys. Turn on **Gateway → Share on local network**, then open
 **Gateway → Gateway keys → Add gateway key**. This block appears only while
 sharing is on. Create a named key for each client and copy it from its row.
 To move from another gateway without touching its clients, enter the key they
@@ -796,7 +796,7 @@ another machine (#1022): it carries a forwarding header (`Forwarded`,
 with sharing, or a `MAGPIE_ADDR` on the network, it needs an enabled gateway
 key, as from the network. This
 covers every route: the model APIs, quotas, MCP sign-ins. To serve magpie
-through a Cloudflare Tunnel, turn on **Settings → Network and sharing → Share on local network**,
+through a Cloudflare Tunnel, turn on **Gateway → Share on local network**,
 add a gateway key for each client, point the tunnel's service at
 `http://127.0.0.1:3425`, and give clients the tunnel's address with that key.
 A tunnel that forwards bare TCP (frp's `tcp`, `ssh -R`, socat) adds no header
@@ -806,7 +806,7 @@ clients in itself can be trusted with `MAGPIE_TRUST_PROXY=1`, which keeps
 what it forwards local, as before.
 
 To let other computers in only from some addresses, list them as IPs and
-CIDR ranges in **Settings → Network and sharing → Allowed addresses**, or in
+CIDR ranges in **Gateway → Settings → Allowed addresses**, or in
 `MAGPIE_ALLOW_IPS` (`203.0.113.7,10.0.0.0/8,2001:db8::/32`), which comes
 first. A request from any other address is refused 403, even with an
 enabled gateway key, and the refusal names the address it came from. This
@@ -2045,7 +2045,7 @@ Building an app or agent that should use magpie, or get a row on the
 Agents page: see [Integrating your app or agent](integrating.md).
 
 External clients behind a reverse proxy need an enabled gateway key
-(Gateway → Gateway keys): with Settings → Network and sharing → Share on local network on, or a
+(Gateway → Gateway keys): with Gateway → Share on local network on, or a
 `MAGPIE_ADDR` on the network, magpie asks for one; otherwise it refuses
 them, unless the proxy authenticates its clients itself
 (`MAGPIE_TRUST_PROXY=1`, below). A public URL with no port of
@@ -2057,7 +2057,7 @@ routes without `/v1`), handing them to the gateway, so a proxy that sends
 everything to the page's port serves the page at `https://magpie.example.com/`
 and the agents at `https://magpie.example.com/v1`. On the page's port every
 one of those routes is answered as a request from another machine, from
-loopback too: only while Settings → Network and sharing → Share on local
+loopback too: only while Gateway → Share on local
 network is on (or `MAGPIE_ADDR` is on the network), and with an enabled
 gateway key, after the allow list. A forward to that port that adds no
 forwarding header (frp's `tcp`, `ssh -R`, socat, an nginx `proxy_pass`
@@ -2806,7 +2806,7 @@ request from outside it, the host's own included, must carry an enabled
 gateway key as its API key, and one without gets 401. Make one in the
 browser UI (Gateway → Gateway keys) or with
 `docker exec magpie magpie gateway-key add "Docker client"`. Sharing
-(Settings → Network and sharing → Share on local network) isn't needed for this; turning it on
+(Gateway → Share on local network) isn't needed for this; turning it on
 also creates a key named **Magpie**. The ports above are published on the
 host's loopback; Docker's `-p 3425:3425` puts the gateway on every interface
 of the host, for other machines to reach. Upgrading from an earlier image:

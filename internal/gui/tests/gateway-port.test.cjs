@@ -1,5 +1,5 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
-// Settings › Gateway address (Magic_zero on Discord: 3425 was taken by another
+// The Gateway page's Settings › Gateway address (Magic_zero on Discord: 3425 was taken by another
 // program, and a port of one's own is easier to tell apart): any port from
 // 1024 to 65535 can be typed and applied. One out of range is refused in the
 // page; one another program has is refused with the gateway's reason, in the
@@ -53,6 +53,7 @@ function server(lang, over, posts) {
       return json({ settings: s, port: { port, moved: ["Claude Code", "Codex"] } });
     }
     if (url.pathname === "/api/settings") return json(s);
+    if (url.pathname === "/api/providers") return json({ providers: [], gateway: { running: true, mine: true, url: s.gateway, calls: [], groups: [] } });
     if (url.pathname === "/api/plugins") return json({ plugins: [] });
     if (url.pathname === "/api/usage/quotas") return json([]);
     if (url.pathname === "/api/groups") return json({ groups: [], models: [] });
@@ -83,7 +84,7 @@ const words = {
 };
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
-  test(engine + ": the gateway's port is typed in Settings and agents move with it", async (t) => {
+  test(engine + ": the gateway's port is typed on the Gateway page and agents move with it", async (t) => {
     assert(["chromium", "webkit"].includes(engine), "BROWSER must be chromium or webkit");
     const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
     const pages = [];
@@ -104,7 +105,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       page.on("pageerror", (e) => errors.push(e.message));
       await page.route("**/*", server(lang, over, posts));
       await watchSettingsReads(page);
-      await page.goto("http://localhost:3430/?view=settings&tab=network");
+      await page.goto("http://localhost:3430/?view=gateway");
       await settingsDrawn(page); // rows found are the ones that stay (#1659)
       await page.locator("#portList .port-row").waitFor();
       return { page, errors, posts };
@@ -130,24 +131,24 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           // view. Each step is looked at once its scroll has come to rest: on
           // a busy machine wheel events still queued went on past the row,
           // and the field was out of view above when it was typed in
-          const scroll = () => page.locator("#view-settings").evaluate((v) => v.scrollTop);
+          const scroll = () => page.locator("#view-gateway").evaluate((v) => v.scrollTop);
           const rest = async () => {
             for (let last = -1, now = await scroll(); now !== last; last = now, now = await scroll()) await page.waitForTimeout(100);
           };
-          const view = await page.locator("#view-settings").boundingBox();
+          const view = await page.locator("#view-gateway").boundingBox();
           const inView = async () => {
             for (const b of [await field.boundingBox(), await apply.boundingBox()]) {
               if (!b || b.y < view.y + 8 || b.y + b.height > view.y + view.height - 8) return false;
             }
             return (await scroll()) > 0;
           };
-          await page.locator("#view-settings").hover();
+          await page.locator("#view-gateway").hover();
           for (let i = 0; i < 60 && !(await inView()); i++) {
             await page.mouse.wheel(0, 40);
             await rest();
           }
           const before = await scroll();
-          assert(await inView(), "the settings must be scrolled to the row");
+          assert(await inView(), "the page must be scrolled to the row");
 
           // out of range: said in the page, nothing sent
           await field.fill("80");

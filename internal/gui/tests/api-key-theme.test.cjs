@@ -95,43 +95,36 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await page.locator("#modal").waitFor({ state: "hidden" });
       assert.equal(events.filter((e) => e.action === "rotate-key").length, 0);
 
-      await page.goto("http://magpie.test/?view=settings&tab=network");
-      const on = page.locator("#lanList").getByRole("button", { name: "On", exact: true });
-      await on.waitFor();
-      // the settings are read twice as the page opens (its own read and the
-      // state's), each drawing #lanList again: where On is comes from one read
-      // in the page, since a box asked of a button already replaced is null
-      const y = await (await page.waitForFunction(() => [...document.querySelectorAll("#lanList button")]
-        .find((b) => b.textContent.trim() === "On")?.getBoundingClientRect().y)).jsonValue();
-      await page.mouse.move(500, 400);
-      await page.mouse.wheel(0, y - 250);
-      await on.click();
-      await page.locator("#lanList .lan-url").waitFor();
+      // Share on local network and its addresses, on the Gateway card (the
+      // fixture's magpie is shared)
+      await page.goto("http://magpie.test/?view=gateway");
+      await page.waitForFunction(() => document.querySelectorAll("#gatewayLan .gw-url").length === 3);
       await page.mouse.move(500, 20);
+      const lan = { card: ".gwcard", text: "#gatewayLan .gw-share .name", key: "#gatewayLan .gw-url:last-child code",
+        copy: "#gatewayLan .gw-url:last-child .copy" };
       for (const scheme of ["light", "dark"]) {
         await page.emulateMedia({ colorScheme: scheme });
         await page.waitForTimeout(200);
-        const { colors: c, elements: e } = await palette(page, { card: "#lanList", text: "#lanList .row.pref:last-child .name",
-          key: "#lanList .lan-url", copy: "#lanList .row.pref:last-child .copy" });
+        const { colors: c, elements: e } = await palette(page, lan);
         assert.equal(e.card.bg, c.card);
         assert.equal(e.text.color, c.fg);
         assert.equal(e.key.color, c["fg-2"]);
         assert.equal(e.copy.color, c.muted);
       }
       if (theme === "system") {
-        await page.mouse.move(500, 400);
-        await page.mouse.wheel(0, -5000);
         for (const choice of ["Dark", "Light", "System"]) {
+          await page.locator("#prefs").click();
           await openPart(page, "general");
           await page.locator("#themeSegs").getByRole("button", { name: choice, exact: true }).click();
           await page.waitForFunction((want) => (document.documentElement.dataset.theme || "system") === want, choice.toLowerCase());
           await page.waitForFunction(() => !document.documentElement.classList.contains("theming"));
-          await openPart(page, "network");
-          const { colors: c, elements: e } = await palette(page, { card: "#lanList", key: "#lanList .lan-url" });
+          await page.locator("#nav").getByRole("button", { name: "Gateway", exact: true }).click();
+          await page.locator("#gatewayLan .gw-url code").last().waitFor();
+          const { colors: c, elements: e } = await palette(page, { card: ".gwcard", key: lan.key });
           assert.equal(e.card.bg, c.card);
           assert.equal(e.key.color, c["fg-2"]);
         }
-        await page.reload();
+        await page.goto("http://magpie.test/?view=settings");
         await page.locator("#themeSegs button.on").waitFor({ state: "attached" });
         assert.equal(await page.locator("#themeSegs button.on").textContent(), "System");
       }

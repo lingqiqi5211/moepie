@@ -28,7 +28,7 @@ const heapUsage = `usage: magpie heap [<file>]
   as Go counts it (its heap, what it took from the system, its goroutines): send both.
   The profile holds where memory was allocated (function names, source lines, sizes) and
   the path of the magpie program, not keys or messages; go tool pprof <file> reads it.
-  It asks the gateway at the port in Settings' Gateway address (or MAGPIE_ADDR) over loopback.`
+  It asks the gateway at the port in the Gateway page's Gateway address (or MAGPIE_ADDR) over loopback.`
 
 // heapWait bounds the ask: the profile runs a collection first, which on a
 // heap of gigabytes takes a while.

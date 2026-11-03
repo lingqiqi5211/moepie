@@ -1,7 +1,7 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
 // Web pages that may call magpie (#1051, SkyAerope: a page on
-// http://localhost:3000 couldn't read the gateway's answers): Settings ›
-// Network lists them by origin. One is added from a field and its Add
+// http://localhost:3000 couldn't read the gateway's answers): the Gateway
+// page's Settings list them by origin. One is added from a field and its Add
 // button (or Enter), saved as the gateway cleaned it, and taken away with
 // its Remove; a browser extension is added by its origin
 // (chrome-extension://<id>, SkyAerope on Discord); a wildcard, a URL that
@@ -64,6 +64,7 @@ function server(lang, posts) {
     if (url.pathname === "/wails/runtime.js") return route.fulfill({ contentType: "text/javascript", body: "export const Window = {};" });
     if (url.pathname === "/api/state") return json({ agents: [], profiles: [], settings: { lang, theme: "light" }, fx: s.fx });
     if (url.pathname === "/api/settings") return json(s);
+    if (url.pathname === "/api/providers") return json({ providers: [], gateway: { running: true, mine: true, url: s.gateway, calls: [], groups: [] } });
     if (url.pathname === "/api/settings/cors") {
       const body = route.request().postDataJSON();
       posts.push(body.origins);
@@ -84,13 +85,13 @@ function server(lang, posts) {
 
 const words = {
   en: {
-    head: "Web pages", name: "Web pages that may call magpie", add: "Add", remove: "Remove",
+    name: "Web pages that may call magpie", add: "Add", remove: "Remove",
     sub: "Scripts on these origins can call the gateway from a browser, each request with a gateway key from Gateway. A page from any other site is refused; pages on this computer are not",
     wildcard: "Name each origin: a wildcard would let every web page use magpie",
     notOrigin: "Write an origin as http://localhost:3000 or https://app.example.com, or a browser extension's as chrome-extension://, moz-extension:// or safari-web-extension:// followed by its ID",
   },
   zh: {
-    head: "网页", name: "允许调用 magpie 的网页", add: "添加", remove: "移除",
+    name: "允许调用 magpie 的网页", add: "添加", remove: "移除",
     sub: null, wildcard: null, notOrigin: null, // read from i18n.js below
   },
 };
@@ -111,21 +112,20 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         page.on("pageerror", (e) => errors.push(e.message));
         await page.route("**/*", server(lang, posts));
         await watchSettingsReads(page);
-        await page.goto("http://127.0.0.1:4999/?view=settings&tab=network");
+        await page.goto("http://127.0.0.1:4999/?view=gateway");
         await settingsDrawn(page); // rows found are the ones that stay (#1659)
         const box = page.locator("#corsList");
         await box.locator(".rule-row").waitFor();
         const tr = (s) => page.evaluate((s) => t(s), s);
         const w = { ...words[lang] };
-        for (const k of ["head", "name", "add", "remove", "sub", "wildcard", "notOrigin"]) {
+        for (const k of ["name", "add", "remove", "sub", "wildcard", "notOrigin"]) {
           const en = words.en[k];
           const got = await tr(en);
           if (lang !== "en") assert.notEqual(got, en, `"${en}" has no ${lang} translation`);
           if (w[k] === null) w[k] = got;
           else assert.equal(got, w[k]);
         }
-        const head = box.locator("xpath=preceding-sibling::div[contains(@class,'row-head')][1]");
-        assert.equal((await head.textContent()).trim(), w.head);
+        assert.equal(await page.locator("#view-gateway #gwSettings #corsList").count(), 1, "in the Gateway page's Settings");
         const row = box.locator(".rule-row");
         assert.equal((await row.locator(".name").textContent()).trim(), w.name);
         assert.equal((await row.locator(".sub").textContent()).trim(), w.sub);
@@ -148,7 +148,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await fits();
         const field = row.locator("input");
         const add = row.locator("button", { hasText: w.add });
-        const view = page.locator("#view-settings");
+        const view = page.locator("#view-gateway");
         // where the view rests once the frame is drawn
         const scroll = () => view.evaluate((v) => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => ok(v.scrollTop)))));
         // scrolled with the wheel, as a reader would (a script's scroll is

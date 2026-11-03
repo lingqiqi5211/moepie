@@ -1,8 +1,36 @@
-// Settings › Network and sharing's gateway rows (the gateway plugin's part
-// of Settings): its port, model ids without the provider, sharing on the
-// local network and the addresses let in, and the web pages that may call
-// it. Run after app.js, whose helpers it shares (el, segs, input, api,
-// writingPrefs), and before start.js draws Settings.
+// The Gateway page's Settings (the gateway plugin's): its port, model ids
+// without the provider, the addresses other computers may reach magpie
+// from, the web pages that may call it and Browser access, moved here from
+// Settings › Network and sharing; Share on local network is the card's
+// choice above them. Run after app.js, whose helpers it shares (el, segs,
+// input, api, writingPrefs).
+
+// The section is drawn from prefs, the settings as /api/settings answers
+// them: read as the page opens and as the window comes back, and drawn
+// again then only when they changed, so a field being typed in keeps its
+// place (gwSettingsSeen).
+let gwSettingsSeen = "";
+async function loadGatewaySettings() {
+  const since = prefsWrites;
+  const s = await api("settings");
+  if (!prefsSettled(since) && prefs) return; // the save draws them when it's in
+  prefs = s;
+  if (JSON.stringify(s) === gwSettingsSeen && $("#portList").childElementCount) return;
+  renderGatewaySettings();
+  // the card's addresses too: whether magpie runs in a container is only
+  // in the settings (lanShown)
+  if (providers && !$("#view-gateway").classList.contains("loading")) renderGatewayLan();
+}
+function renderGatewaySettings() {
+  const s = prefs;
+  if (!s || !$("#gwSettings")) return;
+  gwSettingsSeen = JSON.stringify(s);
+  renderPort(s);
+  renderBareIds(s);
+  renderAllow(s);
+  renderCORS(s);
+  gwSettingsFold();
+}
 
 // renderPort: the gateway's address on this computer (Magic_zero on Discord:
 // 3425 taken by another program, or one easier to tell apart). Only its
@@ -61,9 +89,9 @@ function renderPort(s) {
         // Discord: it kept the old one until Providers was opened)
         if (res.settings?.gateway) renderSideGw({ ...sideGwAt, url: res.settings.gateway, running: true });
         if (providers) loadProviders().catch(() => {});
-        renderSettings();
+        renderGatewaySettings();
       })
-      .catch((e) => { d.value = field.value; d.err = portSays(e.message); status(d.err, "err"); renderSettings(); });
+      .catch((e) => { d.value = field.value; d.err = portSays(e.message); status(d.err, "err"); renderGatewaySettings(); });
   };
   field.oninput = () => { d.value = field.value; };
   field.onkeydown = (e) => { e.stopPropagation(); if (e.key === "Enter") save.onclick(); if (e.key === "Escape") { portDraft = { value: null, err: "" }; renderPort(s); } };
@@ -80,8 +108,8 @@ function renderPort(s) {
 function renderBareIds(s) {
   renderBusyLoad(s); // the row under it
   $("#bareIdsSegs").replaceChildren(segs([[false, t("Off")], [true, t("On")]], !!s.bareModelIDs, (on) =>
-    writingPrefs(api("settings/bare-ids", { on })).then((ns) => { prefs = state.settings = ns; renderSettings(); })
-      .catch((e) => { status(t(e.message), "err"); renderSettings(); })));
+    writingPrefs(api("settings/bare-ids", { on })).then((ns) => { prefs = state.settings = ns; renderGatewaySettings(); })
+      .catch((e) => { status(t(e.message), "err"); renderGatewaySettings(); })));
 }
 
 // renderBusyLoad: the load past which a model its plugin says is busy
@@ -92,8 +120,8 @@ let busyDraft = null;
 const BUSY_CUSTOM = -1;
 function renderBusyLoad(s) {
   const at = s.busyLoad || 0, sub = $("#busyLoadRow .sub"), d = busyDraft;
-  const put = (n) => writingPrefs(api("settings/busy-load", { at: n })).then((ns) => { busyDraft = null; prefs = state.settings = ns; renderSettings(); })
-    .catch((e) => { status(t(e.message), "err"); renderSettings(); });
+  const put = (n) => writingPrefs(api("settings/busy-load", { at: n })).then((ns) => { busyDraft = null; prefs = state.settings = ns; renderGatewaySettings(); })
+    .catch((e) => { status(t(e.message), "err"); renderGatewaySettings(); });
   sub.dataset.en ??= sub.textContent; // its English, as translateStatic keeps it
   sub.classList.toggle("err", !!d?.err);
   sub.textContent = d ? d.err || t("A load is in percent, as the plugin reports it: 100 is all its vendor serves at once, and past 100 requests queue (200 is twice that). Type 1 to 9999") : t(sub.dataset.en);
@@ -148,8 +176,8 @@ function renderCORS(s) {
   const origins = s.corsOrigins || [];
   const d = corsDraft;
   const set = (next, done) => writingPrefs(api("settings/cors", { origins: next }))
-    .then((ns) => { prefs = ns; d.err = ""; done?.(); renderSettings(); status(t("Saved"), "ok", 1500); })
-    .catch((e) => { d.err = corsSays(e.message); status(d.err, "err"); renderSettings(); });
+    .then((ns) => { prefs = ns; d.err = ""; done?.(); renderGatewaySettings(); status(t("Saved"), "ok", 1500); })
+    .catch((e) => { d.err = corsSays(e.message); status(d.err, "err"); renderGatewaySettings(); });
   const field = input(d.value, "http://localhost:3000");
   field.className = "words rule-match";
   field.setAttribute("aria-label", t("Web page origin"));
@@ -210,12 +238,12 @@ function renderAllow(s) {
   const list = env ? (s.allowIPsFromEnv || []) : (s.allowIPs || []);
   const d = allowDraft;
   const set = (next, done) => writingPrefs(api("settings/allowips", { ips: next }))
-    .then((ns) => { prefs = ns; d.err = d.addr = ""; d.tried = null; done?.(); renderSettings(); status(t("Saved"), "ok", 1500); })
+    .then((ns) => { prefs = ns; d.err = d.addr = ""; d.tried = null; done?.(); renderGatewaySettings(); status(t("Saved"), "ok", 1500); })
     .catch((e) => {
       d.err = allowSays(e.message);
       d.addr = /shut out (\S+), the address/.exec(e.message)?.[1] || "";
       d.tried = d.addr ? { next, done } : null;
-      status(d.err, "err"); renderSettings();
+      status(d.err, "err"); renderGatewaySettings();
     });
   const r = el("div", "row pref rule-row");
   const who = el("div", "who");
@@ -267,37 +295,17 @@ function renderAllow(s) {
   }
 }
 
-// renderLAN: the gateway shared on the local network, for agents on other
-// machines. Gateway keys and connection examples live together in Gateway.
+// Keep the sidebar’s chosen LAN address after sharing moves to Gateway.
 let lanSelectedURL = "", lanProtocol = "openai";
-// the address picked under Share on local network is kept like Connect's
 let lanWant = "";
 try { lanWant = localStorage.getItem("magpie.lanAddress") || ""; } catch {}
-// lanShown: the local network addresses the gateway is offered at, and a
-// line on them when magpie runs in a container, for Settings and Gateway
-// alike. In a container magpie finds only the container's own addresses;
-// the page opened over the network was reached at the host's, so the
-// gateway is offered there, on its port.
-function lanShown(urls, container) {
-  if (!container) return { urls, sub: "" };
-  const host = location.hostname, port = urls.length ? new URL(urls[0]).port : "";
-  if (web && host && port && !/^(localhost|127\.|\[::1\]$)/.test(host))
-    return { urls: ["http://" + host + ":" + port], // an IPv6 hostname comes bracketed
-      sub: t("Where this page was opened, on the gateway’s port; MAGPIE_PUBLIC_URL sets another") };
-  return { urls, sub: t("The container’s own addresses, which other devices can’t reach: set MAGPIE_PUBLIC_URL to the host’s") };
-}
-// sideLAN: where other machines reach the gateway while it is shared, for
-// the sidebar's line (coeo91 on Discord): MAGPIE_PUBLIC_URL, else the
-// address picked here, else the first
 function sideLAN(g) {
   const u = g.lan && g.lanURLs || [];
   return u[0] && (g.publicURL || (u.includes(lanWant) ? lanWant : u[0]));
 }
-// the line was drawn from boot.js before this script came
 if (sideGwAt) renderSideGw();
-function renderLAN(s) {
-  const box = $("#lanList");
-  box.replaceChildren();
+function renderGatewayAddress(s) {
+  const box = $("#gatewayLan");
   const row = (name, sub, value, ...tools) => {
     const r = el("div", "row pref");
     const who = el("div", "who");
@@ -310,15 +318,6 @@ function renderLAN(s) {
     box.append(r);
     return r;
   };
-  const set = (body) => writingPrefs(api("settings/lan", body)).then((ns) => {
-    prefs = ns; renderSettings();
-    // the sidebar's gateway names the address shared, or this computer's
-    api("providers").then((r) => renderSideGw(r?.gateway), () => {});
-    if (ns.rekeyed) status(ns.rekeyed, "err");
-  })
-    .catch((e) => { status(t(e.message), "err"); renderSettings(); });
-  row(t("Share on local network"), t("Agents on other computers on this network, or through a tunnel to this one such as Cloudflare Tunnel, can use magpie’s models with a gateway key from Gateway"), "",
-    segs([["off", t("Off")], ["on", t("On")]], s.lan ? "on" : "off", (v) => set({ on: v === "on" })));
   if (!s.lan) return;
   const { urls, sub } = lanShown(s.lanURLs || [], s.lanContainer);
   if (!urls.length) row(t("Address"), t("This computer has no local network address right now"), "");
