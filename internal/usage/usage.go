@@ -515,7 +515,9 @@ type Totals struct {
 	Retried int `json:"retried,omitempty"`
 	// Loops are those of Errors magpie ended for looping (LoopErrType):
 	// a model's count of them says how often it got stuck (#1858)
-	Loops      int `json:"loops,omitempty"`
+	Loops int `json:"loops,omitempty"`
+	// Swaps are the calls whose reply named another model (Row.Swapped)
+	Swaps      int `json:"swaps,omitempty"`
 	Input      int `json:"input"`
 	Output     int `json:"output"`
 	CacheRead  int `json:"cache_read"`
@@ -778,6 +780,9 @@ func (t *Totals) add(r Record, price *catalog.Price) { t.addFrom(Row{Record: r},
 func (t *Totals) addFrom(row Row, price *catalog.Price) {
 	r := row.Record
 	t.count(r)
+	if row.Swapped {
+		t.Swaps++
+	}
 	t.Input += r.Input
 	t.Output += r.Output
 	t.CacheRead += r.CacheRead

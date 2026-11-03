@@ -99,7 +99,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
                 await page.waitForTimeout(300);
               }
               const was = await top(), at = await page.evaluate(() => [scrollX, scrollY]);
-              await rows.nth(i).click();
+              await rows.nth(i).locator("td").nth(1).click(); // on its agent: the model pill opens its own card
               await page.waitForTimeout(150);
               assert.equal(await top(), was, "a click moved the page");
               assert.deepEqual(await page.evaluate(() => [scrollX, scrollY]), at);
@@ -111,7 +111,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
                 const dd = d.nextElementSibling, r = dd.getBoundingClientRect(), wrap = b.querySelector(".led-box").getBoundingClientRect();
                 return { text: dd.textContent, shown: r.width > 0 && r.height > 0 && getComputedStyle(dd).display !== "none", inside: r.left >= wrap.left - 0.5 && r.right <= wrap.right + 0.5, border: getComputedStyle(dd).borderLeftWidth };
               }, W[lang].dt);
-              await rows.nth(i).click(); // closed again
+              await rows.nth(i).locator("td").nth(1).click(); // closed again
               return got;
             };
             const cached = await detail(0);

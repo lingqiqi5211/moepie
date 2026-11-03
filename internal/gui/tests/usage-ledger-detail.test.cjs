@@ -113,12 +113,23 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.notEqual(await cell(0), "—");
         assert(!(await cell(0)).startsWith("≈"), "the gateway's time is its own");
         // the models and the effort: a session file names the model the API
-        // answered with (Claude Code's) in Served, has none of the gateway's
-        // "sent", and says the thinking effort; the gateway's row has its own
+        // answered with (Claude Code's), the same as it recorded, and says the
+        // thinking effort; the gateway's row has its own. The model asked for
+        // is in the row, the three side by side in its pill's card
         const cells = async (n) => rows.nth(n).locator("td").evaluateAll((tds) => tds.map((td) => td.textContent.trim()));
         const logged = await cells(2), gateway = await cells(0);
-        assert.deepEqual([logged[2], logged[4], logged[5], logged[6]], ["claude-opus-5[1m]", "claude-opus-5", "claude-opus-5", "xhigh"], "a session file's models and effort");
-        assert.deepEqual([gateway[2], gateway[4]], ["sol", "gpt-6-sol"], "the gateway's model asked for and sent");
+        assert.deepEqual([logged[2], logged[4]], ["claude-opus-5[1m]", "xhigh"], "a session file's model and effort");
+        assert.equal(await rows.nth(2).locator(".led-sv").count(), 0, "the same model answered: no line under it");
+        assert.equal(gateway[2], "sol", "the gateway's model asked for");
+        const card = async (n) => {
+          await rows.nth(n).locator(".led-mp").focus();
+          const dds = await p.locator("#ledPop dd").allTextContents();
+          await p.keyboard.press("Escape");
+          await rows.nth(n).locator(".led-mp").blur();
+          return dds;
+        };
+        assert.deepEqual(await card(2), ["claude-opus-5[1m]", "claude-opus-5", "claude-opus-5"], "a session file's models");
+        assert.deepEqual(await card(0), ["sol", "gpt-6-sol", "—"], "the gateway's model asked for and sent, none served");
         // only the session file's rows are marked as such; the gateway's say
         // the protocol they were sent upstream in (a session file keeps no path)
         const badge = (sel) => rows.evaluateAll((trs, sel) => trs.map((tr) => tr.querySelector(sel)?.textContent || ""), sel);

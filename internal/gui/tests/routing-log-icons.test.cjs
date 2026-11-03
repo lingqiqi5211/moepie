@@ -76,18 +76,23 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await page.goto("http://magpie.test/?view=routing");
       await page.locator(".rt-days .rt-day").nth(1).click();
       await page.locator(".rt-req").first().click();
-      await page.locator(".rt-steps li.ok").waitFor();
+      await page.locator(".rt-steps li.ok").waitFor({ state: "attached" });
 
-      const lines = await page.locator(".rt-steps li").evaluateAll((lis) => lis.map((li) => {
-        const n = li.querySelector(".rt-named");
-        if (!n) return { cls: li.className, text: li.textContent };
-        const ic = n.querySelector(".ic"), r = ic.getBoundingClientRect();
-        // the logo, then the name, on the line's first row
-        const name = document.createRange();
-        name.selectNodeContents(n.lastChild);
-        const nr = name.getBoundingClientRect();
-        return { cls: li.className, text: li.textContent, logo: ic.dataset.icon, name: n.textContent, size: [r.width, r.height], before: r.right <= nr.left + 0.5, inline: Math.abs((r.top + r.bottom) / 2 - (nr.top + nr.bottom) / 2) <= 3 };
-      }));
+      // each step opened in turn, its lines measured as they show
+      const lines = [];
+      for (const sr of await page.locator(".rt-sr").all()) {
+        if (await sr.getAttribute("aria-expanded") !== "true") await sr.click();
+        lines.push(...await sr.locator("xpath=..").locator(".rt-det li").evaluateAll((lis) => lis.map((li) => {
+          const n = li.querySelector(".rt-named");
+          if (!n) return { cls: li.className, text: li.textContent };
+          const ic = n.querySelector(".ic"), r = ic.getBoundingClientRect();
+          // the logo, then the name, on the line's first row
+          const name = document.createRange();
+          name.selectNodeContents(n.lastChild);
+          const nr = name.getBoundingClientRect();
+          return { cls: li.className, text: li.textContent, logo: ic.dataset.icon, name: n.textContent, size: [r.width, r.height], before: r.right <= nr.left + 0.5, inline: Math.abs((r.top + r.bottom) / 2 - (nr.top + nr.bottom) / 2) <= 3 };
+        })));
+      }
       const of = (cls) => lines.filter((l) => l.cls === cls);
       const why = of("why")[0], bad = of("bad")[0], ok = of("ok")[0];
       for (const [l, logo, name] of [[why, "zhipu-color", "18610345303"], [bad, "zhipu-color", "18610345303"], [ok, "openai", "work"]]) {
@@ -159,7 +164,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         return window.__logos.map((x) => x.dataset.icon);
       });
       assert(first.includes("zhipu-color"), JSON.stringify(first));
-      await page.locator(".rt-steps li.ok").waitFor();
+      await page.locator(".rt-steps li.ok").waitFor({ state: "attached" });
       const after = await page.locator(".rt-steps").evaluate((s) => {
         const now = [...s.querySelectorAll(".rt-named > .ic")];
         return {

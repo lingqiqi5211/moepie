@@ -101,14 +101,14 @@ function server(lang, theme, asked) {
 const L = {
   en: {
     tabs: ["Overview", "Requests", "Sessions", "Context"],
-    cols: ["Time", "Agent", "Requested", "Provider · account", "Sent", "Served", "Effort", "In", "Out", "Cache write", "Cache read", "Cost", "TTFT", "Duration", "Speed", "Status"],
+    cols: ["Time", "Agent", "Model", "Provider · account", "Effort", "In", "Out", "Cache write", "Cache read", "Cost", "TTFT", "Duration", "Speed", "Status"],
     sum: "130 requests", pager: "1–100 of 130", older: "Older", newer: "Newer", failed: "Failed", export: "Export CSV",
     why: "The vendor was asked for gpt-6-sol, but its reply says gpt-6-luna answered",saved: "Saved 130 requests to ~/Downloads/magpie-requests-30d-2026-09-29.csv",
     none: "No requests match these filters.", bad: "Failed: the agent was answered 429", via: "Codex · via office-mac",
   },
   zh: {
     tabs: ["概览", "请求", "会话", "上下文"],
-    cols: ["时间", "Agent", "请求模型", "供应商 · 账号", "发送模型", "实际模型", "推理强度", "输入", "输出", "缓存写入", "缓存读取", "费用", "首字耗时", "耗时", "速度", "状态"],
+    cols: ["时间", "Agent", "模型", "供应商 · 账号", "推理强度", "输入", "输出", "缓存写入", "缓存读取", "费用", "首字耗时", "耗时", "速度", "状态"],
     sum: "130 个请求", pager: "第 1–100 条，共 130 条", older: "较早", newer: "较新", failed: "失败", export: "导出 CSV",
     why: null, saved: "已将 130 个请求保存到 ~/Downloads/magpie-requests-30d-2026-09-29.csv",
     none: "没有符合这些筛选条件的请求。", bad: "失败：Agent 收到的是 429", via: "Codex · 来自 office-mac",
@@ -140,6 +140,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     const open = async (lang, theme, asked, width = 1180, height = 640) => {
       const errors = [];
       const page = await (await browser.newContext({ viewport: { width, height }, reducedMotion: "reduce" })).newPage();
+      // its context goes with it: left open they pile up, and a low-memory
+      // runner fails to open the next tab
+      page.on("close", () => page.context().close().catch(() => {}));
       page.setDefaultTimeout(5000);
       page.setDefaultNavigationTimeout(60000);
       page.on("pageerror", (e) => errors.push(e.message));
@@ -229,11 +232,12 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal((await page.locator("#ledPager > span").textContent()), w.pager);
 
         // the first row: asked for sol, sent gpt-6-sol, served gpt-6-luna, amber
+        // under the pill; what was sent is in the pill's card
         const first = page.locator(".led tbody tr").first().locator("td");
-        assert.equal(await first.nth(2).textContent(), "sol");
+        assert.equal(await first.nth(2).locator(".led-mn").textContent(), "sol");
         assert.equal(await first.nth(3).textContent(), "Relay · team");
-        assert.equal(await first.nth(4).textContent(), "gpt-6-sol");
-        assert.equal(await first.nth(6).textContent(), "high");
+        assert.equal(await first.nth(4).textContent(), "high");
+        assert.equal(await first.nth(2).locator(".led-sv.swapped").count(), 1);
         assert.equal(await page.locator(".led .swap").count(), 1, "only the swapped row is marked");
         const swap = page.locator(".led tbody tr").first().locator(".swap");
         assert.equal(await swap.textContent(), "gpt-6-luna");
@@ -241,8 +245,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         else assert(/gpt-6-luna/.test(await swap.getAttribute("title")));
         // the dated name: plain, not marked
         const second = page.locator(".led tbody tr").nth(1).locator("td");
-        assert.equal(await second.nth(5).locator(".swap").count(), 0);
-        assert.equal(await second.nth(5).textContent(), "claude-sonnet-5-20260801");
+        assert.equal(await second.nth(2).locator(".swap").count(), 0);
+        assert.equal(await second.nth(2).locator(".led-sv .v").textContent(), "claude-sonnet-5-20260801");
         assert.equal(await second.nth(3).textContent(), "Claude · ann@example.com");
         // the failure: its row, a red dot and code
         assert.equal(await page.locator(".led tr.bad").count(), 1);
@@ -257,7 +261,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         ]);
         assert.notEqual(dotBad, dotOk, "a failure's dot is another colour");
         // a request from before Requested was kept
-        assert.equal(await page.locator(".led tbody tr").nth(3).locator("td").nth(2).textContent(), "—");
+        const old = page.locator(".led tbody tr").nth(3).locator("td").nth(2);
+        assert.equal(await old.locator(".led-mn").textContent(), "deepseek-v4");
+        assert.equal(await old.locator(".led-mp").getAttribute("title"), lang === "zh" ? await page.evaluate(() => t("Not kept for requests before this version")) : "Not kept for requests before this version");
+        assert.equal(await old.locator(".led-sv").count(), 0);
         // no coloured stripe down the box's, a row's or a cell's left side
         const stripes = await page.evaluate(() => [...document.querySelectorAll("#ledWrap, #ledWrap tr, #ledWrap td")]
           .filter((e) => { const c = getComputedStyle(e); return parseFloat(c.borderLeftWidth) > 0 && (c.borderLeftWidth !== c.borderRightWidth || c.borderLeftColor !== c.borderRightColor); }).length);
@@ -346,7 +353,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const originalPeriod = asked.at(-1).get("period");
         const routeTitle = lang === "en" ? "View routing" : "查看路由";
         const usageTitle = lang === "en" ? "View usage" : "查看用量";
-        assert.equal(await page.locator(".led tbody tr").nth(3).locator("button").count(), 0, "old rows have no route link");
+        assert.equal(await page.locator(".led tbody tr").nth(3).locator(".led-route-link").count(), 0, "old rows have no route link");
         // the dashboard above the table can leave its first row below the fold:
         // bring it up first, and the return must come back to where it was
         const link = page.locator(".led tbody tr").first().getByTitle(routeTitle);

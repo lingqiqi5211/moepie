@@ -102,14 +102,15 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         return { scroll: e.scrollWidth <= e.clientWidth + 1, status: last.right <= box.right + 1 };
       });
 
-      // narrower than the table is with Sent, Effort and the cache left out
-      const p = await open(820);
+      // narrower than the table is with Effort and the cache left out (the
+      // one model column left Chinese's table fitting at 820)
+      const p = await open(720);
       assert.deepEqual(await fits(p), { scroll: true, status: true }, "the table fits, Status in sight");
       assert(await p.locator("#ledTight").isVisible(), "the hint says where the columns went");
       const ref = p.locator(".led tbody tr.led-row").nth(2).locator("td.cost");
       assert.equal(await ref.locator(".price-reference").isVisible(), false, "the price reference line is left out");
       assert((await ref.getAttribute("title")).includes("gpt-5.6-luna"), "and is in the cost's tooltip");
-      await reader.click(p, p.locator(".led tbody tr.led-row").nth(2).locator("td").nth(2));
+      await reader.click(p, p.locator(".led tbody tr.led-row").nth(2).locator("td").nth(1));
       assert((await p.locator(".led tbody tr.led-detail").textContent()).includes("gpt-5.6-luna"), "and in the row's details");
 
       // wide enough: the line is there (the window wider by the sidebar

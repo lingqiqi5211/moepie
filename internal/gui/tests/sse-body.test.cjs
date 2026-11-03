@@ -1,5 +1,6 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
-// A streamed reply's body in the Gateway page's recent calls reads as JSON:
+// A streamed reply's body, opened on Usage › Requests from the gateway's
+// recent calls, reads as JSON:
 // its reply put together, each event's data pretty-printed, or the body as it
 // came; a long stream draws its events a page at a time, and no click moves
 // the page.
@@ -46,22 +47,21 @@ const responses = sse([
 ]);
 const long = sse(Array.from({ length: 450 }, (_, i) => ["", { id: "c2", model: "gpt-x", choices: [{ index: 0, delta: { content: `w${i} ` } }] }]));
 
-const call = (i, model, responseBody, extra = {}) => ({
-  time: new Date(now - (i + 1) * 60e3).toISOString(), agent: "fixture", model, from: "openai", to: "openai", status: 200, ms: 900,
-  requestBody: JSON.stringify({ model, stream: true }), responseBody, ...extra,
+// a request the gateway logged, and its bodies as its recent calls hold them
+const call = (i, model, responseBody) => ({
+  row: { t: new Date(now - (i + 1) * 60e3).toISOString(), agent: "fixture", agentName: "Fixture", provider: "fixture", providerName: "Fixture", req: model, model, served: model, in: 10, out: 5, status: 200, ms: 900, ep: "/v1/chat/completions", route_id: i + 1, cost: 0, priced: false },
+  bodies: { requestBody: JSON.stringify({ model, stream: true }), responseBody },
 });
 const calls = [
-  call(0, "fixture/claude", anthropic),
-  call(1, "fixture/chat", chat),
-  call(2, "fixture/responses", responses),
-  call(3, "fixture/long", long),
-  call(4, "fixture/plain", JSON.stringify({ id: "x", object: "chat.completion" })),
-  ...Array.from({ length: 10 }, (_, i) => call(5 + i, "fixture/model-a", "")),
+  call(0, "claude", anthropic),
+  call(1, "chat", chat),
+  call(2, "responses", responses),
+  call(3, "long", long),
+  call(4, "plain", JSON.stringify({ id: "x", object: "chat.completion" })),
+  ...Array.from({ length: 10 }, (_, i) => call(5 + i, "model-a", "")),
 ];
-const providers = {
-  providers: [{ id: "fixture", name: "Fixture", icon: "generic", models: [{ id: "model-a", name: "Model A", on: true }], agents: [] }],
-  gateway: { running: true, window: true, mine: true, url: "http://127.0.0.1:3999", calls, groups: [] },
-};
+const ledRows = calls.map((c) => c.row);
+const ledger = { rows: ledRows, offset: 0, total: ledRows.length, calls: ledRows.length, errors: 0, input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0, cost: 0, unpriced: 0, agents: [{ id: "fixture", name: "Fixture" }] };
 
 function serve(lang) {
   return async (route) => {
@@ -70,9 +70,9 @@ function serve(lang) {
     if (url.pathname === "/boot.js") return route.fulfill({ contentType: "text/javascript", body: `window.bootPrefs = {lang:"${lang}",theme:"light",web:true};` });
     if (url.pathname === "/wails/runtime.js") return route.fulfill({ contentType: "text/javascript", body: "export const Window = {};" });
     if (url.pathname === "/api/state") return json({ agents: [], profiles: [], settings: { lang, theme: "light" } });
-    // the list leaves the bodies out, and an opened row asks for its own by id (#1521)
-    if (url.pathname === "/api/providers") return json({ ...providers, gateway: { ...providers.gateway, calls: providers.gateway.calls.map(({ requestBody, responseBody, ...c }, i) => ({ id: i + 1, ...c })) } });
-    if (url.pathname === "/api/gateway/call") return json(providers.gateway.calls[Number(url.searchParams.get("id")) - 1]);
+    // the list leaves the bodies out, and an opened row asks for its own by its route (#1521)
+    if (url.pathname === "/api/usage/requests") return json(ledger);
+    if (url.pathname === "/api/gateway/call") return json(calls[Number(url.searchParams.get("route")) - 1].bodies);
     if (url.pathname === "/api/groups") return json({ groups: [] });
     if (url.pathname === "/api/plugins") return json({ plugins: [] });
     if (url.pathname === "/api/gateway/trace") {
@@ -90,7 +90,7 @@ const words = {
   en: { reply: "Reply", events: "Events", raw: "Raw", count: "12 events", foot: (n) => `${n} of 450 events shown Show ${Math.min(200, 450 - n)} more events` },
   zh: { reply: "回复", events: "事件", raw: "原文", count: "12 个事件", foot: (n) => `已显示 ${n} / 450 个事件 再显示 ${Math.min(200, 450 - n)} 个事件` },
 };
-const view = "#view-gateway";
+const view = "#view-usage";
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
   for (const lang of ["en", "zh"]) {
@@ -113,17 +113,18 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await browser.close();
       });
 
-      await page.goto("http://magpie.test/?view=gateway");
-      const rows = page.locator("#activity .call-item");
+      await page.goto("http://magpie.test/?view=usage&tab=requests");
+      const rows = page.locator("#ledWrap .led tbody tr.led-row");
       await rows.first().waitFor();
-      const body = (i) => rows.nth(i).locator(".call-body").nth(1);
+      // a row's response body, in its details
+      const body = (i) => rows.nth(i).locator("xpath=following-sibling::tr[1]").locator(".led-bodies .call-body").nth(1);
       // The app puts back any scroll of the view that isn't the reader's,
       // Playwright's own to what it clicks included, and the page's footer
       // lies over the view's foot: what is clicked is brought to the middle
       // of the view by the wheel, as the reader would, and clicked where it is.
       const reach = async (loc) => {
         const [dy, x, y] = await loc.evaluate((e) => {
-          const v = document.querySelector("#view-gateway").getBoundingClientRect();
+          const v = document.querySelector("#view-usage").getBoundingClientRect();
           return [e.getBoundingClientRect().top - v.top - v.height / 2, v.left + 6, v.top + v.height / 2];
         });
         await page.mouse.move(x, y);
@@ -143,7 +144,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       };
       const snap = (name) => process.env.ARTIFACT_DIR && fs.mkdir(process.env.ARTIFACT_DIR, { recursive: true })
         .then(() => page.screenshot({ path: path.join(process.env.ARTIFACT_DIR, `${engine}-${lang}-sse-${name}.png`) }));
-      const open = async (i) => { await press(rows.nth(i).locator(".call")); await body(i).waitFor(); };
+      // a row opens on a click on its model
+      const open = async (i) => { await press(rows.nth(i).locator("td").nth(1)); await body(i).waitFor(); };
       const pick = press;
       const shown = async (i) => (await body(i).locator("pre").innerText()).trim();
 
@@ -221,7 +223,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       // what draws more stays where it is as they come, and the page with it
       const was = await reach(foot.locator("button"));
       at = await page.locator(view).evaluate((v) => v.scrollTop);
-      await press(foot.locator("button"));
+      // clicked where the wheel left it: a row's height can be a fraction of
+      // a pixel, and wheeling to it again could move the page by one
+      await page.mouse.click(was.x + was.width / 2, was.y + was.height / 2);
       await page.waitForTimeout(300);
       assert.equal(await body(3).locator(".sse-ev").count(), 400);
       assert.equal(await page.locator(view).evaluate((v) => v.scrollTop), at, "showing more leaves the page where it was");
@@ -233,7 +237,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert(await foot.evaluate((f) => f.hidden), "every event shown, nothing more to draw");
 
       // the events drawn stay drawn as a new call comes in and the list redraws
-      await page.evaluate(() => renderActivity());
+      await page.evaluate(() => renderLedger());
       assert.equal(await body(3).locator(".sse-ev").count(), 450);
 
       // a body that isn't a stream is as it was: JSON, no views
@@ -242,7 +246,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.match(await shown(4), /^\{\n  "id": "x",/);
 
       // the pick is remembered across a reload
-      await page.reload();
+      await page.goto("http://magpie.test/?view=usage&tab=requests");
+      await rows.first().waitFor();
       await open(0);
       assert.equal(await body(0).locator(".segs .opt.on").innerText(), w.events);
       assert.deepEqual(errors, []);

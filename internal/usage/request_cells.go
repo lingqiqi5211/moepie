@@ -48,6 +48,9 @@ const (
 	cellComputer                          // in the computers' shares
 	cellGroup                             // and on, one a dimension: in its groups
 	cellChart     = cellGroup << cellDims // one a dimension: in its ChartBy
+	// in the page's row groups (Filter.Group): kept with the Swapped pick
+	// cleared, so a group's header sums all its calls
+	cellGrouped = cellChart << cellDims
 )
 
 // cell sources, as the source cells count them
@@ -60,6 +63,7 @@ const (
 // cellRow is what a cell tells its rows apart by, as the chunk's strings.
 type cellRow struct {
 	provider, agent, model, kind, callerID, callerName, account, computer string
+	group                                                                 string // rowGroupKey's, only while grouping
 	source                                                                uint8
 	bits                                                                  uint16
 	// bucket is the chart's hour from the period's start (-1 before it),
@@ -71,11 +75,14 @@ type cellRow struct {
 // strings are unique's, so the cells kept hold no chunk's strings.
 type pageCell struct {
 	provider, agent, model, kind, callerID, callerName, account, computer unique.Handle[string]
-	source                                                                uint8
-	bits                                                                  uint16
-	bucket                                                                int32
-	n                                                                     int
-	d                                                                     Totals
+	group                                                                 unique.Handle[string]
+	// first and last are its rows' oldest and newest times, in Unix ms
+	first, last int64
+	source      uint8
+	bits        uint16
+	bucket      int32
+	n           int
+	d           Totals
 }
 
 // chunkPart is a chunk's cells, in the order of their rows' last (so the
@@ -119,9 +126,25 @@ type partCache struct {
 	disk heatDiskRef
 }
 
-// partSets bounds the partKeys kept: a page is open on one period and
-// filter, and its card and the Sessions page ask for a few more.
+// partSets bounds the heatmap's and the pairings' sets kept: a page is open
+// on one period, and its card and the Sessions page ask for a few more.
 const partSets = 4
+
+// partKeys and partBytes bound the cells kept for pages (keepParts). Each
+// group a reader opens on the requests page is a filter of its own, read
+// again on every refresh beside the page and its card: at 4 sets, two open
+// groups pushed the page's own cells out, and every refresh read the whole
+// history again for each. 16 keeps a page, its card, the Sessions page and
+// a dozen open groups; a set holds a cell for each of a chunk's names (a
+// session each, grouped by session), so a long history's is large, and
+// the bytes bound such sets to a few, the newest always kept, beside the
+// chunks' own requestCacheBytes. A pageCell is 304 bytes on 64-bit
+// (partsBytes reads unsafe.Sizeof), so 96 MiB is some 330,000 cells; the
+// interned strings they hold and the maps' own overhead aren't counted, so
+// the real use is somewhat more.
+const partKeys = 16
+
+var partBytes int64 = 96 << 20
 
 // dayNumber is t's day as a count of days, as calendarDays counts them.
 func dayNumber(t time.Time) int32 {
@@ -132,6 +155,7 @@ func dayNumber(t time.Time) int32 {
 // cellPass is how a page reads a row into its cell.
 type cellPass struct {
 	f, chart, via, computer Filter
+	grouped                 Filter // f without its Swapped pick (cellGrouped)
 	without, withoutDay     [cellDims]Filter
 	unpicked                [cellDims]bool
 	computerUnpicked, names bool
@@ -141,11 +165,12 @@ type cellPass struct {
 }
 
 func newCellPass(p Period, f Filter, now time.Time, names bool) *cellPass {
-	c := &cellPass{f: f, chart: f, via: f, computer: f, names: names, since: p.Since(now), loc: now.Location()}
+	c := &cellPass{f: f, chart: f, via: f, computer: f, grouped: f, names: names, since: p.Since(now), loc: now.Location()}
 	c.chart.Day = ""
 	c.via.Through = ""
 	c.computer.Computer, c.computer.Day = "", ""
 	c.computerUnpicked = c.computer == f
+	c.grouped.Swapped = false
 	for i, d := range Dimensions {
 		c.without[i] = f.Without(d)
 		c.unpicked[i] = c.without[i] == f
@@ -217,6 +242,12 @@ func (pass *cellPass) part(ps *pairedRows, rows *chunkRows, c *rowChunk, r *Row)
 				}
 			}
 		}
+		// a group's header sums its calls with the Swapped pick cleared,
+		// and counts the rows it lists, the ones in no sum among them
+		if f.Group != "" && (keep || !uncounted && f.Swapped && pass.grouped.keepsRow(r)) {
+			k.bits |= cellGrouped
+			k.group = rowGroupKey(f.Group, r)
+		}
 		i, ok := at[k]
 		if !ok {
 			i = len(cells)
@@ -224,6 +255,11 @@ func (pass *cellPass) part(ps *pairedRows, rows *chunkRows, c *rowChunk, r *Row)
 			raw = append(raw, k)
 			cells = append(cells, pageCell{source: k.source, bits: k.bits, bucket: k.bucket})
 			last = append(last, 0)
+		}
+		if ms := r.Time.UnixMilli(); cells[i].n == 0 {
+			cells[i].first, cells[i].last = ms, ms
+		} else {
+			cells[i].first, cells[i].last = min(cells[i].first, ms), max(cells[i].last, ms)
 		}
 		cells[i].n++
 		last[i] = n
@@ -235,6 +271,7 @@ func (pass *cellPass) part(ps *pairedRows, rows *chunkRows, c *rowChunk, r *Row)
 		k, cell := &raw[i], &cells[i]
 		cell.provider, cell.agent, cell.model, cell.kind = unique.Make(k.provider), unique.Make(k.agent), unique.Make(k.model), unique.Make(k.kind)
 		cell.callerID, cell.callerName, cell.account, cell.computer = unique.Make(k.callerID), unique.Make(k.callerName), unique.Make(k.account), unique.Make(k.computer)
+		cell.group = unique.Make(k.group)
 	}
 	order := make([]int, len(cells))
 	for i := range order {

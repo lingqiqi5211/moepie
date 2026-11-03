@@ -221,14 +221,14 @@ node --test internal/gui/tests/routing-sealed-task.test.cjs
 `routing-sessions.test.cjs` checks the Routing request list in Chromium and
 WebKit, English and Chinese: the list defaults to By request and remembers
 the grouping choice across reloads; sessions are separated by agent and ID across
-model changes, known and partial costs are summed, zero partial estimates
-retain their amount and +, single-request headings use the singular, zero prices stay known,
+model changes and count their requests (no tokens or cost: those are Usage's,
+in any currency), single-request headings use the singular,
 title helpers merge only into their explicit parent (even arriving first),
 unnamed Codex memory-only groups explain their background purpose while keeping
-separate IDs, costs and folds; named and mixed chat groups keep their titles,
+separate IDs, counts and folds; named and mixed chat groups keep their titles,
 late chat names and renames update while preserving folds and ID tooltips,
 missing IDs and old unpriced requests remain visible, folded sessions stay
-folded through live updates, costs follow the currency choice, and the original
+folded through live updates, and the original
 time-ordered list, history selection and routing story still work. It also
 checks the request list at 1440 and 560 pixels. Run with
 `node --test internal/gui/tests/routing-sessions.test.cjs` and the same
@@ -555,8 +555,8 @@ height, every head on the page keeps its height, and folded again the head
 is back where it was. A view is a flex column and shrank every head of a set
 height once it overflowed (the owner, 10-29).
 
-`sse-body.test.cjs` opens streamed replies in the Gateway page's recent
-calls (Anthropic Messages, Chat Completions with `[DONE]`, OpenAI Responses cut
+`sse-body.test.cjs` opens streamed replies the gateway's recent calls hold,
+on Usage › Requests (Anthropic Messages, Chat Completions with `[DONE]`, OpenAI Responses cut
 before it completed): the response body reads as each event's data
 pretty-printed under its name, as the reply put together (text, reasoning, tool
 calls with their arguments as objects, how it stopped, usage) or as it came,
@@ -564,8 +564,8 @@ the pick remembered. A 450-event stream draws 200 at a time from a button under
 the box that stays where it is, the page too; a body that isn't a stream is as
 before. English and Chinese, Chromium and WebKit.
 
-`json-tree.test.cjs` opens a JSON request and response in the Gateway page's
-recent calls: keys, strings, numbers and keywords each have their colour, the
+`json-tree.test.cjs` opens a JSON request and response the gateway's recent
+calls hold, on Usage › Requests: keys, strings, numbers and keywords each have their colour, the
 body's text is still the pretty-printed JSON, an object or array folds to
 `{…}` with its count and unfolds from its arrow or that summary with the page
 kept where it is, a fold outlives the list being drawn again, a value's copy
@@ -573,6 +573,15 @@ button (shown on hovering its line) copies a string's text or an object's
 JSON, a click on a key copies its name, and a stream's events and its reply
 fold the same way. English, Chinese, Japanese and German, 1000px and 440px,
 Chromium and WebKit.
+
+`recent-call-bodies.test.cjs` opens Usage › Requests from the Gateway page's
+Requests row (on the newest requests, whatever tab and page Usage was left
+on; no row with Usage switched off) and reads a row's bodies from the
+gateway's recent calls (`/api/gateway/call?route=`) only when it is opened:
+once, said to be coming meanwhile, kept while the list is read anew and when
+reopened; a failed read says why and can be tried again, one the gateway let
+go of says nothing, and a try handed on, a session file's call or another
+computer's asks nothing. Five languages, Chromium and WebKit.
 
 `routing-kind.test.cjs` lists calls Codex makes for itself (a guardian review,
 a title, memories, a turn on Luna Reserve, a kind it does not know yet): each
@@ -601,8 +610,8 @@ taken).
 
 `routing-effort-change.test.cjs` lists live requests whose reasoning was
 changed on the way ("· medium → low", "· medium → xhigh", one under way, one
-picked for the turn) beside "15 s · TTFT 14 s · 6.9k tokens", with one further
-down whose numbers run long (three tries, minutes, a million tokens), in
+picked for the turn) beside "15 s · TTFT 14 s", with one further
+down whose numbers run long (three tries, minutes), in
 Chromium and WebKit, English and Chinese, in the dark theme, at widths from
 1440 down to 400px, and again with the styles as Safari 15 reads them (no
 subgrid, no container queries). In every row the reasoning stays within where
@@ -801,8 +810,9 @@ node --test --test-concurrency=1 internal/gui/tests/profile-details.test.cjs int
 latest requests from a faked trace, newest first, each with its agent, the
 model asked for, the provider and account it went to, the model that
 answered ("served gpt-6-luna" on the one a vendor answered with another, not
-on a dated name), a failure's status, and the time; today's calls and tokens
-over them; the allowances' tab named Allowances. A click, with the panel
+on a dated name), a failure's status, and the time; over them only the way
+to the window, no count of today's calls or tokens (Usage's); the
+allowances' tab named Allowances. A click, with the panel
 scrolled, asks for the window's Routing page on that request and moves
 nothing; the window opened so has that request picked. In English and
 Chinese.
@@ -1308,7 +1318,7 @@ moves nothing on the settings page, and the totals and chart axis then say
 "15.4 亿" and "8000 万" while the page stays Chinese, after a reload and in the
 tray panel too, each label still ending before the plot. Every other count
 follows (#476): the Overview's tiles and chart peak, the Requests summary
-line, the Sessions tab's figures, and the panel's Routing "today", which turns
+line, the Sessions tab's figures, and the panel's Usage tab, which turns
 back to K/M/B when the setting does. In English the row is hidden and counts are
 K / M / B anyway; Chromium and WebKit.
 
@@ -1957,8 +1967,8 @@ switch at the top right of the Usage page's request list (Jorben on Discord):
 off unless turned on, refused with sync not set up with an s3:// bucket (the
 reason in the footer, the switch left off), on with one, the bucket in its
 tooltip, and a failed upload said beside it. The Gateway page has no switch
-any more, and its recent calls, even one the archive kept, show their own
-bodies with no "Fetch from archive" under them. No click moves the page; no
+any more; on Usage › Requests a call the archive kept opens on the archive,
+and one it didn't on the gateway's recent copy of its bodies. No click moves the page; no
 left-border accent. English and Chinese, Chromium and WebKit, with
 `/api/plugins` faked.
 
@@ -2341,22 +2351,19 @@ node --test internal/gui/tests/mobile-web.test.cjs internal/gui/tests/old-webkit
 
 ## Routing request metrics
 
-`routing-request-metrics.test.cjs` checks request-row cache hit rates (cache
-reads divided by uncached input, cache reads and cache writes across billable
-tries) and output speeds (reply output over the time after its first token).
-It covers known zero hits, missing historical tiers, unstreamed and burst
-replies, retries, unfinished and failed requests, the cache-rate description
-in the story, weighted session cache rates and decode speeds (with coverage
-in tooltips), folds, history, live updates, narrow layouts and persisted
-metric choices. Missing values are omitted from request rows and session
-headings; known zero cache rates and costs remain visible. The first-token
-label matches the metric picker and the Chinese routing story.
-Request and session token totals have tooltips with exact uncached input,
-output, cache-read and cache-write counts. Billable retries are included and
-explained; missing historical tiers and partial session coverage are explicit.
-The six choices apply immediately while the menu stays open, with focus
-kept on the checkbox. Mouse and keyboard changes work in both directions,
-including when none are selected.
+`routing-request-metrics.test.cjs` checks request-row output speeds (reply
+output over the time after its first token) beside duration and first token.
+It covers unstreamed and burst replies, retries, unfinished and failed
+requests, the cache-rate description in the story, decode speeds weighted
+over a session (with coverage in the tooltip), folds, history, live updates,
+narrow layouts and persisted metric choices. Missing values are omitted from
+request rows and session headings, and no row or session says its tokens,
+cache hit rate or cost: those are Usage's. The first-token label matches the
+metric picker and the Chinese routing story. The three choices apply
+immediately while the menu stays open, with focus kept on the checkbox. Mouse
+and keyboard changes work in both directions, including when none are
+selected. A choice kept from before that named tokens, cache or cost loads
+without them, and one that named only those is the default.
 It runs in English and Chinese on Chromium and WebKit. Set `ARTIFACT_DIR`
 to keep screenshots. APIs are isolated fixtures.
 
@@ -2388,7 +2395,7 @@ node --test internal/gui/tests/routing-scroll-end.test.cjs internal/gui/tests/co
 ## Automatic Codex title grouping
 
 `routing-sessions.test.cjs` checks automatic grouping after a Codex title write,
-conflict revocation, costs and folds, plus name refresh on large history days.
+conflict revocation, request counts and folds, plus name refresh on large history days.
 It uses isolated API fixtures in English and Chinese on Chromium and WebKit.
 
 ```sh

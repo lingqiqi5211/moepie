@@ -1,7 +1,7 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
 // In the Routing page's Requests list a row's reasoning ("· high") sits in
-// the flow of its row: never drawn over the time taken, first token and
-// tokens beside it, at a wide window and a narrow one (#273: at a window
+// the flow of its row: never drawn over the time taken and first token
+// beside it, at a wide window and a narrow one (#273: at a window
 // of about 1000px, two columns, "7.1 秒" and "high" read as "7·1higȟ").
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -115,11 +115,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
             assert(!(w > 0.5 && h > 0.5), `row ${i}: "${p.text}" (${p.cls}) is drawn over "${q.text}" (${q.cls}) by ${w.toFixed(1)}px`);
           }
         }
-        // the answered rows keep all their numbers
+        // the answered rows keep all their numbers; tokens and cost are Usage's
         const meta = page.locator(".rt-req").nth(1).locator(".meta");
         assert.equal(await meta.locator(".ttft .v").textContent(), lang === "zh" ? "4.6 秒" : "4.6 s");
-        assert.equal(await meta.locator(".tokens .v").textContent(), "142.4k");
-        assert.equal(await page.locator(".rt-req").nth(1).locator(".meta .cost").count(), 0, "unknown cost is omitted");
+        assert.equal(await meta.locator(".tokens, .cost").count(), 0);
         // no stripe down a row's side
         assert.equal(await page.locator(".rt-req").first().evaluate((e) => getComputedStyle(e).borderLeftColor === getComputedStyle(e).borderTopColor), true);
         assert.deepEqual(errors, []);

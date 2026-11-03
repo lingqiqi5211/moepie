@@ -17,7 +17,7 @@ const assets = path.resolve(__dirname, "../assets");
 const now = Date.now();
 
 const ROWS = Array.from({ length: 40 }, (_, i) => ({
-  route_id: 500 + i, t: new Date(now - (i + 1) * 60e3).toISOString(), agent: "trae", agentName: "Trae CN", icon: "generic",
+  route_id: 500 + i, t: new Date(now - (i + 1) * 60e3).toISOString(), agent: "trae", agentName: "Trae CN", callerKeyLabel: "office laptop", icon: "generic",
   provider: "deepseek", providerName: "DeepSeek Harness", req: "group/auto-deepseek-v4-1-flash", model: "deepseek-v4-1-flash", served: "deepseek-v4-1-flash",
   in: 1200 + i, out: 80, ms: 2400, ttft_ms: 600, status: 200, rid: "req_" + i, ep: "/v1/chat/completions", cost: 0.001, priced: true,
 }));
@@ -61,6 +61,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         // leaves out (#860), by a margin no machine's fonts take away: at
         // 700px the Chinese table was 76px wider here and 33px on another
         // machine, whose narrower fonts failed the check below (#1340)
+        // the rows name their gateway key, as the one model column leaves the
+        // table narrower than the three it replaced
         const ctx = await browser.newContext({ viewport: { width: 600, height: 640 }, reducedMotion: "reduce" });
         const p = await ctx.newPage();
         p.setDefaultTimeout(5000);
@@ -100,7 +102,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal(await bar.evaluate((e) => Math.round(e.scrollLeft)), 30, "the bar followed the table");
 
         // a row's details: how it went, how long, and its routing
-        await reader.click(p, p.locator(".led tbody tr.led-row").nth(2).locator("td").nth(2));
+        await reader.click(p, p.locator(".led tbody tr.led-row").nth(2).locator("td").nth(1));
         const d = p.locator(".led tbody tr.led-detail");
         assert.deepEqual((await d.locator("dt").allTextContents()).slice(0, 3), w.labels);
         assert.deepEqual((await d.locator("dd").allTextContents()).slice(0, 3), w.values);

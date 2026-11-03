@@ -65,8 +65,7 @@ function archiveBodyPanel(label, part, id, key = id) {
 // A call the archive kept, by "<date>/<id>": read back when asked, and its
 // file downloaded, drawn again by redraw as it is read — under a request's
 // row on the Usage page, and under a Routing trace's (plugins/routing draws
-// it once this file has loaded; the Gateway page's recent calls show their
-// own bodies, and no longer the archive's copy as well).
+// it once this file has loaded).
 function archivePanel(name, id, redraw) {
   const box = el("section", "call-archive");
   const [date, aid] = name.split("/");
@@ -390,7 +389,6 @@ function renderCosts() {
   if (usage) renderUsage();
   if (ledger && usageTab === "requests") renderLedger();
   if (sessions) renderSessions();
-  document.dispatchEvent(new Event("magpie-costs-changed"));
 }
 // sharedBalances (keyCards): the keys magpie found to read one account's
 // balance (sharedBalance, the first one's name) as one card, the first's,
@@ -996,6 +994,19 @@ async function hideQuotaCards(keys, hide) {
 let ledger = null; // the page shown: { rows, offset, total, agents, …totals }
 let ledgerWant = ""; // the ledParams it was read with
 let ledOffset = 0, ledPurpose = "", ledAgent = "", ledProvider = "", ledAccount = "", ledCallerKey = "", ledFailed = false, ledRetried = false, ledQuery = "", ledModel = "", ledRoute = 0, ledComputer = "", ledDay = "", ledVia = "";
+// ledMis: only the requests whose reply named another model (usage.Row.Swapped);
+// ledSession: one session's, "none" those of none; ledRequested: those that
+// asked for one model ("none" those of none), named ledReqName
+let ledMis = false, ledSession = "", ledRequested = "", ledReqName = "";
+// the rows by agent, model or session, each group's sums those of the whole
+// period (usage.RowGroup), kept per viewer as the metric is
+let ledGroup = "agent";
+try {
+  const g = localStorage.getItem("magpie.ledGroup");
+  if (["", "agent", "model", "session"].includes(g)) ledGroup = g;
+} catch {}
+// the one request a route lists is never grouped
+const ledGrouping = () => ledRoute ? "" : ledGroup;
 
 const LED_PAGE = 100;
 // Remember the chart metric; start each app load split by model.
@@ -1027,16 +1038,18 @@ const LED_UNLEND = {
   purpose: () => { ledPurpose = ""; },
   computer: () => { ledComputer = ""; },
   via: () => { ledVia = ""; },
+  session: () => { ledSession = ""; },
+  requested: () => { ledRequested = ""; ledReqName = ""; },
 };
 // the reader picked this filter themselves: it stays
 const ledOwn = (k) => ledLent.delete(k);
 
 let ledRouteInfo = null, ledBeforeRoute = null;
 window.openUsageRoute = (route) => {
-  if (!ledBeforeRoute) ledBeforeRoute = { period, ledOffset, ledPurpose, ledAgent, ledProvider, ledAccount, ledCallerKey, ledFailed, ledRetried, ledQuery, ledModel, ledComputer, ledDay, ledVia, lent: [...ledLent] };
+  if (!ledBeforeRoute) ledBeforeRoute = { period, ledOffset, ledPurpose, ledAgent, ledProvider, ledAccount, ledCallerKey, ledFailed, ledRetried, ledQuery, ledModel, ledComputer, ledDay, ledVia, ledMis, ledSession, ledRequested, ledReqName, lent: [...ledLent] };
   ledRoute = route.id;
   ledRouteInfo = route;
-  ledOffset = 0; ledPurpose = ""; ledAgent = ""; ledProvider = ""; ledAccount = ""; ledCallerKey = ""; ledFailed = false; ledRetried = false; ledQuery = ""; ledModel = ""; ledComputer = ""; ledVia = "";
+  ledOffset = 0; ledPurpose = ""; ledAgent = ""; ledProvider = ""; ledAccount = ""; ledCallerKey = ""; ledFailed = false; ledRetried = false; ledQuery = ""; ledModel = ""; ledComputer = ""; ledVia = ""; ledMis = false; ledSession = ""; ledRequested = ""; ledReqName = "";
   ledDay = "";
   ledLent.clear();
   $("#ledQ").value = "";
@@ -1056,7 +1069,7 @@ window.openUsageRequests = () => {
 function ledRouteOff() {
   ledRoute = 0; ledRouteInfo = null;
   if (ledBeforeRoute) {
-    ({ period, ledOffset, ledPurpose = "", ledAgent, ledProvider, ledAccount = "", ledCallerKey, ledFailed, ledRetried = false, ledQuery, ledModel, ledComputer = "", ledDay = "", ledVia = "" } = ledBeforeRoute);
+    ({ period, ledOffset, ledPurpose = "", ledAgent, ledProvider, ledAccount = "", ledCallerKey, ledFailed, ledRetried = false, ledQuery, ledModel, ledComputer = "", ledDay = "", ledVia = "", ledMis = false, ledSession = "", ledRequested = "", ledReqName = "" } = ledBeforeRoute);
     ledLent.clear();
     for (const k of ledBeforeRoute.lent || []) ledLent.add(k);
   }
@@ -1089,6 +1102,9 @@ function ledParams(extra) {
   if (ledRoute) q.set("route", ledRoute);
   if (ledFailed) q.set("failed", "1");
   if (ledRetried) q.set("retried", "1");
+  if (ledMis) q.set("mismatch", "1");
+  if (ledSession) q.set("session", ledSession);
+  if (ledRequested) q.set("requested", ledRequested);
   if (ledModel) q.set("model", ledModel);
   else if (ledQuery.trim()) q.set("q", ledQuery.trim());
   if (extra) for (const k in extra) q.set(k, extra[k]);
@@ -1115,6 +1131,10 @@ function ledRead(kind, path, want) {
 }
 const ledAborted = (e) => e?.name === "AbortError";
 
+// grouped, the page is its sums and groups: each group's rows are read
+// when it is opened (ledGroupRows)
+const ledPageWant = () => ledGrouping() ? ledParams({ group: ledGrouping(), offset: 0, limit: 1 }) : ledParams({ offset: ledOffset, limit: LED_PAGE });
+
 // quiet: a refresh while it's looked at, redrawn only on a change.
 // "open": the page opened again on the rows it showed (#4064, xisdumpling):
 // they stay as they are while read, are drawn again only on a change, and
@@ -1128,14 +1148,14 @@ async function loadLedger(quiet) {
   // hadn't been)
   else if (!quiet) ledPending(true);
   loadLedHeat().catch(() => {});
-  const want = ledParams({ offset: ledOffset, limit: LED_PAGE });
+  const want = ledPageWant();
   let l;
   try { l = await ledRead("page", "usage/requests?", want); } catch (e) {
     if (ledAborted(e)) return; // another page or filter was picked, and is read instead
     ledPending(false);
     throw e;
   }
-  if (want !== ledParams({ offset: ledOffset, limit: LED_PAGE })) return; // another page or filter was picked meanwhile
+  if (want !== ledPageWant()) return; // another page or filter was picked meanwhile
   ledPending(false);
   if (quiet && JSON.stringify(l) === JSON.stringify(ledger)) return;
   if (quiet === "open") {
@@ -1145,7 +1165,7 @@ async function loadLedger(quiet) {
   }
   ledger = l;
   ledgerWant = want;
-  if (view === "usage" && usageTab === "requests") renderLedger();
+  if (view === "usage" && usageTab === "requests") renderLedger(quiet);
 }
 // navSettled: the sidebar's move to a page opened (navTopStep's spring,
 // navSubEnter's tabs coming in) has run its course, or 700ms have passed
@@ -1160,6 +1180,7 @@ function navSettled() {
 function ledPending(on) {
   const wrap = $("#ledWrap");
   wrap.classList.toggle("led-pending", on);
+  $("#ledSum").classList.toggle("led-pending", on); // its figures are the old pick's too
   if (on) wrap.setAttribute("aria-busy", "true");
   else wrap.removeAttribute("aria-busy");
 }
@@ -1183,26 +1204,162 @@ function renderLedgerLoading() {
   }
 }
 
+// a formatter a language and form: toLocaleString with options makes one a call
+const ledTimeFmt = new Map();
 function ledTime(when) {
-  const d = new Date(when), now = new Date();
-  const opts = { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false };
-  if (d.toDateString() !== now.toDateString()) Object.assign(opts, { month: "short", day: "numeric" });
-  return d.toLocaleString(intlLang(), opts);
-}
-// the model the reply named: amber, as the Routing page's tag, when it is
-// another than the one sent; plain when it is that one under a dated name,
-// or the member a remote magpie's routing group sent it to, said in its title
-function ledServed(r) {
-  if (!r.served) return el("span", "faint", "—");
-  if (r.routed && !r.swapped) {
-    const k = el("span", "muted model-value routed", r.served);
-    k.title = window.routedWhy ? window.routedWhy({ model: r.model, served: r.served }) : "";
-    return k;
+  const d = new Date(when), other = d.toDateString() !== new Date().toDateString();
+  const k = intlLang() + other;
+  let f = ledTimeFmt.get(k);
+  if (!f) {
+    const opts = { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false };
+    if (other) Object.assign(opts, { month: "short", day: "numeric" });
+    ledTimeFmt.set(k, f = new Intl.DateTimeFormat(intlLang(), opts));
   }
-  if (!r.swapped) return el("span", "model-value", r.served);
-  const k = el("span", "swap", r.served);
-  k.title = window.swapWhy ? window.swapWhy({ model: r.model, served: r.served, upstream: r.upstream }, { pinUnknown: true }) : "";
-  return k;
+  return f.format(d);
+}
+// how the model the reply named stands to the one asked for, as the server
+// judged it (usage.Row.ServedAs): "swapped", "routed", "picked", "renamed",
+// "same", or "" with none named; told from its flags by a server without it
+const ledServedAs = (r) => !r.served ? "" : r.served_as || (r.swapped ? "swapped" : r.routed ? "routed" : r.served === r.model ? "same" : "renamed");
+// the field each protocol's reply names its model in
+const LED_SERVED_FIELD = { Responses: ["response.model", "Responses"], Anthropic: ["message.model", "Anthropic"], Gemini: ["modelVersion", "Gemini"], Chat: ["model", "Chat Completions"] };
+
+// a request's model: a pill of the model asked for (the one sent for a row
+// that kept none), and under it the one the reply named when that differs:
+// amber, as the Routing page's tag, for another model; plain for the same
+// model under another name, or the member a group or auto picked. The pill
+// sets the three names side by side in a card (ledPop), on hover or focus,
+// pinned by a click.
+function ledModelCell(r) {
+  const box = el("div", "led-mc");
+  const name = r.req || r.model || "";
+  const pill = el("button", "led-mp");
+  pill.type = "button";
+  const fam = (name.includes("/") ? name.split("/")[0] : r.providerName || r.provider || name).trim();
+  pill.dataset.letter = (fam[0] || "?").toUpperCase();
+  pill.append(el("span", "led-mn", name || "—"));
+  if (!r.req && r.source !== "probe") pill.title = t("Not kept for requests before this version");
+  pill.setAttribute("aria-expanded", "false");
+  pill.setAttribute("aria-label", t("Compare the models of this request") + ": " + (name || "—"));
+  pill.onmouseenter = () => ledPopShow(pill, r, false);
+  pill.onmouseleave = () => ledPopLeave();
+  pill.onfocus = () => ledPopShow(pill, r, false);
+  pill.onblur = () => ledPopLeave();
+  pill.onclick = (e) => {
+    e.stopPropagation();
+    if (ledPopAt === pill && ledPopPinned) ledPopHide();
+    else ledPopShow(pill, r, true);
+  };
+  box.append(pill);
+  const as = ledServedAs(r);
+  if (as === "swapped" || as === "renamed" || as === "picked" || as === "routed") {
+    const line = el("div", "led-sv " + as);
+    if (as === "swapped") {
+      line.append(el("span", "k", "⚠ " + t("Served model:")));
+      const k = el("span", "v swap", r.served);
+      k.title = window.swapWhy ? window.swapWhy({ model: r.sent || r.model, served: r.served, upstream: r.upstream }, { pinUnknown: true }) : "";
+      line.append(k);
+    } else {
+      line.append(el("span", "k", as === "routed" ? t("Group picked:") : t("Reply named:")), el("span", "v", r.served));
+      if (as === "routed" && window.routedWhy) line.title = window.routedWhy({ model: r.model, served: r.served });
+    }
+    box.append(line);
+  }
+  return box;
+}
+
+// the card the pills share, kept on the page's body: the table's box
+// scrolls sideways and would clip one inside it
+let ledPopAt = null, ledPopPinned = false, ledPopLeft = 0, ledPopKey = "";
+function ledPopEl() {
+  let p = $("#ledPop");
+  if (p) return p;
+  p = el("div", "led-pop");
+  p.id = "ledPop";
+  p.setAttribute("role", "tooltip");
+  p.hidden = true;
+  p.onmouseenter = () => clearTimeout(ledPopLeft);
+  p.onmouseleave = () => ledPopLeave();
+  p.onclick = (e) => e.stopPropagation();
+  document.body.append(p);
+  document.addEventListener("click", () => { if (ledPopPinned) ledPopHide(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !p.hidden) ledPopHide(); });
+  document.addEventListener("scroll", () => ledPopPlace(), true);
+  return p;
+}
+function ledPopShow(pill, r, pin) {
+  clearTimeout(ledPopLeft);
+  if (ledPopPinned && ledPopAt !== pill && !pin) return; // one pinned stays till it is let go
+  const p = ledPopEl();
+  if (ledPopAt !== pill) ledPopAt?.setAttribute("aria-expanded", "false");
+  ledPopAt = pill;
+  ledPopKey = pill.closest("tr")?.dataset.key || "";
+  ledPopPinned = pin;
+  pill.setAttribute("aria-expanded", "true");
+  p.classList.toggle("pin", pin);
+  p.replaceChildren(...ledPopBody(r));
+  p.hidden = false;
+  ledPopPlace();
+}
+function ledPopLeave() {
+  clearTimeout(ledPopLeft);
+  if (ledPopPinned) return;
+  // a moment to move onto the card itself
+  ledPopLeft = setTimeout(() => { if (!ledPopPinned && !$("#ledPop")?.matches(":hover") && document.activeElement !== ledPopAt) ledPopHide(); }, 120);
+}
+function ledPopHide() {
+  clearTimeout(ledPopLeft);
+  const p = $("#ledPop");
+  if (p) p.hidden = true;
+  ledPopAt?.setAttribute("aria-expanded", "false");
+  ledPopAt = null;
+  ledPopPinned = false;
+}
+// a pinned card whose row was drawn anew, as a refresh draws a row that
+// changed, goes to the new row's pill rather than away
+function ledPopKeep(root) {
+  if (!ledPopPinned || ledPopAt?.isConnected || !ledPopKey) return;
+  root.querySelector(`tr.led-row[data-key="${CSS.escape(ledPopKey)}"] .led-mp`)?.click();
+}
+// under its pill, or over it where the window ends; gone with its pill
+function ledPopPlace() {
+  const p = $("#ledPop");
+  if (!p || p.hidden) return;
+  if (!ledPopAt?.isConnected) return ledPopHide();
+  const b = ledPopAt.getBoundingClientRect(), w = p.offsetWidth, h = p.offsetHeight;
+  p.style.left = Math.max(8, Math.min(b.left - 8, innerWidth - w - 8)) + "px";
+  p.style.top = (b.bottom + 6 + h > innerHeight - 8 && b.top - 6 - h > 8 ? b.top - 6 - h : b.bottom + 6) + "px";
+}
+function ledPopBody(r) {
+  const as = ledServedAs(r), served = r.served || "";
+  const head = el("h4", as === "swapped" ? "mis" : "");
+  head.textContent = as === "swapped" ? "⚠ " + t("Served model: {model}", { model: served })
+    : as === "renamed" ? t("Served model: {model} (the same model)", { model: served })
+    : as === "picked" ? t("Served model: {model} (picked by auto)", { model: served })
+    : as === "routed" ? t("Served model: {model} (picked by the group)", { model: served })
+    : as === "same" ? "✓ " + t("The served model matches")
+    : t("No served model");
+  const dl = el("dl");
+  const add = (k, v, cls) => dl.append(el("dt", "", k), el("dd", cls || "", v || "—"));
+  add(t("Model requested"), r.req || "");
+  add(t("Upstream request model"), r.sent || r.model || "");
+  add(t("Served model"), served, as === "swapped" ? "mis" : "");
+  if (r.upstream) add(t("Actual provider"), r.upstream);
+  const local = r.source === "log";
+  const why = as === "swapped" ? t("The model name the upstream returned doesn't match the upstream request model, under any spelling magpie recognizes. An alias or a dated version can also differ, so this warning alone doesn't prove the model was replaced.")
+    : as === "renamed" ? t("The reply names the same model another way, such as with a date or version suffix: counted as the same model.")
+    : as === "picked" ? t("auto was asked for, and the vendor picked this model.")
+    : as === "routed" ? (window.routedWhy ? window.routedWhy({ model: r.model, served }) : "")
+    : as === "same" ? t("The model sent and the one that answered are the same.")
+    : local ? t("This one was imported from {agent}'s local session, whose record has no served model.", { agent: r.agentName || r.agent })
+    : ledFailed_(r) ? t("The request failed with no response body, so there is no served model.")
+    : t("The reply named no model.");
+  const out = [head, dl, el("p", "", why)];
+  if (local && r.model) out.push(el("p", "", t("Model recorded in the local session log; the outbound HTTP request was not captured.")));
+  const field = as && LED_SERVED_FIELD[ledProtos(r)?.to];
+  if (field) out.push(el("p", "rule", t("The served model is read from the reply's {field} ({protocol}).", { field: field[0], protocol: field[1] })));
+  out.push(el("p", "rule", t("Not counted as a mismatch: only a date or version suffix, a vendor's own serving name, a relay's renaming, an alias listed in the provider's model list, the member a magpie group picked, auto.")));
+  return out;
 }
 
 // the protocol a request was sent upstream in, told by the path it went
@@ -1339,6 +1496,12 @@ function ledDetail(r, cols) {
     const draw = () => ab.replaceChildren(archivePanel(r.archive, "led|" + ledKey(r), draw));
     draw();
     box.append(ab);
+  } else if (r.route_id && !r.handed_on && !r.computer && r.source !== "log") {
+    // without it, what went and came back while the gateway's last calls
+    // still hold them (#1521); a try handed on gave its place to the next
+    const bx = el("div", "led-bodies");
+    ledBodies(r.route_id, bx);
+    box.append(bx);
   }
   // what was said: read from the agent's session file, when the row is
   // opened; one made on another computer has its files there, and sync
@@ -1353,7 +1516,43 @@ function ledDetail(r, cols) {
   box.append(cx);
   td.append(box);
   tr.append(td);
+  tr.dataset.key = ledKey(r);
   return tr;
+}
+
+// A request's bodies, from the gateway's recent calls: the last 40, in
+// memory only. Read once a row is opened and kept while the list is
+// looked at, so the list read anew doesn't ask again; one let go of says
+// how to keep them, as Routing's does, and is asked again once the row is
+// opened again.
+const ledBodiesGot = new Map(); // route id → its bodies, { gone } while its row is open, or the promise of them; the last 20
+function ledBodies(id, bx) {
+  let got = ledBodiesGot.get(id);
+  if (!got) {
+    if (ledBodiesGot.size >= 20) ledBodiesGot.delete(ledBodiesGot.keys().next().value);
+    got = fetch("/api/gateway/call?route=" + encodeURIComponent(id), { cache: "no-store" })
+      .then(async (res) => (res.status === 404 ? { gone: true } : res.ok ? res.json() : { error: (await res.json().catch(() => null))?.error || res.statusText || String(res.status) }))
+      .catch((e) => ({ error: e.message }))
+      .then((b) => { if (ledBodiesGot.get(id) === got) ledBodiesGot.set(id, b); return b; });
+    ledBodiesGot.set(id, got);
+  }
+  const draw = (b) => {
+    if (b.gone) return bx.replaceChildren(el("p", "cx-none", t("magpie keeps the request and response of only the last 40 requests, until it quits. To keep every request's, turn on Request archive at the top of Usage › Requests.")));
+    if (b.error) {
+      const again = el("button", "text", t("Try again"));
+      again.onclick = () => { ledBodiesGot.delete(id); ledBodies(id, bx); };
+      return bx.replaceChildren(el("div", "call-archive-err", t(b.error)), again);
+    }
+    const grid = el("div", "call-details");
+    grid.append(
+      callBodyPanel("Request Body", b.requestBody, b.requestTruncated, undefined, "led|" + id + "|req"),
+      callBodyPanel("Response Body", b.responseBody, b.responseTruncated, "led|" + id),
+    );
+    bx.replaceChildren(grid);
+  };
+  if (!(got instanceof Promise)) return draw(got);
+  bx.replaceChildren(el("p", "cx-none", t("Fetching…")));
+  got.then((b) => { if (bx.isConnected) draw(b); });
 }
 
 // What was said in a request — what its agent was given, and what came back —
@@ -1917,7 +2116,7 @@ new ResizeObserver(() => {
 // details (#860), 2 for one left out only when that isn't enough; the
 // fourth, the header's tooltip
 const LED_COLS = [
-  ["Time"], ["Agent"], ["Requested"], ["Provider · account"], ["Sent", "", true], ["Served"], ["Effort", "", true],
+  ["Time"], ["Agent"], ["Model"], ["Provider · account"], ["Effort", "", true],
   ["In", "n"], ["Out", "n"], ["Cache write", "n", true], ["Cache read", "n", true], ["Cost", "n"], ["TTFT", "n", 2, "Time to first token"], ["Duration", "n"], ["Speed", "n"], ["Status"],
 ];
 
@@ -2014,21 +2213,27 @@ const ledFloorSpeed = (r) => { const f = ledFloor_(r); return f ? f.n / (f.w / 1
 
 // the table as wide as the window, when leaving out what the row's details
 // say anyway makes it so: else it scrolls sideways (#799)
-function ledFit() {
+// quiet: a refresh, which starts from the fit it had at this width rather
+// than trying each looser one again: each try lays the whole table out
+const LED_TIERS = ["tight", "tight2", "tighter"];
+let ledTier = 0, ledTierW = 0;
+function ledFit(quiet) {
   const wrap = $("#ledWrap"), table = wrap.querySelector("table.led");
   let hint = $("#ledTight");
   if (!table) { if (hint) hint.hidden = true; return; }
-  table.classList.remove("tight", "tight2", "tighter");
-  const over = () => wrap.scrollWidth > wrap.clientWidth + 1;
-  const tight = over();
-  table.classList.toggle("tight", tight);
+  let n = quiet && wrap.clientWidth === ledTierW ? ledTier : 0;
+  // (a class already so is left: setting it again is a layout again)
+  const set = () => wrap.querySelectorAll("table.led").forEach((tb) => LED_TIERS.forEach((c, i) => tb.classList.toggle(c, i < n)));
+  set();
   // still too wide (#860: a Windows window at 175%, its wider fonts): the
   // price reference line goes too, in the cost's tooltip and the details
   // as well, and names are cut shorter, whole in their tooltips
   // still too wide: the first token's column goes (#2522), and only
   // then what follows
-  if (tight && over()) table.classList.add("tight2");
-  if (tight && over()) table.classList.add("tighter");
+  while (n < LED_TIERS.length && wrap.scrollWidth > wrap.clientWidth + 1) { n++; set(); }
+  ledTier = n;
+  ledTierW = wrap.clientWidth;
+  const tight = n > 0;
   if (!hint) {
     hint = el("span", "led-tight");
     hint.id = "ledTight";
@@ -2122,7 +2327,530 @@ function ledProviderMore(p) {
   };
 }
 
-function renderLedger() {
+const ledOptCls = (opt) => opt === 2 ? " lc-opt2" : opt ? " lc-opt" : "";
+// a request's row: its cells, and its details opened and closed by a click
+function ledRowEl(r, key) {
+  const bad = ledFailed_(r);
+  const tr = el("tr", "led-row" + (bad ? " bad" : "") + (ledOpen.has(key) ? " open" : ""));
+  tr.tabIndex = 0;
+  tr.setAttribute("aria-expanded", ledOpen.has(key) ? "true" : "false");
+  const td = (child, cls, title) => {
+    const c = el("td", (cls || "") + ledOptCls(LED_COLS[tr.childElementCount]?.[2]));
+    if (typeof child === "string") c.textContent = child; else c.append(child);
+    if (title) c.title = title;
+    tr.append(c);
+    return c;
+  };
+  const routed = r.route_id && !featuresOff.has("routing"); // the Routing page there to open it on
+  const when = routed ? el("button", "text led-route-link", ledTime(r.t)) : ledTime(r.t);
+  if (routed) {
+    when.title = t("View routing");
+    // the link opens the route, not the row's details as well
+    when.onclick = (e) => { e.stopPropagation(); window.openRoute(r.route_id, r.t).catch((err) => status(err.message, "err")); };
+  }
+  td(when, "when", new Date(r.t).toLocaleString(intlLang()));
+  const who = el("span", "who");
+  // an agent on another computer, whose magpie passed the request on
+  const name = r.agentName || r.agent;
+  // one made on another computer, whose usage sync brought (#542)
+  const at = r.computerName ? t("{agent} · on {computer}", { agent: name, computer: r.computerName }) : name;
+  who.append(icon(r.icon || "generic"), el("span", "", [r.via ? t("{agent} · via {host}", { agent: at, host: r.via }) : at, r.callerKeyLabel || r.callerKeyName].filter(Boolean).join(" · ")));
+  // a request magpie made by itself, apart from the agents' own (#1839);
+  // one that tested the provider (the editor's Test, Detect APIs, a model
+  // list) is counted nowhere, and says so (neiko on Discord)
+  const probe = r.source === "probe";
+  // an agent's call to a tool of magpie's MCP servers (ferock on Discord)
+  const mcp = r.source === "mcp";
+  // magpie's ask of a search API, for a search an agent's model made (cybercaius on Discord)
+  const search = r.source === "search";
+  if (r.agent === "magpie") {
+    const own = ownBadge();
+    if (probe) own.title = probeWhy();
+    who.append(own);
+  }
+  td(who, "", [r.kind, r.session && t("session {id}", { id: r.session })].filter(Boolean).join(" · "));
+  td(ledModelCell(r), "model");
+  const local = r.source === "log";
+  // A session file names the provider it was set up to call, which is
+  // where a call that went straight to a vendor went: nothing stood
+  // between the agent and it. It is the file's own record and not a route
+  // magpie saw, so the id the file carries is shown as it is — never
+  // resolved to a provider's name, which would promote an unknown request
+  // to an official provider — and the row keeps saying it is a local
+  // session. A row whose file names none says only that.
+  const where = local ? (r.session_account || r.session_provider || t("Local session"))
+    : mcp ? [r.providerName && t(r.providerName), r.host].filter(Boolean).join(" · ") || "—"
+    : search ? [r.providerName && t(r.providerName), r.host, r.providerKeyName].filter(Boolean).join(" · ") || "—"
+    : t(r.providerName) + (r.host ? " · " + r.host : "");
+  const wc = td(el("div", "where-name", where), "where", where);
+  const badges = el("div", "source-badges");
+  if (local && r.session_account && r.session_official_login) {
+    const badge = el("span", "src official", t("OFFICIAL"));
+    badge.title = t("Official login confirmed for this account by local login metadata. This does not establish the route or authentication used for this request.");
+    badges.append(badge);
+  }
+  let access = "";
+  if (!local && r.access === "subscription") access = "Subscription";
+  else if (!local && r.access === "api") access = "API";
+  if (access) {
+    const badge = el("span", "src access access-" + r.access, t(access));
+    badge.title = t(access);
+    badges.append(badge);
+  }
+  const proto = ledProtoBadge(r);
+  if (proto) badges.append(proto);
+  // the badge says where the row came from, beside a name that is not
+  // that: a row whose name already says it has nothing to add
+  if (local && (r.session_account || r.session_provider)) {
+    const k = el("span", "src local", t("Local session"));
+    k.title = r.session_provider
+      ? t("Read from the agent's session file, which names the provider it was set up to call. The name shown is that record, not a route magpie saw.")
+      : t("Read from the agent's session file. The account is shown only when local metadata identifies it; no service provider is inferred.");
+    badges.append(k);
+  }
+  // a call an app reported itself (#1874): it went straight to its vendor
+  if (r.source === "reported") {
+    const k = el("span", "src reported", t("Reported"));
+    k.title = t("Reported by the app that made it, through POST /v1/magpie/usage/requests: the call went straight to its vendor, not through magpie.");
+    badges.append(k);
+  }
+  if (probe) {
+    const k = el("span", "src probe", window.kindName ? window.kindName(r.kind) : r.kind);
+    k.title = probeWhy();
+    badges.append(k);
+  }
+  if (mcp) {
+    const k = el("span", "src mcp", "MCP");
+    k.title = t("{agent} called the tool {tool} of magpie's MCP server {server}. Its arguments are not kept, and it is not counted in any total: the model requests it made are rows of their own.", { agent: name, tool: r.req || "—", server: r.host || "magpie" });
+    badges.append(k);
+  }
+  if (search) {
+    // a search API's, or a plan's own search service's (r.provider)
+    const k = el("span", "src search", t(r.provider ? "Web search" : "Search API"));
+    k.title = t("magpie asked {api} to search the web for {agent}. The query is not kept, and it is not counted in any total.", { api: r.req || "—", agent: name });
+    badges.append(k);
+  }
+  if (badges.childElementCount) wc.append(badges);
+  td(r.effort || "—", r.effort ? "" : "faint");
+  td(ledNum(r.in), "n");
+  td(ledNum(r.out), "n", r.reasoning ? t("{n} reasoning, inside output", { n: ledNum(r.reasoning) }) : "");
+  // a vendor that counts no cache wrote and read none we know of, not 0 (#3464)
+  if (r.cache_unknown) for (let i = 0; i < 2; i++) td("—", "n faint", t("The vendor doesn't count the cache"));
+  else {
+    td(ledNum(r.cache_write), "n" + (r.cache_write ? "" : " faint"), cacheTTLs(r, ledNum).replace(/^ · /, ""));
+    td(ledNum(r.cache_read), "n" + (r.cache_read ? "" : " faint"));
+  }
+  const cost = td(r.priced ? "≈" + fmtCost({ cost: r.cost, unpriced: 0 }) : "—", "n cost" + (r.priced ? "" : " faint"), r.priced ? (r.pricing_model ? t("API price reference") + ": " + r.pricing_model : "") : t("No known price for this model"));
+  if (r.priced && r.pricing_model) {
+    const reference = el("div", "price-reference", t("Price reference: {model}", { model: r.pricing_model }));
+    reference.title = t("Model used for the API price estimate; this is not an observed model forwarding event.");
+    cost.append(reference);
+  }
+  // a session file has the times of its lines: a call took about from the line that
+  // asked for it to its last; some have none, and are dashes, not 0 ms
+  const timed = r.source === "log";
+  const untimed = !Number.isFinite(r.ms) || r.ms <= 0;
+  // the wait for its first token, in a column of its own to compare down
+  // the list: the duration holds it and the writing after it (#2522).
+  // One not streamed, or that failed before any, has none
+  td(r.ttft_ms > 0 ? (timed ? "≈" : "") + ledTook(r.ttft_ms) : "—", "n ttft" + (r.ttft_ms > 0 ? "" : " faint"),
+    r.ttft_ms > 0 ? [t("{n} ms", { n: ledNum(r.ttft_ms) }), timed ? t("About: told from the session file's times, a little more or less than it took") : ""].filter(Boolean).join(" · ") : "");
+  const durationBand = untimed ? "" : r.ms <= 10000 ? "fast" : r.ms <= 30000 ? "slow" : "long";
+  td(untimed ? "—" : (timed ? "≈" : "") + ledTook(r.ms), "n duration " + (untimed ? "faint" : "duration-" + durationBand),
+    [!untimed ? t("{n} ms", { n: ledNum(r.ms) }) : "", !untimed ? t("Duration colors: ≤10 s green · 10–30 s amber · >30 s red") : "", timed && !untimed ? t("About: told from the session file's times, a little more or less than it took") : "", r.ttft_ms ? t("TTFT {ms}", { ms: ledTook(r.ttft_ms) }) : ""].filter(Boolean).join(" · "));
+  // how fast it wrote once it began, as CC Switch's log has it (#860)
+  const v = ledRowSpeed(r), floor = ledFloorSpeed(r), f = ledFloor_(r);
+  const ttft = r.ttft_ms > 0 ? " · " + t("TTFT {ms}", { ms: ledTook(r.ttft_ms) }) : "";
+  td(v ? t("{n} tok/s", { n: ledNum(Math.round(v)) }) : floor ? "≥" + t("{n} tok/s", { n: ledNum(Math.round(floor)) }) : "—", "n speed" + (v || floor ? "" : " faint"),
+    v ? (r.reasoning > 0 && r.first_text_ms > 0 ? t("{n} answer tokens in {ms} after the first text, the {r} reasoning tokens before it left out", { n: ledNum(ledDecode(r).n), ms: ledTook(ledDecode(r).w), r: ledNum(r.reasoning) })
+      : t("{n} output tokens in {ms} after the first", { n: ledNum(ledDecode(r).n), ms: ledTook(ledDecode(r).w) })) + ttft
+      : floor && f.gateway && f.answer ? t("At least: {n} answer tokens in {ms} after the first token, the {r} reasoning tokens left out. No first text was recorded, so reasoning after the first token is counted too", { n: ledNum(f.n), ms: ledTook(f.w), r: ledNum(r.reasoning) }) + ttft
+      : floor && f.gateway ? t("At least: {n} output tokens in {ms}, from the request to its last token, the wait for the first one counted too", { n: ledNum(r.out), ms: ledTook(r.ms) }) + ". " + ledNoSpeed_(r) + ttft
+      : floor && f.answer ? t("At least: {n} answer tokens in {ms} after the first token, the {r} reasoning tokens left out. The session file has no first text, so reasoning after the first token is counted too", { n: ledNum(f.n), ms: ledTook(f.w), r: ledNum(r.reasoning) }) + ttft
+      : floor && f.turn ? t("At least: {n} output tokens in {ms}, the whole turn. What came after the first token ({after}) is too little to time a speed by: under a second or under 100 tokens, so the wait for it is counted too", { n: ledNum(r.out), ms: ledTook(r.ms), after: ledTook(r.ms - r.ttft_ms) }) + ttft
+      : floor ? t("At least: {n} output tokens in {ms}, from the line that asked for it to its last. The session file has no first token, so the wait for it is counted too", { n: ledNum(r.out), ms: ledTook(r.ms) })
+      : ledNoSpeed_(r));
+  const st = el("span", "st");
+  // a status when the gateway logged the call; a session file has none,
+  // and says only whether it went well
+  let word = r.status ? String(r.status) : r.source === "log" || mcp || search ? (bad ? r.err_type || t("Failed") : t("Succeeded")) : "—";
+  if (r.status && bad && r.err_type) word += " · " + r.err_type;
+  if (r.handed_on) word += " · " + t("handed on");
+  else if (r.tries > 1) word += " · " + t("{n} tries", { n: r.tries });
+  st.append(el("i", "dot"), document.createTextNode(word));
+  td(st, "", [r.handed_on && t("This try failed and the request was handed on to the next: the request is counted by how it ended, not by this try"),
+    bad ? (r.err || t("Failed: the agent was answered {status}", { status: r.status })) : ""].filter(Boolean).join("\n"));
+  const toggle = () => {
+    if (ledOpen.delete(key)) {
+      tr.classList.remove("open");
+      tr.setAttribute("aria-expanded", "false");
+      tr.nextElementSibling?.classList.contains("led-detail") && tr.nextElementSibling.remove();
+      if (ledBodiesGot.get(r.route_id)?.gone) ledBodiesGot.delete(r.route_id); // asked again when opened again
+      return;
+    }
+    ledOpen.add(key);
+    tr.classList.add("open");
+    tr.setAttribute("aria-expanded", "true");
+    tr.after(ledDetail(r, LED_COLS.length));
+  };
+  // a click that ends a text selection is the reader copying, not asking
+  tr.onclick = () => { if (!String(getSelection() || "")) toggle(); };
+  tr.onkeydown = (e) => { if (e.target === tr && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggle(); } };
+  return tr;
+}
+
+// a ledger table, its head of LED_COLS
+function ledTableEl() {
+  const table = el("table", "led");
+  table.dataset.lang = intlLang();
+  const head = el("tr");
+  for (const [name, cls, opt, tip] of LED_COLS) {
+    const th = el("th", (cls || "") + ledOptCls(opt), t(name));
+    if (tip) th.title = t(tip);
+    head.append(th);
+  }
+  table.append(el("thead"), el("tbody"));
+  table.tHead.append(head);
+  return table;
+}
+
+// The rows grouped by agent, model or session (usage.RowGroup): a header
+// each, its figures those of the whole period, and its rows read a page at
+// a time once it is opened. With only the mismatches picked, a group with
+// none is left out, but a header still sums all of its group. A refresh
+// fills the sections drawn where they are: an open group's rows stay shown
+// till they are read again, so nothing flashes, jumps or lets go of a card.
+const ledGroupOpen = new Set(); // grouping|id
+// grouping|id → { want, g, rows, total, calls, swaps, count, seq, drawn }
+const ledGroupGot = new Map();
+const LED_GROUPS = [["", "No grouping"], ["agent", "Agents"], ["model", "Models"], ["session", "Sessions"]];
+// the filter a group's rows are read by: models group by the one asked for
+const LED_GROUP_PARAM = { agent: "agent", model: "requested", session: "session" };
+// the most rows one read gets (usage.QueryPage's bound)
+const LED_READ_MOST = 500;
+// a section's fill(l, g, whole): its header drawn anew, its rows kept
+const ledGroupFill = new WeakMap();
+
+function renderLedGroups(l, wrap) {
+  const by = ledGrouping(), groups = l.groups || [];
+  const focused = document.activeElement?.closest?.("#ledWrap .led-gh")?.dataset.id;
+  let box = wrap.querySelector(":scope > .led-groups");
+  if (!box || box.dataset.by !== by) {
+    box = el("div", "led-groups");
+    box.dataset.by = by;
+    box.append(el("div", "led-legend"));
+    wrap.replaceChildren(box);
+  }
+  const legend = box.querySelector(":scope > .led-legend");
+  legend.replaceChildren(el("span", "", t(groups.length === 1 ? "{n} group listed" : "{n} groups listed", { n: ledNum(groups.length) })),
+    el("span", "", t("Header figures are totals for the whole period; an opened group loads its rows a page at a time")));
+  const count = l.groupCount || 0;
+  if (count > groups.length) {
+    // sessions come the latest first (usage.rowGroups.list), the rest the
+    // most requests first
+    if (by === "session") {
+      const none = groups.some((g) => g.id === "none") ? 1 : 0;
+      legend.append(el("span", "", t("Only the latest {n} of {m} sessions are listed", { n: ledNum(groups.length - none), m: ledNum(count - none) })));
+      if (none) legend.append(el("span", "", t("Requests without a session ID are always listed")));
+    } else legend.append(el("span", "", t("Only the {n} with the most requests of {m} are listed", { n: ledNum(groups.length), m: ledNum(count) })));
+  }
+  // each group's share of the requests: with only the mismatches picked,
+  // of those the groups listed hold
+  const held = groups.reduce((n, g) => n + (g.calls || 0), 0);
+  const whole = ledMis ? held : Math.max(l.calls ?? l.total, held);
+  const kept = new Map([...box.querySelectorAll(":scope > .led-grp")].map((s) => [s.dataset.id, s]));
+  const nodes = [legend];
+  for (const g of groups) {
+    const id = by + "|" + g.id, sec = kept.get(id);
+    kept.delete(id);
+    if (sec) ledGroupFill.get(sec)(l, g, whole);
+    nodes.push(sec || ledGroupEl(l, by, g, whole));
+  }
+  for (const s of kept.values()) s.remove();
+  // the rows read of groups no longer listed, or of another grouping, go
+  for (const k of ledGroupGot.keys()) if (!groups.some((g) => by + "|" + g.id === k)) ledGroupGot.delete(k);
+  // moved only where the order changed, as the table's rows are
+  nodes.forEach((n, i) => { if (box.children[i] !== n) box.insertBefore(n, box.children[i] || null); });
+  while (box.children.length > nodes.length) box.lastElementChild.remove();
+  if (focused && document.activeElement?.dataset?.id !== focused) wrap.querySelector(`.led-gh[data-id="${CSS.escape(focused)}"]`)?.focus();
+}
+
+const ledNames = (ids, list, cut = 2) => {
+  const names = (ids || []).map((id) => { const x = list?.find((a) => a.id === id); return x ? t(x.name) : id; });
+  return names.slice(0, cut).join(", ") + (names.length > cut ? " +" + (names.length - cut) : "");
+};
+
+function ledGroupEl(l, by, g, whole) {
+  const id = by + "|" + g.id;
+  const box = el("section", "led-grp");
+  box.dataset.id = id;
+  const head = el("button", "led-gh");
+  head.type = "button";
+  head.dataset.id = id;
+  const arrow = el("span", "led-arrow");
+  arrow.setAttribute("aria-hidden", "true");
+  let cur = g;
+  const set = (open) => {
+    box.classList.toggle("open", open);
+    head.setAttribute("aria-expanded", open ? "true" : "false");
+    arrow.textContent = open ? "▾" : "▸";
+  };
+  head.onclick = () => {
+    const open = !ledGroupOpen.has(id);
+    if (open) ledGroupOpen.add(id); else ledGroupOpen.delete(id);
+    set(open);
+    if (open) ledGroupBody(by, cur, box);
+    else {
+      box.querySelector(".led-gbody")?.remove();
+      ledGroupGot.delete(id);
+    }
+    ledHScroll();
+  };
+  box.append(head);
+  const fill = (l, g, whole) => {
+    cur = g;
+    const title = el("b"), sub = el("small");
+    if (by !== "session" && g.id === "none") {
+      title.textContent = t(by === "agent" ? "Without an agent" : "Without a model");
+      sub.textContent = t(by === "agent" ? "These requests named no agent" : "These requests named no model");
+    } else if (by === "agent") {
+      const a = l.agents?.find((x) => x.id === g.id);
+      title.append(icon(a?.icon || "generic"), el("span", "", a?.name || g.id));
+      sub.textContent = [ledNames(g.providers, l.providers), g.models?.length ? t(g.models.length === 1 ? "{n} model" : "{n} models", { n: g.models.length }) : ""].filter(Boolean).join(" · ");
+    } else if (by === "model") {
+      // the model asked for, as the rows' pills name it
+      const name = g.name || g.id;
+      const ic = el("span", "led-ic");
+      ic.dataset.letter = ((name.includes("/") ? name.split("/")[0] : (l.providers?.find((p) => p.id === g.providers?.[0])?.name || name))[0] || "?").toUpperCase();
+      title.append(ic, el("span", "", name));
+      sub.textContent = [ledNames(g.providers, l.providers), g.agents?.length ? t(g.agents.length === 1 ? "by {n} agent" : "by {n} agents", { n: g.agents.length }) : ""].filter(Boolean).join(" · ");
+    } else if (g.id === "none") {
+      title.textContent = t("Without a session ID");
+      sub.textContent = t("These requests carried no session ID and aren't counted as one conversation");
+    } else {
+      title.append(el("span", "", [ledNames(g.agents, l.agents, 1), g.id].filter(Boolean).join(" · ")));
+      sub.textContent = ledTime(g.first) + (g.last !== g.first ? " – " + ledTime(g.last) : "");
+    }
+    title.title = title.textContent;
+    sub.title = sub.textContent;
+    const name = el("span", "led-gn");
+    name.append(title, sub);
+    const share = el("span", "led-share"), p = whole ? Math.min(1, (g.calls || 0) / whole) : 0;
+    const percent = (100 * p).toFixed(1);
+    const track = el("span", "led-share-track"), bar = el("i");
+    bar.style.width = percent + "%";
+    track.append(bar);
+    track.setAttribute("aria-hidden", "true");
+    share.append(el("small", "", t("Request share")), el("b", "led-share-value", percent + "%"), track);
+    share.title = t(ledMis ? "{p}% of the requests in these groups" : "{p}% of all requests", { p: percent });
+    const stat = (v, k, cls, tip) => {
+      const s = el("span", "led-gs" + (cls ? " " + cls : ""));
+      s.append(el("b", "", v), el("small", "", k));
+      if (tip) s.title = tip;
+      return s;
+    };
+    const speed = ledGroupSpeed(g);
+    head.replaceChildren(arrow, name, share,
+      stat(ledNum(g.calls || 0), t("Requests")), stat(fmtN(g.input || 0), t("In")), stat(fmtN(g.output || 0), t("Out")),
+      stat(fmtCost(g) || "—", t("Cost")), stat(ledNum(g.errors || 0), t("Failed"), g.errors ? "bad" : "zero"),
+      stat(ledNum(g.swaps || 0), t("Model mismatches"), g.swaps ? "mis" : "zero"),
+      stat(speed ? (speed.mainParts?.[0] || speed.main) : "—", t("Avg speed"), "speed", speed ? [speed.text, speed.title].filter(Boolean).join("\n") : ""));
+    set(ledGroupOpen.has(id));
+    if (ledGroupOpen.has(id)) ledGroupBody(by, g, box);
+  };
+  ledGroupFill.set(box, fill);
+  fill(l, g, whole);
+  return box;
+}
+
+// an opened group's rows: those read already, read again only when the
+// filters or the group's own figures changed. A group read again keeps its
+// rows shown till the new ones are in, and gets as many as were shown, in
+// reads of LED_READ_MOST.
+function ledGroupBody(by, g, box) {
+  const id = by + "|" + g.id;
+  let body = box.querySelector(":scope > .led-gbody");
+  if (!body) {
+    body = el("div", "led-gbody");
+    box.append(body);
+  }
+  const want = ledParams({ [LED_GROUP_PARAM[by]]: g.id });
+  let got = ledGroupGot.get(id);
+  if (got?.want !== want) {
+    got = { want, g, rows: [], total: 0, seq: 0 };
+    ledGroupGot.set(id, got);
+    body.replaceChildren(el("div", "led-none", t("Loading…")));
+    ledGroupRead(by, box, got, 0, LED_PAGE, false);
+    return;
+  }
+  got.g = g;
+  if (got.calls !== undefined) ledGroupDraw(by, box, got);
+  if (got.calls !== g.calls || got.swaps !== g.swaps || got.count !== g.rows) ledGroupRead(by, box, got, 0, Math.max(LED_PAGE, got.rows.length), false);
+}
+
+// reads n of got's rows from offset, in as many reads as that takes, and
+// shows them once all are in: added to those shown, or in their place
+function ledGroupRead(by, box, got, offset, n, add) {
+  const id = by + "|" + got.g.id, seq = ++got.seq, g = got.g, rows = [];
+  const next = (at) => ledRead("grp:" + id, "usage/requests?", ledParams({ [LED_GROUP_PARAM[by]]: g.id, offset: at, limit: Math.min(LED_READ_MOST, offset + n - at) })).then((page) => {
+    if (ledGroupGot.get(id) !== got || got.seq !== seq) return;
+    rows.push(...(page.rows || []));
+    const total = page.total || 0, to = at + LED_READ_MOST;
+    if (to < offset + n && to < total) return next(to);
+    // a request that came in between two reads moves the rest down one:
+    // the row read twice is shown once
+    const seen = new Set();
+    got.rows = (add ? got.rows.concat(rows) : rows).filter((r) => { const k = ledKey(r); return !seen.has(k) && seen.add(k); });
+    got.total = total;
+    if (!add) Object.assign(got, { calls: g.calls, swaps: g.swaps, count: g.rows });
+    ledGroupDraw(by, box, got);
+  }, (e) => {
+    if (ledAborted(e)) return;
+    const body = box.querySelector(":scope > .led-gbody");
+    if (body?.isConnected && !got.rows.length) body.replaceChildren(el("div", "led-none", e.message));
+    else status(e.message, "err");
+  });
+  next(offset);
+}
+
+// got's rows in the group's table, the ones that didn't change left where
+// they are, as the table's are (renderLedger)
+function ledGroupDraw(by, box, got) {
+  const body = box.querySelector(":scope > .led-gbody");
+  if (!body?.isConnected) return;
+  const g = got.g;
+  const old = body.querySelector(":scope > table.led");
+  const table = old?.dataset.lang === intlLang() ? old : ledTableEl();
+  const env = ledRowEnv(), drawn = new Map(), nodes = [];
+  for (const r of got.rows) {
+    const key = ledKey(r), sig = env + ledOpen.has(key) + JSON.stringify(r);
+    const had = table === old && got.drawn?.get(key);
+    const tr = had && had.sig === sig ? had.tr : ledRowEl(r, key);
+    drawn.set(key, { sig, tr });
+    nodes.push(tr);
+    if (ledOpen.has(key)) nodes.push(ledDetail(r, LED_COLS.length));
+  }
+  got.drawn = drawn;
+  const kept = new Map([...table.querySelectorAll("tr.led-detail")].map((d) => [d.dataset.key, [...d.querySelectorAll("pre")].map((p) => p.scrollTop)]));
+  const rows = table.tBodies[0];
+  nodes.forEach((n, i) => { if (rows.children[i] !== n) rows.insertBefore(n, rows.children[i] || null); });
+  while (rows.children.length > nodes.length) rows.lastElementChild.remove();
+  for (const d of table.querySelectorAll("tr.led-detail")) d.querySelectorAll("pre").forEach((p, i) => { const y = kept.get(d.dataset.key)?.[i]; if (y && p.scrollTop !== y) p.scrollTop = y; });
+  const foot = el("div", "led-gfoot");
+  const n = got.total, m = got.rows.length;
+  foot.append(el("span", "", ledMis ? t(n === 1 ? "{n} mismatch in this group, {m} shown" : "{n} mismatches in this group, {m} shown", { n: ledNum(n), m: ledNum(m) })
+    : t(n === 1 ? "{n} request in this group, {m} shown" : "{n} requests in this group, {m} shown", { n: ledNum(n), m: ledNum(m) })));
+  // the requests turned away and magpie's own probes are listed, and in
+  // none of the header's figures (usage.RowGroup.Rows)
+  const off = ledMis ? 0 : (g.rows || 0) - (g.calls || 0);
+  if (off > 0) foot.append(el("span", "muted", t(off === 1 ? "{n} of them, turned away or a probe, isn't counted in the figures above" : "{n} of them, turned away or probes, aren't counted in the figures above", { n: ledNum(off) })));
+  foot.append(el("span", "grow"));
+  if (m < n) {
+    const more = el("button", "led-more-rows", t("Load {n} more", { n: ledNum(Math.min(LED_PAGE, n - m)) }));
+    more.type = "button";
+    more.onclick = () => { more.disabled = true; ledGroupRead(by, box, got, m, LED_PAGE, true); };
+    foot.append(more);
+  }
+  const only = el("button", "led-more-rows", t("Show only this group"));
+  only.type = "button";
+  only.onclick = () => ledOnlyGroup(by, got.g);
+  foot.append(only);
+  const was = body.querySelector(":scope > .led-gfoot");
+  if (table === old && was) was.replaceWith(foot);
+  else body.replaceChildren(table, foot);
+  ledPopKeep(table);
+  ledFit(true);
+  ledHScroll();
+}
+
+// a group's own rows, ungrouped: its agent, model asked for or session the
+// filter, and no grouping kept for the next visit either
+function ledOnlyGroup(by, g) {
+  if (by === "agent") { ledAgent = g.id; ledLent.add("agent"); }
+  else if (by === "model") { ledRequested = g.id; ledReqName = g.name || g.id; ledLent.add("requested"); }
+  else { ledSession = g.id; ledLent.add("session"); }
+  ledGroup = "";
+  try { localStorage.setItem("magpie.ledGroup", ""); } catch {}
+  ledOffset = 0;
+  loadLedger().catch((e) => status(e.message, "err"));
+}
+
+// the toolbar's grouping, the mismatches' switch and a session or model
+// picked. A route's one request is never grouped: none is shown on, and
+// the grouping waits till the route is let go.
+function ledGroupTools(l) {
+  const seg = $("#ledGroup"), cur = ledGrouping();
+  $("#ledGroupBy").textContent = t("Group by");
+  seg.setAttribute("aria-label", t("Group by"));
+  seg.replaceChildren();
+  for (const [by, name] of LED_GROUPS) {
+    const b = el("button", "opt" + (by === cur ? " on" : ""), t(name));
+    b.type = "button";
+    b.disabled = !!ledRoute;
+    b.setAttribute("aria-pressed", by === cur ? "true" : "false");
+    b.onclick = () => {
+      if (by === ledGroup) return;
+      for (const x of seg.querySelectorAll(".opt")) {
+        x.classList.toggle("on", x === b);
+        x.setAttribute("aria-pressed", x === b ? "true" : "false");
+      }
+      slide(seg, "ledGroup");
+      ledGroup = by;
+      try { localStorage.setItem("magpie.ledGroup", by); } catch {}
+      ledOffset = 0;
+      loadLedger().catch((e) => status(e.message, "err"));
+    };
+    seg.append(b);
+  }
+  slide(seg, "ledGroup");
+  const mis = $("#ledMis"), n = l.swaps || 0;
+  mis.hidden = false;
+  mis.classList.toggle("on", ledMis);
+  mis.setAttribute("aria-pressed", ledMis ? "true" : "false");
+  mis.disabled = !n && !ledMis;
+  mis.textContent = "⚠ " + t("Only served-model mismatches") + " " + ledNum(n);
+  mis.title = t("Show only the requests whose reply named another model than the one asked for, over the whole period");
+  mis.onclick = () => {
+    ledMis = !ledMis;
+    mis.classList.toggle("on", ledMis);
+    mis.setAttribute("aria-pressed", ledMis ? "true" : "false");
+    ledOffset = 0;
+    loadLedger().catch((e) => status(e.message, "err"));
+  };
+  const chip = $("#ledSess");
+  chip.hidden = !ledSession;
+  $("#ledSessLabel").textContent = ledSession === "none" ? t("Without a session ID") : t("Session: {id}", { id: ledSession });
+  const clear = $("#ledSessClear");
+  clear.title = t("Clear filter");
+  clear.setAttribute("aria-label", t("Clear filter"));
+  clear.onclick = () => {
+    ledSession = "";
+    ledOwn("session");
+    ledOffset = 0;
+    loadLedger().catch((e) => status(e.message, "err"));
+  };
+  $("#ledReq").hidden = !ledRequested;
+  const req = $("#ledReqLabel");
+  req.textContent = ledRequested === "none" ? t("Without a model") : t("Model asked for: {model}", { model: ledReqName || ledRequested });
+  req.title = req.textContent;
+  const unreq = $("#ledReqClear");
+  unreq.title = t("Clear filter");
+  unreq.setAttribute("aria-label", t("Clear filter"));
+  unreq.onclick = () => {
+    ledRequested = ""; ledReqName = "";
+    ledOwn("requested");
+    ledOffset = 0;
+    loadLedger().catch((e) => status(e.message, "err"));
+  };
+}
+
+// the rows drawn, by key: a refresh builds again only the ones that changed
+let ledRows = new Map();
+// what a row's cells read besides the row: its language, the day (a time
+// today has no date), the Routing page there to link, the currency
+const ledRowEnv = () => [intlLang(), new Date().toDateString(), featuresOff.has("routing"), fmtCost({ cost: 1, unpriced: 0 })].join("|");
+
+function renderLedger(quiet) {
   const l = ledger;
   const callers = l.callerKeys || [];
   const providers = l.providers || [];
@@ -2186,15 +2914,22 @@ function renderLedger() {
     seg.append(b);
   }
   slide(seg, "ledStatus");
+  ledGroupTools(l);
   $("#ledExport").disabled = !l.total;
 
-  const sum = [t(l.total === 1 ? "{n} request" : "{n} requests", { n: ledNum(l.total) })];
+  // requests as the cells above count them: a try handed on to the next is
+  // a row of its own, but no request
+  const calls = l.calls ?? l.total;
+  const sum = [t(calls === 1 ? "{n} request" : "{n} requests", { n: ledNum(calls) })];
   if (l.total) {
     sum.push(t("{n} in", { n: fmtN(l.input) }), t("{n} out", { n: fmtN(l.output) }), t("{n} cache write", { n: fmtN(l.cache_write) }), t("{n} cache read", { n: fmtN(l.cache_read) }));
     if (l.errors) sum.push(t("{n} failed", { n: l.errors }));
     if (l.retried) sum.push(t("{n} answered on a retry", { n: l.retried }));
   }
   $("#ledSum").textContent = sum.join(" · ");
+  // the period's replies that named another model, the switch beside says
+  // the same count
+  if (l.total && l.swaps) $("#ledSum").append(" · ", el("span", "mis", t(l.swaps === 1 ? "{n} served-model mismatch" : "{n} served-model mismatches", { n: ledNum(l.swaps) })));
   // the two sources and their total, in the same block of cells as the totals
   // above them: what magpie carried, what it only read about in the agents'
   // own session files, and the two together. Each is a filter: picking one
@@ -2225,6 +2960,11 @@ function renderLedger() {
       b.onclick = () => {
         const next = ledVia === pick ? "" : pick;
         if (next === ledVia) return;
+        // pressed at once, as the filters' pickers say theirs: the read can take seconds
+        for (const c of via.children) {
+          c.classList.toggle("on", c === b && !!next || c === via.firstElementChild && !next);
+          c.setAttribute("aria-pressed", c.classList.contains("on") ? "true" : "false");
+        }
         ledVia = next;
         ledOwn("via");
         ledOffset = 0;
@@ -2269,9 +3009,10 @@ function renderLedger() {
   const pager = $("#ledPager");
   if (!l.total) {
     wrap.classList.add("none");
-    const filtered = ledPurpose || ledDay || ledRoute || ledAgent || ledProvider || ledAccount || ledComputer || ledCallerKey || ledModel || ledVia || ledFailed || ledRetried || ledQuery.trim();
+    const filtered = ledPurpose || ledDay || ledRoute || ledAgent || ledProvider || ledAccount || ledComputer || ledCallerKey || ledModel || ledVia || ledFailed || ledRetried || ledMis || ledSession || ledRequested || ledQuery.trim();
     const none = noCallsIn(period);
     wrap.replaceChildren(el("div", "led-none", filtered ? t("No requests match these filters.") : t(none)));
+    ledRows = new Map();
     ledFit();
     ledHScroll();
     pager.hidden = true;
@@ -2279,189 +3020,53 @@ function renderLedger() {
     return;
   }
   wrap.classList.remove("none");
-  const table = el("table", "led");
-  const head = el("tr");
-  const optCls = (opt) => opt === 2 ? " lc-opt2" : opt ? " lc-opt" : "";
-  for (const [name, cls, opt, tip] of LED_COLS) {
-    const th = el("th", (cls || "") + optCls(opt), t(name));
-    if (tip) th.title = t(tip);
-    head.append(th);
+  const note = t("Each request's tokens as its provider reported them; the cost estimated using effective model prices, including custom prices. Export CSV saves every page.");
+  if (ledGrouping()) {
+    ledRows = new Map();
+    renderLedGroups(l, wrap);
+    wrap.style.setProperty("--ledw", wrap.clientWidth + "px");
+    ledFit(quiet);
+    ledHScroll();
+    ledGrow.disconnect();
+    const first = wrap.querySelector("table.led");
+    if (first) ledGrow.observe(first);
+    pager.hidden = true;
+    pager.replaceChildren();
+    $("#ledNote").textContent = note;
+    ledPopPlace();
+    return;
   }
-  table.append(el("thead"), el("tbody"));
-  table.tHead.append(head);
+  ledGroupGot.clear();
+  // the table shown stays, its rows that didn't change left where they are:
+  // a page of rows laid out anew is ~100 ms, the few new ones next to nothing
+  const old = wrap.querySelector(":scope > table.led");
+  const table = old?.dataset.lang === intlLang() ? old : ledTableEl();
+  const env = ledRowEnv();
+  const drawn = new Map(), nodes = [];
+  // (a row's details are drawn again: what couldn't be read is asked again)
+  const put = (r, key, sig, tr) => {
+    drawn.set(key, { sig, tr });
+    nodes.push(tr);
+    if (ledOpen.has(key)) nodes.push(ledDetail(r, LED_COLS.length));
+  };
   for (const r of l.rows) {
-    const bad = ledFailed_(r);
-    const key = ledKey(r);
-    const tr = el("tr", "led-row" + (bad ? " bad" : "") + (ledOpen.has(key) ? " open" : ""));
-    tr.tabIndex = 0;
-    tr.setAttribute("aria-expanded", ledOpen.has(key) ? "true" : "false");
-    const td = (child, cls, title) => {
-      const c = el("td", (cls || "") + optCls(LED_COLS[tr.childElementCount]?.[2]));
-      if (typeof child === "string") c.textContent = child; else c.append(child);
-      if (title) c.title = title;
-      tr.append(c);
-      return c;
-    };
-    const routed = r.route_id && !featuresOff.has("routing"); // the Routing page there to open it on
-    const when = routed ? el("button", "text led-route-link", ledTime(r.t)) : ledTime(r.t);
-    if (routed) {
-      when.title = t("View routing");
-      // the link opens the route, not the row's details as well
-      when.onclick = (e) => { e.stopPropagation(); window.openRoute(r.route_id, r.t).catch((err) => status(err.message, "err")); };
-    }
-    td(when, "when", new Date(r.t).toLocaleString(intlLang()));
-    const who = el("span", "who");
-    // an agent on another computer, whose magpie passed the request on
-    const name = r.agentName || r.agent;
-    // one made on another computer, whose usage sync brought (#542)
-    const at = r.computerName ? t("{agent} · on {computer}", { agent: name, computer: r.computerName }) : name;
-    who.append(icon(r.icon || "generic"), el("span", "", [r.via ? t("{agent} · via {host}", { agent: at, host: r.via }) : at, r.callerKeyLabel || r.callerKeyName].filter(Boolean).join(" · ")));
-    // a request magpie made by itself, apart from the agents' own (#1839);
-    // one that tested the provider (the editor's Test, Detect APIs, a model
-    // list) is counted nowhere, and says so (neiko on Discord)
-    const probe = r.source === "probe";
-    // an agent's call to a tool of magpie's MCP servers (ferock on Discord)
-    const mcp = r.source === "mcp";
-    // magpie's ask of a search API, for a search an agent's model made (cybercaius on Discord)
-    const search = r.source === "search";
-    if (r.agent === "magpie") {
-      const own = ownBadge();
-      if (probe) own.title = probeWhy();
-      who.append(own);
-    }
-    td(who, "", [r.kind, r.session && t("session {id}", { id: r.session })].filter(Boolean).join(" · "));
-    td(r.req || "—", "model" + (r.req ? "" : " faint"), r.req || (probe ? "" : t("Not kept for requests before this version")));
-    const local = r.source === "log";
-    // A session file names the provider it was set up to call, which is
-    // where a call that went straight to a vendor went: nothing stood
-    // between the agent and it. It is the file's own record and not a route
-    // magpie saw, so the id the file carries is shown as it is — never
-    // resolved to a provider's name, which would promote an unknown request
-    // to an official provider — and the row keeps saying it is a local
-    // session. A row whose file names none says only that.
-    const where = local ? (r.session_account || r.session_provider || t("Local session"))
-      : mcp ? [r.providerName && t(r.providerName), r.host].filter(Boolean).join(" · ") || "—"
-      : search ? [r.providerName && t(r.providerName), r.host, r.providerKeyName].filter(Boolean).join(" · ") || "—"
-      : t(r.providerName) + (r.host ? " · " + r.host : "");
-    const wc = td(el("div", "where-name", where), "where", where);
-    const badges = el("div", "source-badges");
-    if (local && r.session_account && r.session_official_login) {
-      const badge = el("span", "src official", t("OFFICIAL"));
-      badge.title = t("Official login confirmed for this account by local login metadata. This does not establish the route or authentication used for this request.");
-      badges.append(badge);
-    }
-    let access = "";
-    if (!local && r.access === "subscription") access = "Subscription";
-    else if (!local && r.access === "api") access = "API";
-    if (access) {
-      const badge = el("span", "src access access-" + r.access, t(access));
-      badge.title = t(access);
-      badges.append(badge);
-    }
-    const proto = ledProtoBadge(r);
-    if (proto) badges.append(proto);
-    // the badge says where the row came from, beside a name that is not
-    // that: a row whose name already says it has nothing to add
-    if (local && (r.session_account || r.session_provider)) {
-      const k = el("span", "src local", t("Local session"));
-      k.title = r.session_provider
-        ? t("Read from the agent's session file, which names the provider it was set up to call. The name shown is that record, not a route magpie saw.")
-        : t("Read from the agent's session file. The account is shown only when local metadata identifies it; no service provider is inferred.");
-      badges.append(k);
-    }
-    // a call an app reported itself (#1874): it went straight to its vendor
-    if (r.source === "reported") {
-      const k = el("span", "src reported", t("Reported"));
-      k.title = t("Reported by the app that made it, through POST /v1/magpie/usage/requests: the call went straight to its vendor, not through magpie.");
-      badges.append(k);
-    }
-    if (probe) {
-      const k = el("span", "src probe", window.kindName ? window.kindName(r.kind) : r.kind);
-      k.title = probeWhy();
-      badges.append(k);
-    }
-    if (mcp) {
-      const k = el("span", "src mcp", "MCP");
-      k.title = t("{agent} called the tool {tool} of magpie's MCP server {server}. Its arguments are not kept, and it is not counted in any total: the model requests it made are rows of their own.", { agent: name, tool: r.req || "—", server: r.host || "magpie" });
-      badges.append(k);
-    }
-    if (search) {
-      // a search API's, or a plan's own search service's (r.provider)
-      const k = el("span", "src search", t(r.provider ? "Web search" : "Search API"));
-      k.title = t("magpie asked {api} to search the web for {agent}. The query is not kept, and it is not counted in any total.", { api: r.req || "—", agent: name });
-      badges.append(k);
-    }
-    if (badges.childElementCount) wc.append(badges);
-    // the model sent is what the gateway sent the vendor: a session file has none
-    // The log names a model, but does not capture the outbound HTTP request.
-    td(r.model || "—", "model " + (r.model ? "model-value" : "faint"), r.source === "log" && r.model ? t("Model recorded in the local session log; the outbound HTTP request was not captured.") : r.model);
-    td(ledServed(r), "model");
-    td(r.effort || "—", r.effort ? "" : "faint");
-    td(ledNum(r.in), "n");
-    td(ledNum(r.out), "n", r.reasoning ? t("{n} reasoning, inside output", { n: ledNum(r.reasoning) }) : "");
-    // a vendor that counts no cache wrote and read none we know of, not 0 (#3464)
-    if (r.cache_unknown) for (let i = 0; i < 2; i++) td("—", "n faint", t("The vendor doesn't count the cache"));
-    else {
-      td(ledNum(r.cache_write), "n" + (r.cache_write ? "" : " faint"), cacheTTLs(r, ledNum).replace(/^ · /, ""));
-      td(ledNum(r.cache_read), "n" + (r.cache_read ? "" : " faint"));
-    }
-    const cost = td(r.priced ? "≈" + fmtCost({ cost: r.cost, unpriced: 0 }) : "—", "n cost" + (r.priced ? "" : " faint"), r.priced ? (r.pricing_model ? t("API price reference") + ": " + r.pricing_model : "") : t("No known price for this model"));
-    if (r.priced && r.pricing_model) {
-      const reference = el("div", "price-reference", t("Price reference: {model}", { model: r.pricing_model }));
-      reference.title = t("Model used for the API price estimate; this is not an observed model forwarding event.");
-      cost.append(reference);
-    }
-    // a session file has the times of its lines: a call took about from the line that
-    // asked for it to its last; some have none, and are dashes, not 0 ms
-    const timed = r.source === "log";
-    const untimed = !Number.isFinite(r.ms) || r.ms <= 0;
-    // the wait for its first token, in a column of its own to compare down
-    // the list: the duration holds it and the writing after it (#2522).
-    // One not streamed, or that failed before any, has none
-    td(r.ttft_ms > 0 ? (timed ? "≈" : "") + ledTook(r.ttft_ms) : "—", "n ttft" + (r.ttft_ms > 0 ? "" : " faint"),
-      r.ttft_ms > 0 ? [t("{n} ms", { n: ledNum(r.ttft_ms) }), timed ? t("About: told from the session file's times, a little more or less than it took") : ""].filter(Boolean).join(" · ") : "");
-    const durationBand = untimed ? "" : r.ms <= 10000 ? "fast" : r.ms <= 30000 ? "slow" : "long";
-    td(untimed ? "—" : (timed ? "≈" : "") + ledTook(r.ms), "n duration " + (untimed ? "faint" : "duration-" + durationBand),
-      [!untimed ? t("{n} ms", { n: ledNum(r.ms) }) : "", !untimed ? t("Duration colors: ≤10 s green · 10–30 s amber · >30 s red") : "", timed && !untimed ? t("About: told from the session file's times, a little more or less than it took") : "", r.ttft_ms ? t("TTFT {ms}", { ms: ledTook(r.ttft_ms) }) : ""].filter(Boolean).join(" · "));
-    // how fast it wrote once it began, as CC Switch's log has it (#860)
-    const v = ledRowSpeed(r), floor = ledFloorSpeed(r), f = ledFloor_(r);
-    const ttft = r.ttft_ms > 0 ? " · " + t("TTFT {ms}", { ms: ledTook(r.ttft_ms) }) : "";
-    td(v ? t("{n} tok/s", { n: ledNum(Math.round(v)) }) : floor ? "≥" + t("{n} tok/s", { n: ledNum(Math.round(floor)) }) : "—", "n speed" + (v || floor ? "" : " faint"),
-      v ? (r.reasoning > 0 && r.first_text_ms > 0 ? t("{n} answer tokens in {ms} after the first text, the {r} reasoning tokens before it left out", { n: ledNum(ledDecode(r).n), ms: ledTook(ledDecode(r).w), r: ledNum(r.reasoning) })
-        : t("{n} output tokens in {ms} after the first", { n: ledNum(ledDecode(r).n), ms: ledTook(ledDecode(r).w) })) + ttft
-        : floor && f.gateway && f.answer ? t("At least: {n} answer tokens in {ms} after the first token, the {r} reasoning tokens left out. No first text was recorded, so reasoning after the first token is counted too", { n: ledNum(f.n), ms: ledTook(f.w), r: ledNum(r.reasoning) }) + ttft
-        : floor && f.gateway ? t("At least: {n} output tokens in {ms}, from the request to its last token, the wait for the first one counted too", { n: ledNum(r.out), ms: ledTook(r.ms) }) + ". " + ledNoSpeed_(r) + ttft
-        : floor && f.answer ? t("At least: {n} answer tokens in {ms} after the first token, the {r} reasoning tokens left out. The session file has no first text, so reasoning after the first token is counted too", { n: ledNum(f.n), ms: ledTook(f.w), r: ledNum(r.reasoning) }) + ttft
-        : floor && f.turn ? t("At least: {n} output tokens in {ms}, the whole turn. What came after the first token ({after}) is too little to time a speed by: under a second or under 100 tokens, so the wait for it is counted too", { n: ledNum(r.out), ms: ledTook(r.ms), after: ledTook(r.ms - r.ttft_ms) }) + ttft
-        : floor ? t("At least: {n} output tokens in {ms}, from the line that asked for it to its last. The session file has no first token, so the wait for it is counted too", { n: ledNum(r.out), ms: ledTook(r.ms) })
-        : ledNoSpeed_(r));
-    const st = el("span", "st");
-    // a status when the gateway logged the call; a session file has none,
-    // and says only whether it went well
-    let word = r.status ? String(r.status) : r.source === "log" || mcp || search ? (bad ? r.err_type || t("Failed") : t("Succeeded")) : "—";
-    if (r.status && bad && r.err_type) word += " · " + r.err_type;
-    if (r.handed_on) word += " · " + t("handed on");
-    else if (r.tries > 1) word += " · " + t("{n} tries", { n: r.tries });
-    st.append(el("i", "dot"), document.createTextNode(word));
-    td(st, "", [r.handed_on && t("This try failed and the request was handed on to the next: the request is counted by how it ended, not by this try"),
-      bad ? (r.err || t("Failed: the agent was answered {status}", { status: r.status })) : ""].filter(Boolean).join("\n"));
-    const detail = ledOpen.has(key) ? ledDetail(r, LED_COLS.length) : null;
-    const toggle = () => {
-      if (ledOpen.delete(key)) { tr.classList.remove("open"); tr.setAttribute("aria-expanded", "false"); tr.nextElementSibling?.classList.contains("led-detail") && tr.nextElementSibling.remove(); return; }
-      ledOpen.add(key);
-      tr.classList.add("open");
-      tr.setAttribute("aria-expanded", "true");
-      tr.after(ledDetail(r, LED_COLS.length));
-    };
-    // a click that ends a text selection is the reader copying, not asking
-    tr.onclick = () => { if (!String(getSelection() || "")) toggle(); };
-    tr.onkeydown = (e) => { if (e.target === tr && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggle(); } };
-    table.tBodies[0].append(tr);
-    if (detail) table.tBodies[0].append(detail);
+    const key = ledKey(r), sig = env + ledOpen.has(key) + JSON.stringify(r);
+    const had = !drawn.has(key) && ledRows.get(key);
+    if (had && had.sig === sig) { put(r, key, sig, had.tr); continue; }
+    const tr = ledRowEl(r, key);
+    put(r, key, sig, tr);
   }
-  wrap.replaceChildren(table);
+  ledRows = drawn;
+  // a body being read keeps its place as new requests come in
+  const kept = new Map([...wrap.querySelectorAll("tr.led-detail")].map((d) => [d.dataset.key, [...d.querySelectorAll("pre")].map((p) => p.scrollTop)]));
+  const body = table.tBodies[0];
+  nodes.forEach((n, i) => { if (body.children[i] !== n) body.insertBefore(n, body.children[i] || null); });
+  while (body.children.length > nodes.length) body.lastElementChild.remove();
+  if (table !== old) wrap.replaceChildren(table);
+  ledPopKeep(table);
+  for (const d of table.querySelectorAll("tr.led-detail")) d.querySelectorAll("pre").forEach((p, i) => { const y = kept.get(d.dataset.key)?.[i]; if (y && p.scrollTop !== y) p.scrollTop = y; });
   wrap.style.setProperty("--ledw", wrap.clientWidth + "px");
-  ledFit();
+  ledFit(quiet);
   ledHScroll();
   ledGrow.disconnect();
   ledGrow.observe(table);
@@ -2478,7 +3083,8 @@ function renderLedger() {
     next.onclick = () => { ledOffset = l.offset + LED_PAGE; loadLedger().catch((e) => status(e.message, "err")); };
     pager.append(prev, el("span", "", t("{a}–{b} of {n}", { a: ledNum(l.offset + 1), b: ledNum(l.offset + l.rows.length), n: ledNum(l.total) })), next);
   }
-  $("#ledNote").textContent = t("Each request's tokens as its provider reported them; the cost estimated using effective model prices, including custom prices. Export CSV saves every page.");
+  $("#ledNote").textContent = note;
+  ledPopPlace();
 }
 
 {

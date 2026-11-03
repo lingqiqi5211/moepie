@@ -96,8 +96,8 @@ function server(lang) {
 }
 
 const L = {
-  en: { speed: "Speed", kpi: "Output speed", fast: "75 tok/s", slow: "10 tok/s", all: "72 tok/s", first: "first token in 600 ms on average · 28 timed replies", sent: "Sent", hint: "Sent, Effort, the first token and the cache are in each row's details" },
-  zh: { speed: "速度", kpi: "输出速度", fast: "75 token/秒", slow: "10 token/秒", all: "72 token/秒", first: "首字平均 600 毫秒 · 28 次计时", sent: "发送模型", hint: "窗口较窄：发送模型、推理强度、首字和缓存在每行的详情里" },
+  en: { speed: "Speed", kpi: "Output speed", fast: "75 tok/s", slow: "10 tok/s", all: "72 tok/s", first: "first token in 600 ms on average · 28 timed replies", sent: "Sent", hint: "Sent, Effort and the cache are in each row's details", ttft: "TTFT" },
+  zh: { speed: "速度", kpi: "输出速度", fast: "75 token/秒", slow: "10 token/秒", all: "72 token/秒", first: "首字平均 600 毫秒 · 28 次计时", sent: "发送模型", hint: "窗口较窄：发送模型、推理强度和缓存在每行的详情里", ttft: "首字耗时" },
 };
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
@@ -136,19 +136,21 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal((await cell(6).textContent()).trim(), "—");
         assert.equal((await cell(7).textContent()).trim(), lang === "en" ? "50 tok/s" : "50 token/秒");
 
-        // the table fits the window; what it leaves out is in the details,
-        // the first token's column (#2522) among them at this width
+        // the table fits the window; what it leaves out is in the details. The
+        // first token's column (#2522) stays at this width, with one model
+        // column where there were three
         const wrap = p.locator("#ledWrap");
         assert(await wrap.evaluate((e) => e.scrollWidth <= e.clientWidth + 1), "the table fits: " + JSON.stringify(await wrap.evaluate((e) => [e.scrollWidth, e.clientWidth])));
         assert.equal(await p.locator("#ledHScroll").isVisible(), false, "no sideways scrollbar");
         assert.equal((await p.locator("#ledTight").textContent()).trim(), w.hint);
         assert(await p.locator("#ledTight").isVisible(), "says where the columns went");
-        await reader.click(p, p.locator(".led tbody tr.led-row").nth(0).locator("td").nth(2));
+        assert(heads.includes(w.ttft), "the first token's column in sight: " + heads.join(", "));
+        await reader.click(p, p.locator(".led tbody tr.led-row").nth(0).locator("td").nth(1));
         const d = p.locator(".led tbody tr.led-detail");
         const shown = await d.locator("dt").evaluateAll((dts) => dts.filter((x) => x.offsetParent).map((x) => x.textContent));
         assert(shown.includes(w.sent), "the details say what was sent: " + shown.join(", "));
         assert(shown.includes(w.speed), "and the speed: " + shown.join(", "));
-        await reader.click(p, p.locator(".led tbody tr.led-row").nth(0).locator("td").nth(2));
+        await reader.click(p, p.locator(".led tbody tr.led-row").nth(0).locator("td").nth(1));
 
         // the period's speed and its first-token time
         const kpi = p.locator("#ledKpi .blk").filter({ hasText: w.kpi });

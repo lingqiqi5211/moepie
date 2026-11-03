@@ -2502,7 +2502,8 @@ cached. Clicked, one opens the Requests tab at that period.
 
 The *Gateway* tab in the app has this as copy buttons and ready-made
 snippets (shell, curl, Python, Node) for each API, the list of model ids,
-and the recent calls; `MAGPIE_DEBUG=1` logs every call to the terminal.
+and a Requests row that opens *Usage* › *Requests*, where each call shows with
+what it sent and got back; `MAGPIE_DEBUG=1` logs every call to the terminal.
 
 **Claude Code** gets `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and the
 model variables in the `env` block of `settings.json`; picking a native

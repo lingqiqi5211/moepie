@@ -4,7 +4,7 @@
 // Settings' Number units picks 万 / 亿 ("15.4 亿", an axis's "8000 万"),
 // the rest staying Chinese either way — every count on the Usage page (#476: the Overview, the
 // Requests tab's totals, chart axis and summary line, the Sessions tab) and
-// in the tray panel (its Usage tab, Routing's "today"), the axes' labels
+// in the tray panel's Usage tab, the axes' labels
 // still ending before the plot starts. The row is
 // Chinese's alone: in English it is hidden and counts are K / M / B anyway.
 // Picking it saves chineseUnits, never scrolls the settings page, and holds
@@ -215,16 +215,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const wan = lang === "zh";
         await check(pp, "#panelUsage .pu-card", !wan, lang + " panel");
         assert.equal((await pp.locator("#panelUsage .pu-tot .blk .v").first().textContent()).trim(), wan ? "15.4 亿" : "1.54B");
-        // Routing's "today" over its list, then in K/M/B once the default is picked again
-        await pp.locator('[data-ptab="routing"]').click();
-        const today = () => pp.locator(".pr-today b").nth(1).textContent();
-        await pp.waitForFunction(() => /\d/.test(document.querySelectorAll(".pr-today b")[1]?.textContent || ""));
-        assert.equal(await today(), wan ? "15.4 亿" : "1.54B", lang + " panel: Routing's today");
         if (wan) {
-          // redrawn as the setting turns, not when a request next comes
-          const now = await pp.evaluate((s) => { applyPrefs({ ...s, chineseUnits: false }); return document.querySelectorAll(".pr-today b")[1]?.textContent; }, store.cur);
-          assert.equal(now, "1.54B", "zh panel: Routing's today in K/M/B again");
-          await pp.locator('[data-ptab="stats"]').click();
+          // in K/M/B once the default is picked again, redrawn as the setting turns
+          await pp.evaluate((s) => applyPrefs({ ...s, chineseUnits: false }), store.cur);
           assert.equal((await pp.locator("#panelUsage .pu-tot .blk .v").first().textContent()).trim(), "1.54B");
           await check(pp, "#panelUsage .pu-card", true, "zh panel, K/M/B");
         }

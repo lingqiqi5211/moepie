@@ -22003,7 +22003,7 @@ function maskPlace(cls, p, x) {
   return mark;
 }
 // maskedBadge: what masking swapped in one request (gateway's Masked), for
-// Recent calls and the Routing page; it opens that request's record
+// the Routing page; it opens that request's record
 function maskedBadge(m) {
   // a request whose values only went as written, which the user set a kind
   // to do, is told in amber with how many

@@ -267,12 +267,14 @@ function routingPage(part) {
   purposeClear.id = "rtPurposeClear";
   purposeClear.append(svg(CROSS, 11, 1.6));
   purposeTools.append(purposePick, purposeClear);
-  const metricOptions = [["duration", "Duration"], ["ttft", "First token"], ["tokens", "Tokens"],
-    ["cache", "Cache hit rate"], ["speed", "Output speed"], ["cost", "Cost"]];
+  // how each went; what it used and cost is Usage's
+  const metricOptions = [["duration", "Duration"], ["ttft", "First token"], ["speed", "Output speed"]];
   let visibleMetrics = metricOptions.map(([key]) => key);
   try {
+    // a pick of tokens, cache or cost alone, kept from before, is the default
     const saved = JSON.parse(localStorage.getItem("magpie.routingMetrics"));
-    if (Array.isArray(saved)) visibleMetrics = metricOptions.map(([key]) => key).filter((key) => saved.includes(key));
+    const known = Array.isArray(saved) ? metricOptions.map(([key]) => key).filter((key) => saved.includes(key)) : [];
+    if (Array.isArray(saved) && (known.length || !saved.length)) visibleMetrics = known;
   } catch {}
   const metricPick = el("button", "text rt-metric-pick"), metricLabel = el("span");
   metricPick.type = "button";
@@ -477,27 +479,7 @@ function routingPage(part) {
     }
     return { prompt, read };
   }
-  function tokenBreakdown(rs) {
-    let input = 0, output = 0, read = 0, write = 0, recorded = 0;
-    for (const r of rs) {
-      if (!r.usage?.length) continue;
-      recorded++;
-      for (const u of r.usage) {
-        input += u.in || 0; output += u.out || 0;
-        read += u.cache_read || 0; write += u.cache_write || 0;
-      }
-    }
-    if (!recorded) return t("No token breakdown was recorded");
-    // The recorded tiers are disjoint: cached input is not counted again
-    // as uncached input, nor is reasoning counted again outside output.
-    const lines = [t("Token breakdown"), ...[["Input (uncached)", input], ["Output", output], ["Cache read", read], ["Cache write", write]]
-      .map(([label, n]) => t(label) + ": " + ledNum(n))];
-    if (rs.some((r) => r.tries.length > 1)) lines.push(t("Includes token usage from billable retries; the row totals show the final attempts"));
-    if (recorded < rs.length) lines.push(t("Breakdown available for {n} of {total} requests", { n: recorded, total: rs.length }));
-    return lines.join("\n");
-  }
   function requestMetrics(r, how) {
-    const { prompt, read } = r.done ? promptOf(r) : { prompt: 0, read: 0 };
     // Both times start at the request, so subtracting them leaves the
     // reply's decode window even after a retry. Output is the reply's,
     // not the prompt or the output of earlier billable tries.
@@ -505,20 +487,15 @@ function routingPage(part) {
     const values = {
       duration: ["duration", "Duration", r.done && r.ms ? took(r.ms) : "—", ""],
       ttft: ["ttft", "First token", r.done && r.ttft ? took(r.ttft) : "—", t("First token")],
-      tokens: ["tokens", "Tokens", r.tokens ? tokens(r.tokens) : "—", tokenBreakdown([r])],
-      cache: ["cache-hit", "Cache", prompt ? pct(100 * read / prompt) : "—",
-        t("Cache hit rate") + ": " + t("The share of the prompt read from the cache")],
       speed: ["speed", "Speed", speed ? t("{n} tok/s", { n: Math.round(speed) }) : "—",
         t("Output tokens a second after the first, over the streamed replies") + ". " + t("A reply that reasoned counts only its answer, from its first text: the reasoning was written before the stream showed it") + ". " + t("No answer text: speed includes reasoning only when visible reasoning streamed; hidden reasoning has no speed")],
-      cost: ["cost", "Cost", routeCost(r), r.priced ? costNote() : t("No known price or token counts for this request")],
     };
     return visibleMetrics.map((key) => values[key]).filter((metric) => metric[2] !== "—");
   }
   function metricElement([cls, label, value, help], compact = false) {
-    const metric = el("span", "rt-metric " + (cls === "cost" ? "cost-metric" : cls));
-    if (!compact || cls === "ttft" || cls === "cache-hit") metric.append(el("span", "k", t(label)));
-    metric.append(el("span", "v" + (cls === "cost" ? " cost" : ""), value));
-    if (compact && cls === "tokens") metric.append(el("span", "k", t("{n} tokens", { n: "" }).trim()));
+    const metric = el("span", "rt-metric " + cls);
+    if (!compact || cls === "ttft") metric.append(el("span", "k", t(label)));
+    metric.append(el("span", "v", value));
     metric.title = help || t(label);
     return metric;
   }
@@ -2864,10 +2841,11 @@ function routingPage(part) {
   // A request's request and response (Fate on Discord: a request on this
   // page, a Codex prediction say, couldn't be opened to what was sent and
   // what came back). The gateway's recent calls keep the last 40 calls'
-  // bodies, cut at 256 KB and in memory only, read when asked as the
-  // Gateway page's are (#1521); once they have let the request go, the
-  // request archive's copy, when it was on. Nothing more is recorded for
-  // it: without the archive an older request says how to keep them.
+  // bodies, cut at 256 KB and in memory only, read only when asked, as
+  // Usage › Requests reads them (#1521); once they have let the request
+  // go, the request archive's copy, when it was on. Nothing more is
+  // recorded for it: without the archive an older request says how to
+  // keep them.
   const bodiesGot = new Map(); // route id → { busy } | its bodies | { gone } | { error }; the last 20
   async function loadBodies(id) {
     const pending = { busy: true };
@@ -3892,11 +3870,6 @@ function routingPage(part) {
   }
   setInterval(refreshSessionNames, 15000);
   window.addEventListener("focus", refreshSessionNames);
-  const costNote = () => t("Estimated at effective model prices, including cache reads and writes; subscription billing may differ. Totals cover only the requests listed here.");
-  function routeCost(r) {
-    if (!r.priced) return "—";
-    return "≈" + fmtCost({ cost: r.cost || 0, unpriced: 0 }) + (r.unpriced ? "+" : "");
-  }
   function groupedRows(rs, rowEls) {
     askUnnamed(rs);
     const groups = new Map();
@@ -3910,9 +3883,9 @@ function routingPage(part) {
     for (const g of groups.values()) {
       let x = sessionRows.get(g.key);
       if (!x) {
-        const b = el(g.key ? "button" : "div", "rt-session"), name = el("span", "nm"), meta = el("span", "summary"), cost = el("span", "cost"), arrow = el("span", "arrow");
-        b.append(arrow, name, meta, cost);
-        x = { b, name, meta, cost, arrow };
+        const b = el(g.key ? "button" : "div", "rt-session"), name = el("span", "nm"), meta = el("span", "summary"), arrow = el("span", "arrow");
+        b.append(arrow, name, meta);
+        x = { b, name, meta, arrow };
         if (g.key) b.onclick = () => {
           if (closedSessions.has(g.key)) closedSessions.delete(g.key); else closedSessions.add(g.key);
           steady(renderHist);
@@ -3921,19 +3894,14 @@ function routingPage(part) {
       }
       const open = !closedSessions.has(g.key);
       const total = g.rows.reduce((s, r) => {
-        s.tokens += r.tokens || 0;
-        if (r.priced) { s.cost += r.cost || 0; s.priced++; }
-        if (!r.priced || r.unpriced) s.unpriced++;
         if (!r.done) s.running++;
         else {
           s.completed++;
-          const { prompt, read } = promptOf(r);
-          if (prompt) { s.prompt += prompt; s.read += read; s.cached++; }
           const d = outcome(r)[1] !== "bad" && decodeOf(r, r.ms, r.ttft, r.firstText);
           if (d) { s.decodeMs += d.w; s.decodeOut += d.n; s.timed++; }
         }
         return s;
-      }, { cost: 0, tokens: 0, priced: 0, unpriced: 0, running: 0, completed: 0, prompt: 0, read: 0, cached: 0, decodeMs: 0, decodeOut: 0, timed: 0 });
+      }, { running: 0, completed: 0, decodeMs: 0, decodeOut: 0, timed: 0 });
       setText(x.arrow, g.key ? open ? "▾" : "▸" : "");
       // Background workers have their own IDs. Label groups made entirely
       // for one purpose without renaming a chat that also made helper calls.
@@ -3949,26 +3917,13 @@ function routingPage(part) {
         : g.rows.some((r) => r.parentMatched) ? t("Title requests were automatically matched using the prompt and the applied chat title.") + "\n" : "";
       x.name.title = g.key ? (name ? name + "\n" : "") + purpose + (folder ? t("Folder") + ": " + folder + "\n" : "") + t("Session id") + ": " + groupSession(g.r) : t("These requests did not provide a session ID; they are not treated as one conversation.");
       const bits = [t(g.rows.length === 1 ? "{n} request" : "{n} requests", { n: g.rows.length })];
-      if (visibleMetrics.includes("tokens") && total.tokens) bits.push(t("{n} tokens", { n: tokens(total.tokens) }));
       if (total.running) bits.push(t("{n} in progress", { n: total.running }));
-      const count = el("span", "session-count", bits[0]), tokenHelp = visibleMetrics.includes("tokens") && total.tokens ? tokenBreakdown(g.rows) : "";
-      if (tokenHelp) {
-        const amount = el("span", "rt-token-total", bits[1]);
-        amount.title = tokenHelp;
-        count.append(" · ", amount);
-      }
-      if (total.running) count.append(" · " + bits[bits.length - 1]);
-      const meta = [count];
+      const meta = [el("span", "session-count", bits.join(" · "))];
       const coverage = (n) => t("Based on {n} of {total} completed requests", { n, total: total.completed });
-      if (g.key && visibleMetrics.includes("cache") && total.prompt) meta.push(metricElement(["cache-hit", "Avg. cache", pct(100 * total.read / total.prompt),
-        t("Total cache reads divided by total prompt tokens; larger prompts carry more weight") + "\n" + coverage(total.cached)]));
       if (g.key && visibleMetrics.includes("speed") && total.decodeMs) meta.push(metricElement(["speed", "Avg. speed", t("{n} tok/s", { n: Math.round(total.decodeOut * 1000 / total.decodeMs) }),
         t("Total output tokens divided by total decode time; excludes waiting and replies without usable timing") + ". " + t("A reply that reasoned counts only its answer, from its first text: the reasoning was written before the stream showed it") + ". " + t("No answer text: speed includes reasoning only when visible reasoning streamed; hidden reasoning has no speed") + "\n" + coverage(total.timed)]));
-      const metaSig = JSON.stringify([bits, tokenHelp, meta.map((e) => [e.textContent, e.title])]);
+      const metaSig = JSON.stringify(meta.map((e) => [e.textContent, e.title]));
       if (x.meta.dataset.sig !== metaSig) { x.meta.replaceChildren(...meta); x.meta.dataset.sig = metaSig; }
-      setText(x.cost, total.priced ? "≈" + fmtCost({ cost: total.cost, unpriced: 0 }) + (total.unpriced ? "+" : "") : "");
-      x.cost.hidden = !visibleMetrics.includes("cost") || !total.priced;
-      x.cost.title = costNote();
       if (g.key) x.b.setAttribute("aria-expanded", String(open));
       els.push(x.b);
       if (open) els.push(...g.els);
@@ -4062,14 +4017,14 @@ function routingPage(part) {
   // signature, ~150 MB of garbage a minute at a request a second, which
   // WebKit let pile up to a gigabyte while the window sat on Routing
   // (#1481). Kept by the route object, it is worked out again only for a
-  // new route, or when the language, the metrics shown, the agent's name
-  // or icon, or the cost's wording changes.
-  const rowSaid = new WeakMap(); // route → { lang, shows, name, icon, cost, said, how, tr, ag, meta, metrics, title, sig }
+  // new route, or when the language, the metrics shown, or the agent's
+  // name or icon changes.
+  const rowSaid = new WeakMap(); // route → { lang, shows, name, icon, said, how, tr, ag, meta, metrics, title, sig }
   function rowSays(r) {
     const lang = document.documentElement.lang, shows = visibleMetrics.join();
-    const ag = agentOf(r.agent), name = agentName(r.agent), icon = ag?.icon, cost = routeCost(r);
+    const ag = agentOf(r.agent), name = agentName(r.agent), icon = ag?.icon;
     let s = rowSaid.get(r);
-    if (s && s.lang === lang && s.shows === shows && s.name === name && s.icon === icon && s.cost === cost) { s.ag = ag; return s; }
+    if (s && s.lang === lang && s.shows === shows && s.name === name && s.icon === icon) { s.ag = ag; return s; }
     const [said, how, tr] = outcome(r);
     const meta = [];
     if (r.tries.length > 1) meta.push(t("{n} tries", { n: r.tries.length }));
@@ -4077,8 +4032,8 @@ function routingPage(part) {
     // all the row says, and its titles
     const title = reqTitle(r, how, tr);
     const sig = JSON.stringify([lang, said, how, title, r.time, r.agent, name, ag?.icon, r.model, r.provider, tagKind(r), r.effort,
-      tr?.effort, tr?.picked, tr?.fixed, tr?.fast, tr?.swapped && tr.done && tryOk(tr) ? [tr.model, tr.served] : 0, tr?.routed && tr.done && tryOk(tr) ? tr.served : 0, tr?.done && tryOk(tr) ? tr.upstream : 0, meta, metrics, cost]);
-    s = { lang, shows, name, icon, cost, said, how, tr, ag, meta, metrics, title, sig };
+      tr?.effort, tr?.picked, tr?.fixed, tr?.fast, tr?.swapped && tr.done && tryOk(tr) ? [tr.model, tr.served] : 0, tr?.routed && tr.done && tryOk(tr) ? tr.served : 0, tr?.done && tryOk(tr) ? tr.upstream : 0, meta, metrics]);
+    s = { lang, shows, name, icon, said, how, tr, ag, meta, metrics, title, sig };
     rowSaid.set(r, s);
     return s;
   }
@@ -7779,8 +7734,7 @@ function routingPage(part) {
   // The gateway's latest requests, as they come, from the same trace the
   // page above plays: who sent each, the model asked for, the provider and
   // account it went to, the model that answered (marked when the reply
-  // names another), how it ended and when; today's calls and tokens over
-  // them, from the Usage page's count, and between the two a small stage:
+  // names another), how it ended and when; and over them a small stage:
   // the agents that asked lately, magpie, and where their requests went,
   // each new request a dot flying there and back. A click opens the
   // window's Routing page on that request; nothing here moves the panel's
@@ -7788,18 +7742,11 @@ function routingPage(part) {
   const pBox = document.body.classList.contains("panel") ? $("#panelRouting") : null;
   if (pBox) pBox.hidden = false;
   const P_ROWS = 6;
-  let today = null, todayAt = 0;
   const pShown = () => pBox && document.body.dataset.ptab === "routing";
   let pStale = false; // a draw skipped while the panel was hidden
   if (pBox) document.addEventListener("visibilitychange", () => { if (pStale && !document.hidden) renderPanel(); });
-  async function loadToday() {
-    todayAt = performance.now();
-    try { today = await api("usage?period=today"); } catch { return; }
-    renderPanel();
-  }
   window.panelRoutingShown = () => {
     inSightAgain();
-    if (pShown() && performance.now() - todayAt > 5e3) loadToday();
     // a group switched on the Routing page or by `magpie group pick`
     // since: the tab shows the model it goes to now
     if (pShown()) loadGroups(true);
@@ -8019,8 +7966,7 @@ function routingPage(part) {
       pDraw();
     }
   }
-  // renderPanel draws the tab; counted is a request just done, for today's
-  // totals to be read again (now and then).
+  // renderPanel draws the tab.
   // While the panel is hidden, which is most of the time, it is drawn
   // again only when its shape changes (what the panel's height is fitted
   // to, every tab measured), and in full once it shows (#2515). A hidden
@@ -8031,27 +7977,20 @@ function routingPage(part) {
   // ~20 MB a minute under 1 request a second, 265k nodes in 11 minutes,
   // and GBs over a day.
   let pShape = "";
-  function renderPanel(counted) {
+  function renderPanel() {
     if (!pBox) return;
-    if (counted && (!todayAt || performance.now() - todayAt > 5e3)) loadToday();
     const picks = panelPicks();
     const rs = [...routes.values()].sort((a, b) => b.id - a.id).slice(0, P_ROWS);
-    const shape = [offMsg, loaded, rs.length, picks?.childElementCount || 0, !!today].join("|");
+    const shape = [offMsg, loaded, rs.length, picks?.childElementCount || 0].join("|");
     if (document.hidden && shape === pShape) { pStale = true; return; }
     pStale = false;
     pShape = shape;
     const v = $("#view-agents"), keep = v.scrollTop;
     const head = el("div", "pr-head");
-    const sum = el("span", "pr-today");
-    if (today) {
-      sum.append(el("span", "", t("today")), " ",
-        el("b", "", String(today.calls || 0)), " ", t(today.calls === 1 ? "call" : "calls"), " · ",
-        el("b", "", fmtN(tokensOf(today) || 0)), " ", t("tokens"));
-    } else sum.append(el("span", "skeleton pr-sk"));
     const open = el("button", "text", t("Open Routing"));
     open.type = "button";
     open.onclick = (e) => { api("window/main?view=routing", {}); e.currentTarget.blur(); };
-    head.append(el("span", anyLive() ? "rt-livedot on" : "rt-livedot"), sum, el("span", "grow"), open);
+    head.append(el("span", anyLive() ? "rt-livedot on" : "rt-livedot"), el("span", "grow"), open);
     const out = [head];
     if (picks) out.push(picks);
     if (!offMsg && loaded && rs.length) out.push(pStage);
@@ -8163,16 +8102,16 @@ function routingPage(part) {
       if (tr?.upstream && tr.done) to.append(upstreamTag(tr));
     }
     const meta = [];
+    // its tokens are Usage's to tell
     if (r.tries.length > 1) meta.push(t("{n} tries", { n: r.tries.length }));
-    if (r.tokens) meta.push(t("{n} tokens", { n: tokens(r.tokens) }));
     if (r.done && r.ms) meta.push(took(r.ms));
     // and how fast it wrote, as the Routing page's row tells it (#2050):
     // none for one that failed or whose speed can't be told
     const speed = r.done && how !== "bad" ? speedOf(r) : 0;
     if (speed) meta.push(t("{n} tok/s", { n: Math.round(speed) }));
-    // where it went and its totals share a line, and the totals, longer
-    // with the speed, go under it, at the right, when both don't fit: the
-    // panel is narrow, and neither the "served …" mark nor the speed is cut
+    // where it went and its tries, time and speed share a line, and those
+    // go under it, at the right, when both don't fit: the panel is narrow,
+    // and neither the "served …" mark nor the speed is cut
     const line = el("span", "pr-line");
     line.append(to, el("span", "meta", meta.join(" · ")));
     b.append(asked, when, line);

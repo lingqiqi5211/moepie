@@ -1,5 +1,8 @@
-// Request rows use the recorded prompt tiers and the reply's decode window,
-// in live and historical lists, grouped or flat. No user state is accessed.
+// Request rows say how each went: its duration, first token and the reply's
+// output speed over its decode window, in live and historical lists, grouped
+// or flat. What it used and cost (tokens, cache hit rate, cost) is Usage's
+// and not on the page; a pick of metrics kept from before that named them
+// loads without them. No user state is accessed.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -19,9 +22,10 @@ function req(id, usage, extra = {}) {
     done: true, status: 200, ms: 11000, ttft: 7000, tokens: 5400, out: 400, usage, priced: true, cost: 0.01, ...extra };
 }
 const fixtures = [
-  // The prompt is 5000 tokens: cache writes belong in its denominator.
+  // The prompt is 5000 tokens: cache writes belong in its denominator (the
+  // story's cache hit rate).
   req(12, [tier(1000, 3000, 1000)]),
-  req(11, [tier(1000)], { out: 2000, ms: 17000, cost: 0 }), // known zero hits and cost; 200 tok/s
+  req(11, [tier(1000)], { out: 2000, ms: 17000, cost: 0 }), // 200 tok/s
   req(10, [tier(0, 5000)]),                      // every input token cached
   req(9, undefined),                            // older history has no tiers
   req(8, [tier(0, 0, 0)]),                       // output only: no prompt ratio
@@ -39,8 +43,7 @@ const fixtures = [
   req(2, [tier(1000, 3000, 1000)], { out: 0 }),
   req(1, [tier(1000, 3000, 1000)], { tries: [{ id: seat.id, start: now.toISOString(), done: true, status: 200, fail: "other", ms: 11000, ttft: 7000 }] }),
   req(0, undefined, { session: "unknown-metrics", tokens: 0, out: 0, ms: 0, ttft: 0, priced: false, cost: 0 }),
-  // Kiro caches but counts no cache tokens: its tier says so, and the row
-  // shows no hit rate, never 0% (zeewell on X)
+  // Kiro caches but counts no cache tokens: its tier says so (zeewell on X)
   req(-1, [{ ...tier(148000, 0, 0, 19), cache_unknown: true }], { session: "kiro-metrics", tokens: 148019, out: 19 }),
 ];
 
@@ -81,33 +84,16 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const rows = page.locator(".rt-req");
       await rows.nth(fixtures.length - 1).waitFor();
       const check = async () => {
-        assert.equal(await rows.nth(0).locator(".cache-hit .v").textContent(), "60%");
-        assert.match(await rows.nth(0).locator(".cache-hit").getAttribute("title"), lang === "zh" ? /缓存命中率.*提示词/ : /Cache hit rate.*prompt/);
         assert.match(await rows.nth(0).locator(".speed .v").textContent(), lang === "zh" ? /^100 token\/秒$/ : /^100 tok\/s$/);
-        assert.match(await rows.nth(1).locator(".cache-hit .v").textContent(), /0%$/);
-        assert.match(await rows.nth(2).locator(".cache-hit .v").textContent(), /100%$/);
-        assert.equal(await rows.nth(1).locator(".cost").textContent(), "≈$0.000", "known zero cost remains visible");
-        assert.equal(await rows.nth(3).locator(".cache-hit").count(), 0, "legacy totals cannot establish a cache rate");
-        assert.equal(await rows.nth(4).locator(".cache-hit").count(), 0, "output is not part of the prompt");
+        assert.match(await rows.nth(1).locator(".speed .v").textContent(), /^200 /);
+        assert.equal(await rows.nth(0).locator(".rt-metric").count(), 3, "duration, first token and speed");
         for (const i of [5, 6, 7, 9, 10, 11]) assert.equal(await rows.nth(i).locator(".speed").count(), 0, `row ${i} has no measured output speed`);
-        assert.match(await rows.nth(8).locator(".cache-hit").textContent(), /60%$/, "sum the billable prompt tiers across retries");
         assert.match(await rows.nth(8).locator(".speed .v").textContent(), /^100 /, "retry wait and earlier output do not change decode speed");
-        assert.equal(await rows.nth(9).locator(".cache-hit").count(), 0, "a request still underway has no final rate");
-        assert.equal(await rows.nth(13).locator(".cache-hit").count(), 0, "a vendor that counts no cache tokens has no hit rate, not 0%");
         assert.equal(await rows.nth(12).locator(".meta").isVisible(), false, "a row with no available metrics has no empty band");
         assert.equal(await rows.locator(".rt-metric").filter({ hasText: "—" }).count(), 0, "unavailable metrics leave no dash placeholders");
         assert.equal(await rows.nth(0).locator(".ttft .k").textContent(), lang === "zh" ? "首字耗时" : "First token");
-        const labels = lang === "zh" ? ["Token 明细", "输入（未缓存）", "输出", "缓存读取", "缓存写入"]
-          : ["Token breakdown", "Input (uncached)", "Output", "Cache read", "Cache write"];
-        assert.equal(await rows.nth(0).locator(".tokens").getAttribute("title"),
-          [labels[0], labels[1] + ": 1,000", labels[2] + ": 400", labels[3] + ": 3,000", labels[4] + ": 1,000"].join("\n"),
-          "the tooltip shows exact, disjoint input, output and cache tiers");
-        assert.match(await rows.nth(1).locator(".tokens").getAttribute("title"), new RegExp(labels[3] + ": 0"), "recorded zero cache tiers are shown");
-        assert.equal(await rows.nth(3).locator(".tokens").getAttribute("title"), lang === "zh" ? "没有记录 Token 明细" : "No token breakdown was recorded", "missing historical tiers are not invented");
-        const retry = await rows.nth(8).locator(".tokens").getAttribute("title");
-        assert(retry.includes(labels[1] + ": 2,000") && retry.includes(labels[2] + ": 1,000") && retry.includes(labels[3] + ": 6,000") && retry.includes(labels[4] + ": 2,000"),
-          "billable retry tiers are included in the breakdown, including earlier output");
-        assert.match(retry, lang === "zh" ? /计费重试.*最终尝试/ : /billable retries.*final attempts/, "retry totals are explained");
+        assert.equal(await page.locator(":is(.rt-req, .rt-session) :is(.cache-hit, .tokens, .cost, .cost-metric, .rt-token-total)").count(), 0,
+          "no tokens, cache hit rate or cost: those are Usage's");
       };
       await check();
       await page.locator(".rt-group-by button").nth(1).click();
@@ -115,17 +101,14 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await group.waitFor();
       await check();
       const unknown = page.locator("button.rt-session").filter({ hasText: "unknown-metrics" });
-      assert.equal(await unknown.locator(".rt-metric").count(), 0, "a session with no measured cache or speed omits both");
-      assert.equal(await unknown.locator(".cost").isVisible(), false, "a session with unknown cost omits it");
-      assert.equal(await page.locator("button.rt-session").filter({ hasText: "kiro-metrics" }).locator(".cache-hit").count(), 0, "a session of uncounted cache has no hit rate");
-      assert.doesNotMatch(await unknown.locator(".summary").textContent(), /token|—/, "a session without token counts has no fake zero or dash");
-      assert.equal(await group.locator(".cache-hit .v").textContent(), "63%", "cache average is weighted by prompt tokens, not by request count");
+      assert.equal(await unknown.locator(".rt-metric").count(), 0, "a session with no measured speed omits it");
+      assert.doesNotMatch(await unknown.locator(".summary").textContent(), /token|—/, "a session says no token count, nor a dash");
+      assert.doesNotMatch(await group.locator(".session-count").textContent(), /token/, "a session's tokens are Usage's");
       assert.match(await group.locator(".speed .v").textContent(), /^133 /, "speed is output divided by summed decode windows, not the mean of individual speeds");
-      assert.match(await group.locator(".cache-hit").getAttribute("title"), /9.*11|11.*9/, "unknown and unfinished requests are excluded and coverage is disclosed");
-      assert.match(await group.locator(".rt-token-total").getAttribute("title"), /11.*12|12.*11/, "session token breakdown discloses missing records");
+      assert.match(await group.locator(".speed").getAttribute("title"), /11/, "unfinished requests are left out, and how many are counted is said");
       await group.click();
       assert.equal(await group.getAttribute("aria-expanded"), "false");
-      assert.equal(await group.locator(".cache-hit .v").textContent(), "63%", "closed sessions retain their metrics");
+      assert.match(await group.locator(".speed .v").textContent(), /^133 /, "closed sessions retain their metrics");
       await group.click();
       await rows.nth(0).click();
       assert.match(await page.locator(".rt-steps").textContent(), lang === "zh" ? /请求缓存命中率 60%/ : /request cache hit rate 60%/);
@@ -139,7 +122,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const boxes = await rows.nth(0).evaluate((row) => {
           const box = (e) => { const r = e.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; };
           return { row: box(row), meta: box(row.querySelector(".meta")), to: box(row.querySelector(".to")),
-            metrics: [...row.querySelectorAll(".cache-hit, .speed, .cost")].map((e) => ({ ...box(e), clipped: e.scrollWidth > e.clientWidth + 1 })) };
+            metrics: [...row.querySelectorAll(".duration, .ttft, .speed")].map((e) => ({ ...box(e), clipped: e.scrollWidth > e.clientWidth + 1 })) };
         });
         for (const b of boxes.metrics) {
           assert(!b.clipped, `metric clipped at ${width}px`);
@@ -163,14 +146,14 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           };
           await tap(page.locator("#rtMetrics"));
           const menu = page.locator(".rt-metric-menu");
-          const cost = menu.getByRole("menuitemcheckbox", { name: lang === "zh" ? "费用" : "Cost", exact: true });
-          await tap(cost);
-          await page.waitForFunction(() => !document.querySelector(".rt-req .cost"));
-          assert.equal(await rows.nth(0).locator(".cost").count(), 0, "narrow layout updates before closing the menu");
+          const speed = menu.getByRole("menuitemcheckbox", { name: lang === "zh" ? "输出速度" : "Output speed", exact: true });
+          await tap(speed);
+          await page.waitForFunction(() => !document.querySelector(".rt-req .speed"));
+          assert.equal(await rows.nth(0).locator(".speed").count(), 0, "narrow layout updates before closing the menu");
           assert.equal(await menu.isVisible(), true);
-          await tap(cost);
-          await rows.nth(0).locator(".cost").waitFor();
-          assert.equal(await rows.nth(0).locator(".cost").count(), 1);
+          await tap(speed);
+          await rows.nth(0).locator(".speed").waitFor();
+          assert.equal(await rows.nth(0).locator(".speed").count(), 1);
           assert.equal(await menu.isVisible(), true);
           await page.keyboard.press("Escape");
         }
@@ -185,30 +168,25 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await check();
       await page.locator(".rt-days .rt-day").nth(0).click();
       await check();
-      // The row signature must notice rates changing even when total tokens,
-      // cost, duration and first-token timing remain unchanged.
+      // The row signature must notice the speed changing even when duration
+      // and first-token timing remain unchanged.
       await page.waitForFunction((count) => document.querySelectorAll(".rt-req").length === count, fixtures.length);
       for (let i = 0; i < 50 && !feed.next; i++) await page.waitForTimeout(20);
       assert(feed.next, "live poll started");
       feed.seq = 13;
       feed.next([req(12, [tier(1920, 2080, 1200, 200)], { seq: 13, out: 200 })]);
-      await page.waitForFunction(() => document.querySelector(".rt-req .cache-hit")?.textContent.endsWith("40%"));
-      assert.match(await rows.nth(0).locator(".speed .v").textContent(), /^50 /);
-      const updated = await rows.nth(0).locator(".tokens").getAttribute("title");
-      assert.match(updated, /1,920/);
-      assert.match(updated, /2,080/);
-      assert.match(updated, /1,200/);
-      assert.match(await group.locator(".rt-token-total").getAttribute("title"), lang === "zh" ? /输出: 4,800/ : /Output: 4,800/, "session tooltip updates even when list token totals do not change");
+      await page.waitForFunction(() => /^50 /.test(document.querySelector(".rt-req .speed .v")?.textContent || ""));
       await page.locator("#rtMetrics").click();
       const menu = page.locator(".rt-metric-menu");
-      assert.equal(await menu.locator('[role="menuitemcheckbox"]').count(), 6);
-      // Keep only cache and speed. Each click updates the list immediately,
-      // with the menu open and focus on the checkbox for continued selection.
-      const labels = lang === "zh" ? ["耗时", "首字耗时", "Token", "费用"] : ["Duration", "First token", "Tokens", "Cost"];
+      assert.deepEqual(await menu.locator('[role="menuitemcheckbox"]').allTextContents(),
+        lang === "zh" ? ["耗时", "首字耗时", "输出速度"] : ["Duration", "First token", "Output speed"]);
+      // Keep only speed. Each click updates the list immediately, with the
+      // menu open and focus on the checkbox for continued selection.
+      const labels = lang === "zh" ? ["耗时", "首字耗时"] : ["Duration", "First token"];
       for (const [i, label] of labels.entries()) {
         const option = menu.getByRole("menuitemcheckbox", { name: label, exact: true });
         await option.click();
-        assert.equal(await rows.nth(0).locator(".rt-metric").count(), 5 - i, "hiding a metric is immediate");
+        assert.equal(await rows.nth(0).locator(".rt-metric").count(), 2 - i, "hiding a metric is immediate");
         assert.equal(await option.getAttribute("aria-checked"), "false");
         assert.equal(await menu.isVisible(), true, "menu remains open while the list updates");
         assert.equal(await option.evaluate((e) => document.activeElement === e), true, "checkbox retains focus");
@@ -220,19 +198,15 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.equal(await menu.isVisible(), true);
       await page.keyboard.press("Space");
       assert.equal(await rows.nth(0).locator(".duration").count(), 0);
-      assert.equal(await group.locator(".cost").isVisible(), false, "session cost hides before closing the menu");
-      assert.doesNotMatch(await group.locator(".session-count").textContent(), /token/);
       await page.keyboard.press("Escape");
       assert.equal(await page.locator("#rtMetrics").getAttribute("aria-expanded"), "false");
-      assert.equal(await rows.nth(0).locator(".rt-metric").count(), 2);
-      assert.equal(await group.locator(".cost").isVisible(), false);
-      assert.doesNotMatch(await group.locator(".session-count").textContent(), /token/);
+      assert.equal(await rows.nth(0).locator(".rt-metric").count(), 1);
       await page.reload();
       await rows.nth(fixtures.length - 1).waitFor();
-      assert.equal(await rows.nth(0).locator(".rt-metric").count(), 2, "metric choices survive a reload");
+      assert.equal(await rows.nth(0).locator(".rt-metric").count(), 1, "metric choices survive a reload");
+      assert.equal(await rows.nth(0).locator(".speed").count(), 1);
       await page.locator("#rtMetrics").click();
-      assert.equal(await menu.locator('[aria-checked="true"]').count(), 2);
-      await menu.getByRole("menuitemcheckbox", { name: lang === "zh" ? "缓存命中率" : "Cache hit rate", exact: true }).click();
+      assert.equal(await menu.locator('[aria-checked="true"]').count(), 1);
       await menu.getByRole("menuitemcheckbox", { name: lang === "zh" ? "输出速度" : "Output speed", exact: true }).click();
       assert.equal(await rows.nth(0).locator(".meta").isVisible(), false, "hiding the last metric is immediate");
       assert.equal(await menu.isVisible(), true);
@@ -241,4 +215,37 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.deepEqual(errors, []);
     });
   }
+
+  test(`${engine}: a pick of metrics kept from before loads without tokens, cache or cost`, async (t) => {
+    const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
+    t.after(() => browser.close());
+    // what was kept → the metrics row 0 shows
+    const cases = [
+      [["tokens", "cost"], ["duration", "ttft", "speed"]], // only metrics gone: the default
+      [["ttft", "cache"], ["ttft"]], // the gone left out
+      [["tokens", "cache", "speed", "cost"], ["speed"]],
+      [[], []], // nothing picked stays nothing
+      ["{", ["duration", "ttft", "speed"]], // unreadable: the default
+    ];
+    for (const [kept, shown] of cases) {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
+      page.setDefaultTimeout(5000);
+      const feed = {}, errors = [];
+      page.on("pageerror", (e) => errors.push(e.message));
+      await page.addInitScript((v) => { try { localStorage.setItem("magpie.routingMetrics", v); } catch {} }, typeof kept === "string" ? kept : JSON.stringify(kept));
+      await page.route("**/*", serve("en", feed));
+      await page.goto("http://magpie.test/?view=routing");
+      const row = page.locator(".rt-req").first();
+      await page.locator(".rt-req").nth(fixtures.length - 1).waitFor();
+      const has = await row.locator(".rt-metric").evaluateAll((es) => es.map((e) => ["duration", "ttft", "speed"].find((c) => e.classList.contains(c))));
+      assert.deepEqual(has, shown, `kept ${JSON.stringify(kept)}`);
+      await page.locator("#rtMetrics").click();
+      const menu = page.locator(".rt-metric-menu");
+      assert.equal(await menu.locator('[role="menuitemcheckbox"]').count(), 3);
+      assert.equal(await menu.locator('[aria-checked="true"]').count(), shown.length);
+      assert.deepEqual(errors, []);
+      feed.next?.([]);
+      await page.close();
+    }
+  });
 }

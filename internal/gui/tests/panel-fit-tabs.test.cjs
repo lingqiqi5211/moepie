@@ -6,8 +6,7 @@
 // by 10px on Routing and 31px on 8 agents, so a scrollbar showed
 // (CyberCaius on Discord, on Windows). And on the first open, while the
 // trace is on its way, the Routing tab's skeleton is as tall as what comes,
-// so the panel doesn't grow when it lands; today's line is asked for at
-// once, not after the trace.
+// so the panel doesn't grow when it lands.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -24,7 +23,7 @@ const routes = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => ({
 }));
 const ids = ["codex", "claude", "gemini", "opencode", "kimi", "qwen", "crush", "goose"];
 
-// held: promises the trace's and today's first answers wait for
+// held: a promise the trace's first answer waits for
 function serve(page, lang, agents, held = {}) {
   const state = { agents: ids.slice(0, agents).map((id) => ({ id, name: id, path: "/test/" + id, fields: [] })), profiles: [], settings: { lang, theme: "light" } };
   const fits = [];
@@ -40,7 +39,6 @@ function serve(page, lang, agents, held = {}) {
       return json({ mine: true, now: now.toISOString(), seq: 108, totals: { requests: 8, rerouted: 0, errors: 0 }, routes });
     }
     if (url.pathname === "/api/usage" && url.searchParams.get("period") === "today") {
-      await held.today;
       return json({ calls: 42, input: 1000000, output: 234000, cache_read: 0, cache_write: 0, reasoning: 0, cost: 0, series: [] });
     }
     if (url.pathname === "/api/window/fit") {
@@ -111,14 +109,12 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await page.context().close();
       }
 
-      // the first open: the trace held back, today's line comes without it,
-      // and Routing's skeleton holds the height its requests take
+      // the first open, the trace held back: Routing's skeleton holds the
+      // height its requests take
       let release;
       const trace = new Promise((r) => { release = r; });
       const { page, fits } = await open(2, { trace });
       await page.locator("#agents .row.agent").nth(1).waitFor();
-      await page.waitForFunction(() => /42/.test(document.querySelector("#panelRouting .pr-today")?.textContent || ""), null, { timeout: 3000 })
-        .catch(() => assert.fail("today's line waited for the trace: " + JSON.stringify(fits)));
       const before = await settled(page, fits);
       release();
       await page.locator("#panelRouting .pr-req").first().waitFor({ state: "attached" });

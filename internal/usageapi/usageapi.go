@@ -16,6 +16,7 @@ import (
 
 	"github.com/yetone/magpie/internal/access"
 	"github.com/yetone/magpie/internal/provider"
+	"github.com/yetone/magpie/internal/settings"
 	"github.com/yetone/magpie/internal/usage"
 )
 
@@ -226,7 +227,15 @@ func PeriodOf(s string) usage.Period {
 
 func FilterOf(q url.Values) usage.Filter {
 	id, _ := strconv.ParseInt(q.Get("route"), 10, 64)
-	return usage.Filter{Day: q.Get("day"), RouteID: id, Model: q.Get("model"), Agent: q.Get("agent"), Provider: q.Get("provider"), Purpose: q.Get("purpose"), Account: q.Get("account"), CallerKey: q.Get("callerKey"), Failed: q.Get("failed") == "1", Retried: q.Get("retried") == "1", Query: q.Get("q"), Computer: q.Get("computer"), Through: viaOf(q.Get("via"))}
+	return usage.Filter{Day: q.Get("day"), RouteID: id, Model: q.Get("model"), Agent: q.Get("agent"), Provider: q.Get("provider"), Purpose: q.Get("purpose"), Account: q.Get("account"), CallerKey: q.Get("callerKey"), Failed: q.Get("failed") == "1", Retried: q.Get("retried") == "1", Query: q.Get("q"), Computer: q.Get("computer"), Through: viaOf(q.Get("via")), Swapped: q.Get("mismatch") == "1", Session: q.Get("session"), Requested: q.Get("requested"), Group: groupOf(q.Get("group"))}
+}
+
+// groupOf is the grouping a request's ?group= names, "" for none.
+func groupOf(s string) string {
+	if slices.Contains(usage.GroupBy, s) {
+		return s
+	}
+	return ""
 }
 
 // viaOf is the source a request's ?via= names, "" for both.
@@ -249,6 +258,18 @@ type Row struct {
 	PricingModel   string `json:"pricing_model,omitempty"`
 	// ComputerName is the other computer a call was made on, shared through sync (#542)
 	ComputerName string `json:"computerName,omitempty"`
+	// ServedAs is how the reply's model reads beside the one sent
+	// (usage.Row.ServedAs), and Sent that one when it isn't Model: the
+	// name the user's wires send it by
+	ServedAs string `json:"served_as,omitempty"`
+	Sent     string `json:"sent,omitempty"`
+}
+
+// RowGroup is a usage.RowGroup with the name the page shows it by: a group
+// magpie found, as its rows' requested model is shown (auto/<model>).
+type RowGroup struct {
+	usage.RowGroup
+	Name string `json:"name,omitempty"`
 }
 
 type Ledger struct {
@@ -286,6 +307,10 @@ type Ledger struct {
 	// Computers: this one ("this", no name) and the others whose usage
 	// sync brought (#542), for the filter; none while there are none
 	Computers []Share `json:"computers,omitempty"`
+	// Groups: the rows' groups while ?group= picks some, each with the
+	// whole period's sums (usage.RowGroup), and how many there are
+	Groups     []RowGroup `json:"groups,omitempty"`
+	GroupCount int        `json:"groupCount,omitempty"`
 }
 
 // Share is a usage.Share with the name and logo the page shows it by.
@@ -351,6 +376,14 @@ func LedgerPage(p usage.Period, f usage.Filter, offset, limit int) Ledger {
 	out.Bucket, out.Series = l.Bucket, l.Series
 	out.Purposes = l.Purposes
 	out.Day = f.Day
+	out.GroupCount = l.GroupCount
+	for _, g := range l.Groups {
+		rg := RowGroup{RowGroup: g}
+		if f.Group == "model" && strings.HasPrefix(g.ID, provider.GroupPrefix) {
+			rg.Name = provider.PublicRef(g.ID)
+		}
+		out.Groups = append(out.Groups, rg)
+	}
 	out.CallerKeys = inKeyOrder(callerGroups(usage.Summary{CallerKeys: l.CallerKeys}))
 	callerLabels := map[string]string{}
 	for _, g := range out.CallerKeys {
@@ -359,9 +392,17 @@ func LedgerPage(p usage.Period, f usage.Filter, offset, limit int) Ledger {
 	// a group magpie found is named as agents pick it, auto/<model>; the
 	// ledger keeps group/auto-<slug> (provider.CanonicalRef)
 	pub := map[string]string{}
+	wires := settings.Load().Wires()
 	for _, r := range page {
 		a := who(r.Agent)
 		lr := Row{Row: r, AgentName: a.Name, Icon: a.Icon, ProviderName: which(r.Provider).Name}
+		if r.Served != "" {
+			sent := r.SentModel(wires)
+			lr.ServedAs = r.ServedAs(sent)
+			if sent != r.Model {
+				lr.Sent = sent
+			}
+		}
 		if req := r.Requested; strings.HasPrefix(req, provider.GroupPrefix) {
 			if _, ok := pub[req]; !ok {
 				pub[req] = provider.PublicRef(req)

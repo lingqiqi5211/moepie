@@ -67,7 +67,7 @@ func bareModel(m string) string {
 // (RelayRenamed).
 func Swapped(sent, served string) bool {
 	a, b := bareModel(sent), bareModel(served)
-	return a != "" && b != "" && squash(a) != squash(b) && a != "auto" && squash(bareModel(provider.EffortFamily(a))) != squash(b) && !GroupRouted(sent, served) && !ServingName(sent, served) && !RelayRenamed(sent, served) && !VendorAlias(sent, served)
+	return a != "" && b != "" && squash(a) != squash(b) && !autoPicked(sent) && squash(bareModel(provider.EffortFamily(a))) != squash(b) && !GroupRouted(sent, served) && !ServingName(sent, served) && !RelayRenamed(sent, served) && !VendorAlias(sent, served)
 }
 
 // vendorAlias is a vendor's own alias for one of its models, as the
@@ -96,6 +96,9 @@ func VendorAlias(sent, served string) bool {
 	}
 	return vendorAlias[a] == b || vendorAlias[b] == a
 }
+
+// autoPicked is whether sent asked the vendor's "auto" to pick the model.
+func autoPicked(sent string) bool { return bareModel(sent) == "auto" }
 
 // ListedAs reports whether served is the name the provider's own model
 // list gives the model asked for: Qoder's plugin lists its free Qwen model
@@ -290,4 +293,44 @@ func GroupRouted(sent, served string) bool {
 // gives it: group/<id>, or auto/<model> for a group it found.
 func remoteGroup(id string) bool {
 	return strings.HasPrefix(id, provider.GroupPrefix) || strings.HasPrefix(id, provider.AutoPrefix)
+}
+
+// How a row's reply named its model beside the one asked for, as
+// Row.ServedAs reads it.
+const (
+	ServedSwapped = "swapped" // another model (Row.Swapped)
+	ServedRouted  = "routed"  // the member a remote group picked (Row.Routed)
+	ServedPicked  = "picked"  // the model a vendor's "auto" picked
+	ServedRenamed = "renamed" // the same model under another name: dated, a serving name, a relay's, a listed one
+	ServedSame    = "same"    // the name sent or asked for
+)
+
+// SentModel is the model r went out to its vendor as, which Swapped judges
+// the reply's by: the name wires (settings.Wires) give it for a call the
+// gateway made, the one recorded for the rest.
+func (r *Row) SentModel(wires map[string]string) string {
+	if r.Source == "" {
+		return provider.SentNameIn(wires, r.priceID(), r.Model, r.Effort)
+	}
+	return r.Model
+}
+
+// ServedAs is how the reply's model reads beside sent (SentModel), so the
+// page shows Swapped's verdict without judging names itself: "" when the
+// reply named none.
+func (r *Row) ServedAs(sent string) string {
+	s := strings.TrimSpace(r.Served)
+	switch {
+	case s == "":
+		return ""
+	case r.Swapped:
+		return ServedSwapped
+	case r.Routed:
+		return ServedRouted
+	case strings.EqualFold(s, strings.TrimSpace(sent)), strings.EqualFold(s, strings.TrimSpace(r.Model)), strings.EqualFold(s, strings.TrimSpace(r.Requested)):
+		return ServedSame
+	case autoPicked(sent):
+		return ServedPicked
+	}
+	return ServedRenamed
 }

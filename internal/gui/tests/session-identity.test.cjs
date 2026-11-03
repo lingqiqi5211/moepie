@@ -123,7 +123,15 @@ for (const engine of ["chromium", "webkit"]) {
         assert((await detail.textContent()).includes("creator@example.com"));
         assert((await detail.textContent()).includes(lang === "zh" ? "不推断供应商" : "no service provider is inferred"));
         const review = page.locator(".led-row").nth(7);
-        assert.equal(await review.locator("td").nth(5).textContent(),"—","an estimate must not claim a served model");
+        assert.equal(await review.locator("td").nth(2).locator(".led-sv").count(),0,"an estimate must not claim a served model");
+        // and its card says there is none
+        const pill = review.locator(".led-mp"), pop = page.locator("#ledPop");
+        await pill.focus();
+        await pop.waitFor();
+        assert.equal((await pop.locator("h4").textContent()).trim(), lang === "zh" ? "没有拿到响应模型" : "No served model");
+        await page.keyboard.press("Escape");
+        await pop.waitFor({ state: "hidden" });
+        await pill.blur();
         assert.equal(await review.locator(".swap").count(),0,"price alias is not observed forwarding");
         assert((await review.locator(".price-reference").textContent()).includes("gpt-5.6-luna"));
         for (const width of [1200,440]) {

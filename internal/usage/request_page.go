@@ -64,6 +64,10 @@ type RequestPage struct {
 	// Heat is the rows by day, as the chart's filter keeps them: only for
 	// the heatmap's own period (HeatmapOf)
 	Heat *Heatmap
+	// Groups are the rows' groups while Filter.Group picks some, GroupCount
+	// how many there are of which at most groupsKept are listed
+	Groups     []RowGroup
+	GroupCount int
 }
 
 type packedRow struct {
@@ -635,6 +639,11 @@ type requestIndex struct {
 	// names a call changes (meta), and read without the lock, since a
 	// part is never written once made
 	parts map[partKey]map[uint64]*chunkPart
+	// partsUsed is when each of parts was last kept or its filter's page
+	// served from pages (partsTick), for keepParts to let the least
+	// recently used go
+	partsUsed map[partKey]uint64
+	partsTick uint64
 	// heatParts are the heatmap's sums of each chunk (heatOf), kept as
 	// parts are but apart, so that the heatmap's never push a page's out
 	heatParts map[partKey]map[uint64]*chunkPart
@@ -851,7 +860,11 @@ func queryPageOf(p Period, f Filter, offset, limit int, readSource func(sessions
 	idx.keepWhileAsked()
 	idx.adopt(st)
 	q := pageKey{p, f, offset, limit, now.Format(time.DateOnly)}
+	// a rolling window's start moves with now, so its cells are never the
+	// same twice; the heatmap's sums are kept apart (heatParts)
+	pk := partKey{p: p, f: f, since: p.Since(now), until: p.Until(now), loc: now.Location()}
 	if page, ok := idx.pages[q]; ok {
+		idx.useParts(pk) // its cells are still being read, if by this page
 		idx.Unlock()
 		return page
 	}
@@ -880,10 +893,7 @@ func queryPageOf(p Period, f Filter, offset, limit int, readSource func(sessions
 		fl.page = page
 		close(fl.done)
 	}()
-	// a rolling window's start moves with now, so its cells are never the
-	// same twice; the heatmap's sums are kept apart (heatParts)
 	var cache *partCache
-	pk := partKey{p: p, f: f, since: p.Since(now), until: p.Until(now), loc: now.Location()}
 	if p == heatmapPeriod {
 		cache = &partCache{old: idx.heatParts[pk], next: map[uint64]*chunkPart{}, pairs: idx.pairs[All], heatOld: idx.heatOld[pk], disk: heatDiskRef{root: idx.root, meta: idx.meta}}
 	} else if p.Last() == 0 {
@@ -937,10 +947,7 @@ func queryPageOf(p Period, f Filter, offset, limit int, readSource func(sessions
 		}
 		shared.heatOld[pk] = cache.heatOldNext
 	} else if cache != nil {
-		if shared.parts == nil || len(shared.parts) >= partSets && shared.parts[pk] == nil {
-			shared.parts = map[partKey]map[uint64]*chunkPart{}
-		}
-		shared.parts[pk] = cache.next
+		shared.keepParts(pk, cache.next)
 		if shared.pageOld == nil || len(shared.pageOld) >= partSets && shared.pageOld[pk] == nil {
 			shared.pageOld = map[partKey]*pageOld{}
 		}
@@ -1285,13 +1292,58 @@ func (idx *requestIndex) keepPairs(p Period, memo *pairMemo) {
 	}
 }
 
+// keepParts keeps next as pk's cells, and lets the least recently used
+// sets (useParts) go while there are more than partKeys of them or they
+// hold more than partBytes; next is always kept. idx is locked.
+func (idx *requestIndex) keepParts(pk partKey, next map[uint64]*chunkPart) {
+	if idx.parts == nil {
+		idx.parts, idx.partsUsed = map[partKey]map[uint64]*chunkPart{}, map[partKey]uint64{}
+	}
+	idx.partsTick++
+	idx.parts[pk], idx.partsUsed[pk] = next, idx.partsTick
+	size := int64(0)
+	for _, set := range idx.parts {
+		size += partsBytes(set)
+	}
+	for len(idx.parts) > 1 && (len(idx.parts) > partKeys || size > partBytes) {
+		var least partKey
+		at := uint64(math.MaxUint64)
+		for k, t := range idx.partsUsed {
+			if k != pk && t < at {
+				least, at = k, t
+			}
+		}
+		size -= partsBytes(idx.parts[least])
+		delete(idx.parts, least)
+		delete(idx.partsUsed, least)
+	}
+}
+
+// useParts marks pk's cells used now: a page served from pages is of them,
+// and is built from them again once a new call drops it. idx is locked.
+func (idx *requestIndex) useParts(pk partKey) {
+	if _, ok := idx.partsUsed[pk]; ok {
+		idx.partsTick++
+		idx.partsUsed[pk] = idx.partsTick
+	}
+}
+
+// partsBytes is about what a set of a chunk's cells holds.
+func partsBytes(set map[uint64]*chunkPart) int64 {
+	n := int64(0)
+	for _, part := range set {
+		n += int64(len(part.cells))*int64(unsafe.Sizeof(pageCell{})) + int64(len(part.days))*int64(unsafe.Sizeof(Day{}))
+	}
+	return n
+}
+
 func (idx *requestIndex) adopt(st requestState) {
 	if idx.root != st.root || idx.meta != st.meta {
 		idx.root, idx.meta = st.root, st.meta
 		idx.chunks = map[string]*rowChunk{}
 		idx.pages = nil
 		idx.heats = nil
-		idx.parts = nil
+		idx.parts, idx.partsUsed = nil, nil
 		idx.heatParts = nil
 		idx.heatOld = nil
 		idx.pageOld = nil
@@ -2360,6 +2412,10 @@ func buildRequestBlocksIn(p Period, f Filter, offset, limit int, now time.Time, 
 	chartGroups := map[string]map[string]*Share{}
 	seriesGroups := map[string]map[string]*Share{}
 	keys := keyer{}
+	var rowGroupSums *rowGroups
+	if f.Group != "" {
+		rowGroupSums = newRowGroups(f.Group)
+	}
 	for _, d := range Dimensions {
 		groups[d] = map[string]*Share{}
 		chartGroups[d] = map[string]*Share{}
@@ -2433,7 +2489,19 @@ func buildRequestBlocksIn(p Period, f Filter, offset, limit int, now time.Time, 
 			}
 			// a call turned away, and a request magpie sent on its own
 			// (SourceProbe), are listed and counted in no total
-			if cell.bits&cellUncounted != 0 {
+			uncounted := cell.bits&cellUncounted != 0
+			if rowGroupSums != nil && cell.bits&cellGrouped != 0 {
+				var d *Totals
+				if !uncounted {
+					d = &cell.d
+				}
+				listed := 0
+				if keep {
+					listed = cell.n
+				}
+				rowGroupSums.add(cell.group.Value(), agent, prov, cell.model.Value(), cell.first, cell.last, listed, d)
+			}
+			if uncounted {
 				continue
 			}
 			d := &cell.d
@@ -2537,6 +2605,9 @@ func buildRequestBlocksIn(p Period, f Filter, offset, limit int, now time.Time, 
 		}
 	}
 	out.Computers, out.Names = computerShares(computers, names)
+	if rowGroupSums != nil {
+		out.Groups, out.GroupCount = rowGroupSums.list(f)
+	}
 	var base []Point
 	var chartSince time.Time
 	chartSince, out.Bucket, base = timeline(p, now, first)
@@ -2640,6 +2711,29 @@ func pageFromLedgerAt(p Period, f Filter, offset, limit int, all Ledgered, now t
 	slices.Sort(out.Purposes)
 	out.CallerKeys = callerGroups(callers)
 	out.Accounts = callerGroups(accounts)
+	if f.Group != "" {
+		g := f
+		g.Swapped = false
+		sums := newRowGroups(f.Group)
+		for _, r := range all.Filtered(g).Rows {
+			uncounted := r.IsRejected() || r.IsProbe()
+			if uncounted && f.Swapped {
+				continue
+			}
+			var d *Totals
+			if !uncounted {
+				d = &Totals{}
+				d.addRow(r)
+			}
+			listed := 0
+			if !f.Swapped || r.Swapped {
+				listed = 1
+			}
+			ms := r.Time.UnixMilli()
+			sums.add(rowGroupKey(f.Group, &r), r.Agent, r.Provider, r.Model, ms, ms, listed, d)
+		}
+		out.Groups, out.GroupCount = sums.list(f)
+	}
 	offset = min(offset, len(l.Rows))
 	out.Rows = l.Rows[offset:min(len(l.Rows), offset+limit)]
 	chartRows := l.Rows

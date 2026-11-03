@@ -467,19 +467,14 @@
 .rt-metric { display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; min-width: 0; }
 .rt-metric .k { color: var(--muted); }
 .rt-metric .v { font-variant-numeric: tabular-nums; }
-:is(.rt-req, .rt-probe) .tokens, .rt-session .rt-token-total { cursor: help; }
 :is(.rt-req, .rt-probe) .meta .retry-count { white-space: nowrap; }
 :is(.rt-req, .rt-probe) .meta > * + .rt-metric::before { content: "·"; margin: 0 2px; }
-:is(.rt-req, .rt-probe) .meta .cost-metric { margin-left: 10px; color: var(--fg-2); }
-:is(.rt-req, .rt-probe) .meta .cost-metric::before { display: none; }
 :is(.rt-req, .rt-probe) .meta[hidden] { display: none; }
 .rt-session { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; padding: 9px 8px; margin-top: 4px; font: inherit; font-size: 12px; text-align: left; color: var(--fg-2); background: var(--card-2); border: 1px solid var(--line); border-radius: 8px; }
 button.rt-session { cursor: pointer; }
 .rt-session .arrow { flex: none; width: 10px; color: var(--muted); }
 .rt-session .nm { flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .rt-session .summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.rt-session > .cost { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
-.rt-session > .cost[hidden] { display: none; }
 .rt-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .rt-filters > .rt-days { flex: 1; min-width: 0; }
 .rt-group-by { flex: none; }
@@ -1019,10 +1014,7 @@ button.rt-session { cursor: pointer; }
 .panel-routing { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 2px 2px 6px; }
 .pr-head { display: flex; align-items: center; gap: 8px; min-height: 22px; padding: 0 2px 0 4px; font-size: 12px; color: var(--muted); }
 .pr-head .rt-livedot { margin-left: 0; flex: none; }
-.pr-today { font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pr-today b { color: var(--fg); font-weight: 600; }
 .pr-head .text { flex: none; font-size: 12px; }
-.skeleton.pr-sk { display: inline-block; width: 150px; height: 9px; border-radius: 4px; vertical-align: middle; }
 /* the stage and the requests to come, their own size, as skeletons */
 .skeleton.pr-ghost { border-radius: 11px; }
 .pr-ghost > * { visibility: hidden; }

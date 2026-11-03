@@ -5,6 +5,7 @@ package usage
 // what they cost at the effective price — to set beside a vendor's own bill.
 
 import (
+	"cmp"
 	"encoding/csv"
 	"io"
 	"slices"
@@ -83,7 +84,30 @@ type Filter struct {
 	// switchable. Not Record.Via, which is the computer that forwarded the
 	// call (#542).
 	Through string
+	// Swapped keeps the rows whose reply named another model (Row.Swapped);
+	// Session the calls of one agent session, NoSession those of none;
+	// Requested those that asked for one model (the model sent, for a row
+	// that kept none), NoModel those of neither
+	Swapped   bool
+	Session   string
+	Requested string
+	// Group is what the page's groups are of (GroupBy); it narrows nothing
+	Group string
 }
+
+// NoSession is the Filter.Session of the calls that carried no session id,
+// NoAgent the Filter.Agent of those of no agent, and NoModel the
+// Filter.Requested of those that named no model: the groups of rows with
+// none (RowGroup).
+const (
+	NoSession = "none"
+	NoAgent   = "none"
+	NoModel   = "none"
+)
+
+// GroupBy are what a requests page can group its rows by (Filter.Group):
+// each group is the rows Agent, Model or Session picks.
+var GroupBy = []string{"agent", "model", "session"}
 
 // SourceGateway and SourceSession are the two sources a request row is of,
 // which Row.Source spells "" and "log": the calls magpie's own gateway
@@ -126,6 +150,9 @@ func (f Filter) keepsRow(r *Row) bool {
 	if f.Through != "" && SourceOf(*r) != f.Through {
 		return false
 	}
+	if f.Swapped && !r.Swapped {
+		return false
+	}
 	return f.keepsRecord(&r.Record, r.SessionRole != "", r.Subagent, r.ParentAgent)
 }
 
@@ -159,14 +186,24 @@ func (f Filter) keepsRecord(r *Record, codexIdentity bool, subagent, parentAgent
 	if f.CallerKey != "" && r.CallerKeyID != f.CallerKey && (f.CallerKey != NoCallerKey || r.CallerKeyID != "") {
 		return false
 	}
+	if f.Session != "" && r.Session != f.Session && (f.Session != NoSession || r.Session != "") {
+		return false
+	}
 	if f.RouteID != 0 && r.RouteID != f.RouteID {
 		return false
 	}
 	if f.Model != "" && r.Model != f.Model {
 		return false
 	}
-	if f.Agent != "" && ReportedAs(r.Agent) != f.Agent {
-		return false
+	if f.Requested != "" {
+		if m := cmp.Or(r.Requested, r.Model); m != f.Requested && (f.Requested != NoModel || m != "") {
+			return false
+		}
+	}
+	if f.Agent != "" {
+		if a := ReportedAs(r.Agent); a != f.Agent && (f.Agent != NoAgent || a != "") {
+			return false
+		}
 	}
 	if f.Provider != "" && r.Provider != f.Provider {
 		return false
@@ -284,6 +321,7 @@ func gatewayRecords(since time.Time) []Record {
 func (l Ledgered) Filtered(f Filter) Ledgered {
 	g := f
 	g.Zone = nil // the zone narrows nothing but through Day
+	g.Group = ""
 	if g == (Filter{}) {
 		return l
 	}
@@ -441,11 +479,14 @@ func ledgerMatched(since, until time.Time, f Filter, recs []Record, logs []sessi
 		if r.Provider != "" && !slices.Contains(providers, r.Provider) {
 			providers = append(providers, r.Provider)
 		}
+		// judged on the provider the call went out through (priceID), not
+		// one it was merged into since, as the page's rows are
+		// (readRequestBlocks): the user's wires name that one's models
 		sent := r.Model
 		if source == "" {
-			sent = provider.SentNameIn(wires, r.Provider, r.Model, r.Effort)
+			sent = provider.SentNameIn(wires, r.priceID(), r.Model, r.Effort)
 		}
-		row := codexIdentityRow(Row{Record: r, Swapped: r.Served != "" && Swapped(sent, r.Served) && !ListedAs(r.Provider, r.Model, r.Served), Routed: GroupRouted(sent, r.Served), Source: source}, actor, codexIdentities)
+		row := codexIdentityRow(Row{Record: r, Swapped: r.Served != "" && Swapped(sent, r.Served) && !ListedAs(r.priceID(), r.Model, r.Served), Routed: GroupRouted(sent, r.Served), Source: source}, actor, codexIdentities)
 		if !f.keepsRow(&row) {
 			return
 		}
@@ -789,6 +830,9 @@ func (t *Totals) addRow(r Row) {
 		t.FloorN++
 	}
 	t.count(r.Record)
+	if r.Swapped {
+		t.Swaps++
+	}
 	t.Input += r.Input
 	t.Output += r.Output
 	t.CacheRead += r.CacheRead
@@ -812,6 +856,7 @@ func (t *Totals) plus(d *Totals) {
 	t.Errors += d.Errors
 	t.Retried += d.Retried
 	t.Loops += d.Loops
+	t.Swaps += d.Swaps
 	t.Input += d.Input
 	t.Output += d.Output
 	t.CacheRead += d.CacheRead

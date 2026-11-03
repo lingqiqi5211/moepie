@@ -52,6 +52,15 @@ The choice is made by `told` in
 Verification: `routing-concurrent-hold.test.cjs` in five languages, Chromium
 and WebKit.
 
+### Requests by category
+
+Usage → Requests keeps summary and charts above the request browser, with
+grouping controls immediately before request groups. New viewers start grouped by Agent; model, session and flat views remain
+available, and an explicit flat choice survives reload. Each group keeps its
+whole-period totals and loads request rows on demand. Trend and heatmap
+sections stay above the category controls and request groups. Session groups
+retain the separate group for calls without a session ID.
+
 ### Routing request story
 
 The request detail fills the same available width as the Context card,
@@ -415,16 +424,27 @@ axis controls.
 recent-call metadata without request or response bodies, including after
 provider writes (#1521: forty calls' bodies made `/api/providers` about
 20 MB). Each call in the gateway's 40-call ring has an `id`, numbered in
-`Server.record`. Opening a recent call on Gateway fetches its captured
-previews from `GET /api/gateway/call?id=…` (`Server.RecentCall`), sent
+`Server.record`, and the Routing request it was (`Call.Route`, below).
+`GET /api/gateway/call?id=…` (`Server.RecentCall`) or `?route=…`
+(`Server.RouteCall`) returns one call's captured previews, sent
 `Cache-Control: no-store`. The route sits on the same mux as the rest of
 the API, so `magpie web`'s key guard covers it. The bodies are the ones the
 ring kept, masked as the request was (`redacted`); the route doesn't fetch
 S3 or change capture, export or archival. A call evicted from the ring, or
-a gateway served by another magpie, returns 404. The page keys a row by
-that id (`callRow`), keeps fetched bodies in memory while their calls
-remain in the list, preserves them across summary refreshes, and offers a
-retry after a failed read. See `TestRecentCallBodiesOnDemand` and
+a gateway served by another magpie, returns 404.
+
+The Gateway page lists no calls: its Requests row (`#gwRequests`) opens
+Usage › Requests. There a row opened fetches its bodies by
+`?route=` (`ledBodies` in `plugins/usage/page.js`), only then and once; the
+last 20 are kept in memory, so the list read anew doesn't ask again. A
+failed read says why and offers Try again. A 404 says, in Routing's words,
+that magpie keeps only the last 40 requests' bodies and that Request
+archive keeps every one; it is kept only while the row stays open, so a row
+opened again asks again. An archived row shows the archive's copy instead,
+and a try handed on, another computer's row and a session file's row ask
+nothing. The response has no masking record, so the ledger shows the
+bodies as captured; Routing's log head says whether they were masked
+(`maskedBadge`). See `TestRecentCallBodiesOnDemand` and
 `recent-call-bodies.test.cjs`.
 
 A request on the Routing page opens to the same bodies (Fate on Discord):

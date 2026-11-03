@@ -413,3 +413,38 @@ func TestDeletedProviderMergedIntoAnother(t *testing.T) {
 		t.Fatal("merged into a provider there is not")
 	}
 }
+
+// A call of a provider deleted and merged into another is judged by the
+// upstream names the user gave its own models, on every path: the export's
+// rows (Ledger) read them under the provider merged into, which has none,
+// and found the reply naming the very model sent another one.
+func TestMergedProviderJudgedByItsOwnWires(t *testing.T) {
+	reportedHome(t)
+	for _, p := range []provider.Provider{
+		{ID: "relay", Name: "Old relay", Key: "k", Chat: "http://127.0.0.1:1/v1", Models: []string{"gpt-9"}},
+		{ID: "main", Name: "Main", Key: "k2", Chat: "http://127.0.0.1:2/v1", Models: []string{"gpt-9"}},
+	} {
+		if err := provider.Save(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	Append(Record{Time: time.Now().Add(-time.Hour), Agent: "codex", Provider: "relay", Model: "gpt-9", Served: "nimbus-3", Input: 10, Output: 1, Status: 200})
+	if err := provider.Delete("relay"); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.MergeDeleted("relay", "main"); err != nil {
+		t.Fatal(err)
+	}
+	s := settings.Load()
+	s.ModelWires = map[string]string{"relay/gpt-9": "nimbus-3"}
+	if err := settings.Save(s); err != nil {
+		t.Fatal(err)
+	}
+	rows, _, _ := Ledger(All, Filter{})
+	page := QueryPage(All, Filter{}, 0, 50)
+	for _, got := range [][]Row{rows, page.Rows} {
+		if len(got) != 1 || got[0].Provider != "main" || got[0].Swapped {
+			t.Fatalf("rows %+v", got)
+		}
+	}
+}

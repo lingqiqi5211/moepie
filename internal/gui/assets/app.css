@@ -1474,10 +1474,13 @@ body.masked :hover > .acct-eye, body.masked .pq-card:hover .acct-eye, body.maske
 .led-arch-err { font-size: 11px; color: var(--red); cursor: default; }
 .led-sum { margin: 0 2px 7px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* the table scrolls sideways in its own box, never the page */
+/* the table and its sideways bar: the bar sticks to the window's foot only
+   while the table is in it, not over the chart above it */
+.led-table { display: flex; flex-direction: column; min-width: 0; }
 .led-wrap { max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
 .led-wrap.none { overflow: visible; }
-.led-wrap.led-pending > * { opacity: .55; transition: opacity .15s; }
-@media (prefers-reduced-motion: reduce) { .led-wrap.led-pending > * { transition: none; } }
+.led-wrap.led-pending > *, #ledSum.led-pending { opacity: .55; transition: opacity .15s; }
+@media (prefers-reduced-motion: reduce) { .led-wrap.led-pending > *, #ledSum.led-pending { transition: none; } }
 /* its own scrollbar is at the table's foot, fifty rows down and out of
    sight (#799): this one stands in for it, held at the bottom of the window
    while the table is in it, and drawn always, the Mac's overlay one too */
@@ -1507,6 +1510,84 @@ body.masked :hover > .acct-eye, body.masked .pq-card:hover .acct-eye, body.maske
 #ledRoute { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
 #ledRoute[hidden] { display: none; }
 #ledRouteClear { font-size: 18px; padding: 2px 6px; }
+#ledSess, #ledReq { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; color: var(--muted); font-size: 12px; }
+#ledSess[hidden], #ledReq[hidden] { display: none; }
+#ledSessLabel, #ledReqLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ledSessClear, #ledReqClear { font-size: 18px; padding: 2px 6px; }
+/* the switch to the replies that named another model: amber, as their mark */
+.sess-pick.led-mis { max-width: none; color: var(--amber); }
+.sess-pick.led-mis.on { background: var(--amber-soft); border-color: color-mix(in srgb, var(--amber) 40%, var(--line)); }
+.sess-pick.led-mis:disabled { color: var(--faint); }
+.led-sum .mis { color: var(--amber); }
+/* a request's model: the pill of the one asked for, the reply's under it */
+.led-mc { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
+.led-mp { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 1px 8px 1px 2px; border: 1px solid var(--line); border-radius: 999px; background: var(--pill); color: var(--fg-2); font: inherit; font-size: 11.5px; cursor: default; }
+.led-mp:hover, .led-mp[aria-expanded="true"] { background: var(--pill-hover); color: var(--fg); }
+.led-mp:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.led-mn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.led-mp::before, .led-ic::before { content: attr(data-letter); flex: none; display: grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; background: var(--card); color: var(--accent); font-size: 9px; font-weight: 700; line-height: 1; }
+.led-ic { display: inline-flex; }
+.led-sv { display: flex; align-items: center; gap: 4px; max-width: 100%; font-size: 10.5px; color: var(--muted); }
+.led-sv .k { flex: none; }
+.led-sv .v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.led-sv.swapped { color: var(--amber); }
+.led-sv .v.swap { padding: 0 5px; }
+/* the card of the three names, the page's own, over the table's box */
+.led-pop { position: fixed; z-index: 60; box-sizing: border-box; width: min(400px, calc(100vw - 16px)); padding: 11px 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--fg); box-shadow: var(--shadow); font-size: 12px; line-height: 1.55; white-space: normal; }
+.led-pop[hidden] { display: none; }
+.led-pop h4 { margin: 0 0 7px; font-size: 12.5px; font-weight: 600; overflow-wrap: anywhere; }
+.led-pop h4.mis, .led-pop dd.mis { color: var(--amber); }
+.led-pop dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0 0 8px; }
+.led-pop dt { color: var(--muted); }
+.led-pop dd { margin: 0; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.led-pop p { margin: 0 0 4px; color: var(--fg-2); }
+.led-pop p.rule { margin: 6px 0 0; color: var(--muted); font-size: 11px; }
+.led-pop p.rule + p.rule { margin-top: 2px; }
+/* the rows by group: a header each, its rows under it once opened */
+/* Requests are browsed by category; the controls sit below the charts. */
+.led-explorer { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; padding: 10px 0 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line); background: var(--bg); }
+.led-explorer .led-groupby { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.led-explorer .led-by { font-size: 13px; font-weight: 600; color: var(--fg); }
+.led-explorer .segs .opt { min-height: 30px; padding-left: 16px; padding-right: 16px; font-size: 12px; }
+.led-wrap:has(> .led-groups) { border: 0; background: none; }
+.led-groups { display: flex; flex-direction: column; gap: 10px; }
+.led-grp { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); }
+.led-groups > .led-legend { border-bottom: 0; padding: 0 0 4px; }
+.led-groups .led-gh { padding: 12px 14px; }
+.led-groups .led-gn b { font-size: 13px; }
+.led-groups .led-gs b { font-size: 14px; }
+.led-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 8px 12px; border-bottom: 1px solid var(--line-2); font-size: 11.5px; color: var(--muted); }
+.led-grp + .led-grp { border-top: 1px solid var(--line-2); }
+.led-gh { box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; width: 100%; padding: 9px 12px; border: 0; background: none; color: var(--fg); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.led-gh:hover { background: var(--card-2, var(--pill)); }
+.led-gh:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.led-arrow { flex: none; width: 10px; color: var(--muted); font-size: 10px; }
+.led-gn { flex: 1 1 200px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.led-gn b { display: flex; align-items: center; gap: 6px; min-width: 0; font-weight: 600; }
+.led-gn b > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.led-gn b .ic { width: 14px; height: 14px; flex: none; }
+.led-gn small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); }
+.led-share { flex: 0 0 108px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 4px 8px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.led-share small { min-width: 0; color: var(--muted); font-size: 10.5px; overflow-wrap: anywhere; }
+.led-share-value { font-weight: 500; color: var(--fg-2); white-space: nowrap; }
+.led-share-track { grid-column: 1 / -1; height: 4px; border-radius: 3px; background: var(--pill); overflow: hidden; }
+.led-share-track i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.led-gs { flex: none; display: flex; flex-direction: column; align-items: flex-end; width: 66px; font-variant-numeric: tabular-nums; }
+.led-gs.mis { width: 104px; }
+.led-gs.speed { width: auto; min-width: 120px; }
+.led-gs.speed b { max-width: none; overflow: visible; text-overflow: clip; }
+.led-gs b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.led-gs small { max-width: 100%; font-size: 10.5px; line-height: 1.4; color: var(--muted); white-space: normal; overflow-wrap: anywhere; text-align: right; }
+.led-gs.zero b { color: var(--faint); font-weight: 500; }
+.led-gs.bad b { color: var(--red); }
+.led-gs.mis b { color: var(--amber); }
+.led-gbody { border-top: 1px solid var(--line-2); background: var(--card-2, var(--pill)); }
+.led-gbody .led td, .led-gbody .led th { background: var(--card); }
+.led-gfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 7px 12px; border-top: 1px solid var(--line-2); font-size: 11.5px; color: var(--muted); }
+.led-gfoot .grow { flex: 1; }
+.led-more-rows { height: 24px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--fg); font: inherit; font-size: 11.5px; cursor: default; }
+.led-more-rows:hover { background: var(--pill); }
+.led-more-rows:disabled { opacity: .55; }
 .led .model, .led .where { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
 /* a window too narrow for every column leaves out those the row's details
    say (#860), and narrows the names */
@@ -2548,6 +2629,11 @@ body.window .ag-sk-icon { width: 22px; height: 22px; border-radius: 6px; }
 /* a request's row on the Usage page: its archive under what is known of it */
 .led-archive { margin-top: 10px; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; }
 .led-archive .call-details { grid-template-columns: minmax(0, 1fr); }
+/* or, without it, the gateway's recent copy while it still holds one */
+.led-bodies { margin-top: 10px; }
+.led-bodies:empty { display: none; }
+.led-bodies > .call-details { border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; }
+.led-bodies > .call-archive-err { padding: 0 0 4px; }
 /* a streamed reply: read as its reply, its events or as it came */
 .call-body-count { font-size: 9.5px; color: var(--faint); white-space: nowrap; }
 .call-body-head .sse-views { align-self: center; padding: 1.5px; border-radius: 6px; }

@@ -145,14 +145,17 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await page.locator('nav [data-view="usage"], [data-view="usage"]').first().click();
       await page.locator(":is(#usageTab .opt, .nav-s):visible").nth(1).click();
       await page.locator("#ledWrap .led tbody tr").nth(1).waitFor();
+      // the line under the model's pill: the member plain, the line titled why
       const cells = await page.locator("#ledWrap .led tbody tr").evaluateAll((trs) => trs.map((tr) => {
-        const s = [...tr.querySelectorAll("span")].find((e) => e.textContent === "deepseek/deepseek-v4.1-flash" || e.textContent === "gpt-6-luna");
-        return s ? [s.textContent, s.className, s.title] : null;
+        const s = tr.querySelector(".led-sv");
+        return s ? [s.querySelector(".v").textContent, s.className, s.title, s.querySelector(".v").className] : null;
       }));
       assert.equal(cells[0][0], MEMBER);
-      assert(!cells[0][1].split(" ").includes("swap") && cells[0][1].split(" ").includes("muted"), cells[0][1]);
+      assert.equal(cells[0][1], "led-sv routed");
+      assert.equal(cells[0][3], "v", "not amber");
       assert.match(cells[0][2], want[lang].why);
-      assert.equal(cells[1][1], "swap");
+      assert.equal(cells[1][0], "gpt-6-luna");
+      assert.equal(cells[1][3], "v swap");
       assert.deepEqual(errors, []);
     });
   }

@@ -5,7 +5,8 @@
 // the trace the Routing page plays — the agent, the model asked for, the
 // provider and account it went to, the model that answered with the amber
 // "served …" mark on one a vendor answered with another, how it ended and
-// when — under today's calls and tokens. The allowances' tab is named so.
+// when; what they used is the Usage tab's, not said here. The allowances'
+// tab is named so.
 // A click opens the window's Routing page on that request and leaves the
 // panel where it is; the window opened so has that request picked. Over the
 // list a small stage (#feedback: 这个页面有点乱…迷你版的路由动画): the agents
@@ -55,9 +56,6 @@ function serve(lang, opened, live) {
       return json({ mine: true, now: now.toISOString(), seq: 103, totals: { requests: 4, rerouted: 0, errors: 1 }, routes });
     }
     if (url.pathname === "/api/gateway/history") return json({ cut: false, days: [], routes: [] });
-    if (url.pathname === "/api/usage" && url.searchParams.get("period") === "today") {
-      return json({ calls: 42, input: 1000000, output: 234000, cache_read: 0, cache_write: 0, reasoning: 0, cost: 0, series: [] });
-    }
     if (url.pathname === "/api/usage/quotas") return json([]);
     if (url.pathname === "/api/groups") return json({ groups: [] });
     if (url.pathname === "/api/providers") return json({ providers: [], gateway: { running: true, window: true } });
@@ -71,8 +69,8 @@ function serve(lang, opened, live) {
 }
 
 const want = {
-  en: { speed: "1667 tok/s", tab: "Routing", quota: "Allowances", swap: "served gpt-6-luna", today: /today\s*42\s*calls\s*·\s*1\.2M\s*tokens/, fail: /429 · rate limited/, open: "Open Routing", story: /How the request at/ },
-  zh: { speed: "1667 token/秒", tab: "路由", quota: "额度", swap: "实际 gpt-6-luna", today: /今天\s*42\s*次调用\s*·\s*1\.2M\s*token/, fail: /429 · 限流/, open: "打开路由", story: /的请求是怎么路由的/ },
+  en: { speed: "1667 tok/s", tab: "Routing", quota: "Allowances", swap: "served gpt-6-luna", fail: /429 · rate limited/, open: "Open Routing", story: /How the request at/ },
+  zh: { speed: "1667 token/秒", tab: "路由", quota: "额度", swap: "实际 gpt-6-luna", fail: /429 · 限流/, open: "打开路由", story: /的请求是怎么路由的/ },
 };
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
@@ -119,6 +117,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       // a finished row tells how fast it wrote, as the Routing page's does
       // (#2050); one that failed or tells no speed doesn't
       assert.deepEqual(rows.map((r) => r.meta.includes(want[lang].speed)), [true, false, false, false], JSON.stringify(rows.map((r) => r.meta)));
+      // and no row its tokens, which are Usage's
+      const tokenWord = await page.evaluate(() => t("{n} tokens", { n: "" }).trim());
+      assert(rows.every((r) => r.meta.split(" · ").every((m) => !m.endsWith(tokenWord))), JSON.stringify(rows.map((r) => r.meta)));
       assert.deepEqual(rows.map((r) => r.model), ["relay/gpt-6-sol", "claude/claude-opus-5", "relay/gpt-6-sol", "claude/claude-opus-5"]);
       assert.deepEqual(rows.map((r) => r.who), ["Codex", "Claude Code", "Codex", "Claude Code"]);
       assert.equal(rows[0].where, "Relay · team");
@@ -164,9 +165,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert(stage.hub && stage.below && stage.inside, JSON.stringify(stage));
       assert.equal(stage.border, "0px", "no border stripe");
 
-      // today's calls and tokens, over the list
-      await page.waitForFunction((re) => new RegExp(re).test(document.querySelector(".pr-today").textContent), want[lang].today.source);
+      // over the list, the way to the window and nothing else: no count of
+      // today's calls or tokens, which are Usage's
       assert.equal((await page.locator(".pr-head .text").textContent()).trim(), want[lang].open);
+      assert.equal((await page.locator(".pr-head").innerText()).trim(), want[lang].open);
 
       // a click opens the window on that request; the panel stays put
       const v = page.locator("#view-agents");
@@ -219,7 +221,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert(waitAt, "the dot waits by the account answering");
       await lp.locator(".ps-dot.ok").waitFor({ state: "attached" });
       await lp.waitForFunction(() => !document.querySelector(".ps-dot") && !document.querySelector(".ps-hub.busy") && !document.querySelector(".ps-wire.on"), null, { timeout: 5000 });
-      assert.equal(await lp.locator(".pr-req").first().locator(".meta").textContent().then((s) => /500/.test(s)), true);
+      const liveMeta = await lp.locator(".pr-req").first().locator(".meta").textContent();
+      assert(liveMeta.includes(await lp.evaluate(() => t("{n} ms", { n: 900 }))) && !/500/.test(liveMeta), liveMeta);
       assert.deepEqual(errors, []);
     });
   }

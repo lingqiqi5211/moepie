@@ -88,10 +88,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert(await cell(0).isVisible(), "a wide window shows it");
         // it says what the details say, "≈" for a session file's
         const detail = async (i) => {
-          await reader.click(p, rows.nth(i).locator("td").nth(2));
+          await reader.click(p, rows.nth(i).locator("td").nth(1));
           const d = p.locator(".led tbody tr.led-detail");
           const dts = await d.locator("dt").allTextContents(), dds = await d.locator("dd").allTextContents();
-          await reader.click(p, rows.nth(i).locator("td").nth(2));
+          await reader.click(p, rows.nth(i).locator("td").nth(1));
           return dds[dts.indexOf(w.detail)];
         };
         const first = await detail(0);
@@ -107,11 +107,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.deepEqual(await cell(0).evaluate((c) => getComputedStyle(c).textAlign), await rows.nth(0).locator("td.duration").evaluate((c) => getComputedStyle(c).textAlign));
 
         // a narrow window: the column goes, the details keep it, the hint says so
-        await p.setViewportSize({ width: 760, height: 800 });
+        // (700 is no longer narrow enough for Chinese's shorter heads, with
+        // one model column where there were three)
+        await p.setViewportSize({ width: 620, height: 800 });
         await p.waitForTimeout(300);
         assert.equal(await cell(0).isVisible(), false, "a narrow window leaves it out");
         assert.equal((await p.locator("#ledTight").textContent()).trim(), w.hint);
-        await reader.click(p, rows.nth(0).locator("td").nth(2));
+        await reader.click(p, rows.nth(0).locator("td").nth(1));
         const shown = await p.locator(".led tbody tr.led-detail dt").evaluateAll((dts) => dts.filter((x) => x.offsetParent).map((x) => x.textContent));
         assert(shown.includes(w.detail), "the details still say it: " + shown.join(", "));
         assert.equal(await p.locator("#view-usage").evaluate((v) => v.scrollWidth <= v.clientWidth + 1), true, "the page doesn't scroll sideways");

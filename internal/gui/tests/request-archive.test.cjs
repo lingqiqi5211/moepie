@@ -6,10 +6,10 @@
 // they are kept under (CyberCaius on Discord), with one its tooltip says the
 // bucket; a failed upload, or a failed save on this computer, is said
 // beside it. The Gateway page has no switch
-// any more, and its recent calls show their own bodies with nothing of the
-// archive under them, even one it kept: reading a call back from the archive
-// is the Usage page's (request-archive-usage.test.cjs). No click moves the
-// page. In English and Chinese, Chromium and WebKit.
+// any more, nor names the archive. A request the archive kept is read back
+// from it (request-archive-usage.test.cjs), not from the gateway's recent
+// calls, which show one it didn't keep. No click moves the page. In English
+// and Chinese, Chromium and WebKit.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -21,22 +21,16 @@ const assets = path.resolve(__dirname, "../assets");
 const now = Date.now();
 const DATE = new Date(now).toISOString().slice(0, 10);
 const KEPT = `${DATE}/101500-0123456789abcdef`;
-const call = (i, model, archive) => ({
-  time: new Date(now - (i + 1) * 60e3).toISOString(), agent: "claude", model, from: "anthropic", to: "anthropic", status: 200, ms: 900,
-  requestBody: JSON.stringify({ model, messages: [{ role: "user", content: "hi" }] }), responseBody: JSON.stringify({ id: "msg_1", content: [{ type: "text", text: "hello" }] }),
-  ...(archive ? { archive } : {}),
-});
 const row = (i, model, archive) => ({
   t: new Date(now - (i + 1) * 3600e3).toISOString(), agent: "claude", agentName: "Claude Code", icon: "claudecode-color", provider: "relay", providerName: "Relay",
-  req: model, model, served: model, in: 300, out: 40, ms: 2000, status: 200, rid: "req_" + i, ep: "/v1/messages", cost: 0.01, priced: true, ...(archive ? { archive } : {}),
+  req: model, model, served: model, in: 300, out: 40, ms: 2000, status: 200, rid: "req_" + i, ep: "/v1/messages", route_id: i + 1, cost: 0.01, priced: true, ...(archive ? { archive } : {}),
 });
 const ROWS = [row(0, "kept", KEPT), row(1, "plain")];
 
 function serve(lang, seen) {
   const where = "bkt/team on https://s3.example.com";
   const here = { folder: "~/.config/magpie/request-archive", cap: 1 << 30 };
-  const gateway = { running: true, window: true, mine: true, url: "http://127.0.0.1:3999", groups: [], archive: { on: false, ...here },
-    calls: [call(0, "fixture/kept", KEPT), call(1, "fixture/plain")] };
+  const gateway = { running: true, window: true, mine: true, url: "http://127.0.0.1:3999", groups: [], archive: { on: false, ...here }, calls: [] };
   const providers = { providers: [{ id: "fixture", name: "Fixture", icon: "generic", models: [{ id: "kept", name: "Kept", on: true }], agents: [] }], gateway };
   return async (route) => {
     const url = new URL(route.request().url());
@@ -44,9 +38,12 @@ function serve(lang, seen) {
     if (url.pathname === "/boot.js") return route.fulfill({ contentType: "text/javascript", body: `window.bootPrefs = {lang:"${lang}",theme:"light",web:true};` });
     if (url.pathname === "/wails/runtime.js") return route.fulfill({ contentType: "text/javascript", body: "export const Window = {};" });
     if (url.pathname === "/api/state") return json({ agents: [], profiles: [], settings: { lang, theme: "light" } });
-    // the list leaves the bodies out, and an opened row asks for its own by id (#1521)
-    if (url.pathname === "/api/providers") return json({ ...providers, gateway: { ...providers.gateway, calls: providers.gateway.calls.map(({ requestBody, responseBody, ...c }, i) => ({ id: i + 1, ...c })) } });
-    if (url.pathname === "/api/gateway/call") return json(providers.gateway.calls[Number(url.searchParams.get("id")) - 1]);
+    if (url.pathname === "/api/providers") return json(providers);
+    // an opened row's bodies, while the gateway's recent calls hold them (#1521)
+    if (url.pathname === "/api/gateway/call") {
+      seen.ring.push(Number(url.searchParams.get("route")));
+      return json({ requestBody: JSON.stringify({ messages: [{ role: "user", content: "hi" }] }), responseBody: JSON.stringify({ id: "msg_1", content: [{ type: "text", text: "hello" }] }) });
+    }
     if (url.pathname === "/api/groups") return json({ groups: [], models: [] });
     if (url.pathname === "/api/plugins") return json({ plugins: [] });
     if (url.pathname === "/api/gateway/trace") {
@@ -104,6 +101,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const errors = [];
       page.on("pageerror", (e) => errors.push(e.message));
       const seen = [];
+      seen.ring = [];
       await page.route("**/*", serve(lang, seen));
       // brought into view by the wheel, as the reader would; the click itself
       // must not move the page
@@ -116,17 +114,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       };
       const wait = async (n) => { for (let i = 0; i < 60 && seen.length < n; i++) await page.waitForTimeout(50); };
 
-      // the Gateway page: no switch, and a call the archive kept shows its
-      // bodies with nothing of the archive under them
+      // the Gateway page: no switch, nor the archive named
       await page.goto("http://magpie.test/?view=gateway");
-      const calls = page.locator("#activity .call-item");
-      await calls.first().waitFor();
+      await page.locator("#view-gateway .gw-requests").waitFor();
       assert.equal(await page.locator("#archiveList, #view-gateway [role=switch]").count(), 0, "no archive switch on the Gateway page");
-      await press(calls.nth(0).locator(".call"), "#view-gateway");
-      const details = calls.nth(0).locator(".call-details");
-      await details.waitFor();
-      assert.equal(await details.locator(".call-body").count(), 2, "the call's own request and response bodies");
-      assert.equal(await page.locator("#view-gateway .call-archive").count(), 0, "no archive panel under a recent call");
       assert.equal(await page.locator("#view-gateway").getByRole("button", { name: w.fetch }).count(), 0, "no Fetch from archive on the Gateway page");
       assert(!(await page.locator("#view-gateway").innerText()).includes(w.name), "the Gateway page doesn't name the archive");
 
@@ -198,6 +189,16 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.deepEqual(seen[6], ["switch", { on: true }]);
       await page.waitForFunction((s) => document.querySelector("#ledArchive .led-arch-err")?.textContent === s, w.notSaved);
       assert.equal(await page.locator("#ledArchive .led-arch-err").getAttribute("title"), w.notSavedWhy);
+      // a request the archive kept says so, and isn't asked of the gateway's
+      // recent calls; one it didn't keep shows them
+      const rows = page.locator(".led tbody tr.led-row");
+      const box = (i) => rows.nth(i).locator("xpath=following-sibling::tr[1]");
+      await press(rows.nth(0).locator("td").nth(1), "#view-usage");
+      await box(0).locator(".led-archive").waitFor();
+      assert.equal(await box(0).locator(".led-bodies").count(), 0, "no recent bodies under an archived request");
+      await press(rows.nth(1).locator("td").nth(1), "#view-usage");
+      await box(1).locator(".led-bodies .call-body").nth(1).waitFor();
+      assert.deepEqual(seen.ring, [2], "only the request the archive didn't keep is asked for");
       assert.equal(seen.filter(([k]) => k === "fetch").length, 0, "nothing was read from the archive");
 
       const border = await page.evaluate(() => [...document.querySelectorAll(".led-head, .led-head *")].map((e) => getComputedStyle(e).borderLeftWidth).filter((b) => parseFloat(b) > 1));

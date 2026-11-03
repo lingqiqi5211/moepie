@@ -1,5 +1,6 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
-// A call's JSON body in the Gateway page's recent calls is a tree: its
+// A call's JSON body, opened on Usage › Requests from the gateway's recent
+// calls, is a tree: its
 // objects and arrays fold, its parts are coloured, a line's value copies from
 // the button its hover shows and a key copies on a click, its text still the
 // JSON as printed; what is folded stays folded as new calls come in, and no
@@ -40,19 +41,18 @@ const stream = [
   ["response.output_text.delta", { type: "response.output_text.delta", item_id: "m_1", delta: "Hi" }],
 ].map(([n, d]) => `event: ${n}\ndata: ${JSON.stringify(d)}\n\n`).join("");
 
+// a request the gateway logged, and its bodies as its recent calls hold them
 const call = (i, model, requestBody, responseBody) => ({
-  time: new Date(now - (i + 1) * 60e3).toISOString(), agent: "codex", model, from: "responses", to: "responses", status: 200, ms: 1800, ttft: 1600,
-  requestBody, responseBody,
+  row: { t: new Date(now - (i + 1) * 60e3).toISOString(), agent: "codex", agentName: "Codex", icon: "codex-color", provider: "codex", providerName: "Codex", req: model, model, served: model, in: 10, out: 5, status: 200, ms: 1800, ttft_ms: 1600, ep: "/v1/responses", route_id: i + 1, cost: 0, priced: false },
+  bodies: { requestBody, responseBody },
 });
 const calls = [
-  call(0, "codex/gpt-6-luna", JSON.stringify(request), JSON.stringify(response)),
-  call(1, "codex/stream", JSON.stringify({ model: "gpt-6-luna", stream: true }), stream),
-  call(2, "codex/cut", "{\"model\":\"gpt-6-luna\",\"input\":[{\"role\":\"user\"", "not json"),
+  call(0, "gpt-6-luna", JSON.stringify(request), JSON.stringify(response)),
+  call(1, "stream", JSON.stringify({ model: "gpt-6-luna", stream: true }), stream),
+  call(2, "cut", "{\"model\":\"gpt-6-luna\",\"input\":[{\"role\":\"user\"", "not json"),
 ];
-const providers = {
-  providers: [{ id: "codex", name: "Codex", icon: "generic", models: [{ id: "gpt-6-luna", name: "gpt-6-luna", on: true }], agents: [] }],
-  gateway: { running: true, window: true, mine: true, url: "http://127.0.0.1:3999", calls, groups: [] },
-};
+const ledRows = calls.map((c) => c.row);
+const ledger = { rows: ledRows, offset: 0, total: ledRows.length, calls: ledRows.length, errors: 0, input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0, cost: 0, unpriced: 0, agents: [{ id: "codex", name: "Codex", icon: "codex-color" }] };
 
 function serve(lang, copied) {
   return async (route) => {
@@ -62,9 +62,9 @@ function serve(lang, copied) {
     if (url.pathname === "/wails/runtime.js") return route.fulfill({ contentType: "text/javascript", body: "export const Window = {};" });
     if (url.pathname === "/api/copy") { copied.push(JSON.parse(route.request().postData()).text); return json({}); }
     if (url.pathname === "/api/state") return json({ agents: [], profiles: [], settings: { lang, theme: "light" } });
-    // the list leaves the bodies out, and an opened row asks for its own by id (#1521)
-    if (url.pathname === "/api/providers") return json({ ...providers, gateway: { ...providers.gateway, calls: providers.gateway.calls.map(({ requestBody, responseBody, ...c }, i) => ({ id: i + 1, ...c })) } });
-    if (url.pathname === "/api/gateway/call") return json(providers.gateway.calls[Number(url.searchParams.get("id")) - 1]);
+    // the list leaves the bodies out, and an opened row asks for its own by its route (#1521)
+    if (url.pathname === "/api/usage/requests") return json(ledger);
+    if (url.pathname === "/api/gateway/call") return json(calls[Number(url.searchParams.get("route")) - 1].bodies);
     if (url.pathname === "/api/groups") return json({ groups: [] });
     if (url.pathname === "/api/plugins") return json({ plugins: [] });
     if (url.pathname === "/api/gateway/trace") {
@@ -84,7 +84,7 @@ const words = {
   ja: { items: "4 件", one: "1 件", copyValue: "値をコピー", copyKey: "クリックでキーをコピー", fold: "折りたたむ", unfold: "展開", events: "イベント", reply: "返信" },
   de: { items: "4 Einträge", one: "1 Eintrag", copyValue: "Wert kopieren", copyKey: "Klicken, um den Schlüssel zu kopieren", fold: "Einklappen", unfold: "Aufklappen", events: "Ereignisse", reply: "Antwort" },
 };
-const view = "#view-gateway";
+const view = "#view-usage";
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
   for (const lang of ["en", "zh", "ja", "de"]) {
@@ -109,14 +109,17 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           await browser.close();
         });
 
-        await page.goto("http://magpie.test/?view=gateway");
-        const rows = page.locator("#activity .call-item");
+        await page.goto("http://magpie.test/?view=usage&tab=requests");
+        const rows = page.locator("#ledWrap .led tbody tr.led-row");
         await rows.first().waitFor();
+        // a row's bodies, in its details; it opens on a click on its agent
+        const bodies = (i) => rows.nth(i).locator("xpath=following-sibling::tr[1]").locator(".led-bodies");
+        const open = (i) => rows.nth(i).locator("td").nth(1);
         // what is clicked is brought into view by the wheel, as the reader
         // would, and clicked where it is (the app puts back any other scroll)
         const reach = async (loc) => {
           const [dy, x, y] = await loc.evaluate((e) => {
-            const v = document.querySelector("#view-gateway").getBoundingClientRect();
+            const v = document.querySelector("#view-usage").getBoundingClientRect();
             return [e.getBoundingClientRect().top - v.top - v.height / 2, v.left + 6, v.top + v.height / 2];
           });
           await page.mouse.move(x, y);
@@ -137,8 +140,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           await page.waitForTimeout(150);
           assert.equal(await page.locator(view).evaluate((v) => v.scrollTop), at, "a click leaves the page where it is");
         };
-        const req = rows.nth(0).locator(".call-body").nth(0);
-        const res = rows.nth(0).locator(".call-body").nth(1);
+        const req = bodies(0).locator(".call-body").nth(0);
+        const res = bodies(0).locator(".call-body").nth(1);
         // what was copied, once the copy's request is in
         const got = async (n) => {
           for (let i = 0; i < 40 && copied.length < n; i++) await page.waitForTimeout(50);
@@ -146,7 +149,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         };
         const text = async (body) => (await body.locator("pre").innerText()).replace(/\n$/, "");
 
-        await press(rows.nth(0).locator(".call"));
+        await press(open(0));
+        await req.locator("pre").waitFor();
         // the text is the JSON as printed, so a selection copies as JSON
         assert.equal(await text(req), JSON.stringify(request, null, 2));
         assert.equal(await text(res), JSON.stringify(response, null, 2));
@@ -182,7 +186,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal(await sum.evaluate((s) => getComputedStyle(s, "::after").content.replace(/"/g, "").trim()), w.items.replace("4", "3"));
 
         // and stays so as a new call comes in and the list is drawn again
-        await page.evaluate(() => renderActivity());
+        await page.evaluate(() => renderLedger());
         assert.equal(await text(req), JSON.stringify(folded, null, 2).replace("\"§\"", "{…}"));
         assert.equal(await text(res), JSON.stringify(response, null, 2), "the other body is untouched");
         // a click on the … opens it again
@@ -226,13 +230,15 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
 
         // an empty array has nothing to fold; a cut body is shown as it came
         assert.equal(await tree.locator(".jt-head", { has: page.locator(".jt-key", { hasText: /^"include"$/ }) }).locator(".jt-fold").count(), 0);
-        await press(rows.nth(2).locator(".call"));
-        assert.equal(await rows.nth(2).locator("code.jt").count(), 0);
-        assert.equal(await rows.nth(2).locator(".call-body").nth(1).locator("pre").innerText(), "not json");
+        await press(open(2));
+        await bodies(2).locator(".call-body pre").first().waitFor();
+        assert.equal(await bodies(2).locator("code.jt").count(), 0);
+        assert.equal(await bodies(2).locator(".call-body").nth(1).locator("pre").innerText(), "not json");
 
         // a stream: each event's data, and the reply, fold the same way
-        await press(rows.nth(1).locator(".call"));
-        const sse = rows.nth(1).locator(".call-body").nth(1);
+        await press(open(1));
+        const sse = bodies(1).locator(".call-body").nth(1);
+        await sse.waitFor();
         await press(sse.locator(".segs .opt", { hasText: w.events }));
         const ev = sse.locator(".sse-ev").first();
         assert.match(await ev.innerText(), /^event: response\.created\n\{\n  "type": "response\.created",\n  "response": \{/);
