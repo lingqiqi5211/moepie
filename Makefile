@@ -70,7 +70,12 @@ app: build
 icons:
 	@go run build/icon/gen.go tray internal/gui/tray.png
 	@go run build/icon/gen.go tray-flap internal/gui/trayflap
-	@go run build/icon/gen.go app 64 internal/gui/icon.png
+	@# Windows draws an app's icon to the edges of its square: the exe's
+	@# icon group (build/windows/winres.json) and the tray's .ico
+	@for s in 16 20 24 32 40 48 64 128 256; do \
+		go run build/icon/gen.go win $$s build/windows/icon-$$s.png; \
+	done
+	@go run build/icon/gen.go win-ico internal/gui/icon-windows.ico
 	@go run build/icon/gen.go app 1024 internal/gui/icon-1024.png
 	@go run build/icon/gen.go app 256 internal/gui/icon-256.png
 	@rm -rf build/darwin/magpie.iconset && mkdir -p build/darwin/magpie.iconset

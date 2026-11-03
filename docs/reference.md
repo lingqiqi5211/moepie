@@ -129,6 +129,7 @@ line; agents connected to magpie lose it when it quits.
 | Empryo       | `~/.empryo/config.json` | defaultModel (a `magpie` provider at the gateway in `providers`) |
 | Ante         | `~/.ante/catalog.json` and `settings.json` (`$ANTE_HOME`) | provider, model (a `magpie` provider on OpenAiCompatible, with no auth of magpie's: the gateway lets this machine in with any token and Ante counts a provider with none as authenticated; magpie's models in Ante's model picker, and Ante started on magpie, which is what its settings' `provider` decides) |
 | AstrBot      | `data/cmd_config.json` under `$ASTRBOT_ROOT`, else `~/.astrbot` (the desktop app's) | model (a `magpie` entry in `provider_sources` and magpie's models in `provider`, the user's own entries kept; the default chat model in `agent_runner.config.model.provider_id`, or `provider_settings.default_provider_id` on AstrBot before 4.28's agent runner; restart AstrBot after connecting; Docker installs aren't reached) |
+| QwenPaw      | each agent's `agent.json` in its workspace (`~/.qwenpaw/workspaces/<agent>`, the agents listed in `config.json`), under `$QWENPAW_WORKING_DIR`, else a legacy `~/.copaw`, else `~/.qwenpaw` | model (a `magpie` custom provider in `providers/custom/magpie.json` under QwenPaw's secret folder, `$QWENPAW_SECRET_DIR` or `~/.qwenpaw.secret`, OpenAI Chat at the gateway with magpie's models; the agent's `active_model` set to it, what was there put back on Disconnect; one row per agent, `qwenpaw` the default and `qwenpaw#<id>` the others; an agent on an ACP backend isn't listed; restart QwenPaw after the first connect), effort (the agent's `thinking_level`; magpie's models with reasoning levels are declared `thinking_param_style: "effort"` so QwenPaw applies it) |
 | OpenClaw     | `openclaw.json` in `~/.openclaw` (`$OPENCLAW_CONFIG_PATH`, `$OPENCLAW_STATE_DIR`, `~/.openclaw-<profile>` for `$OPENCLAW_PROFILE`, `~` as `$OPENCLAW_HOME`) | model (a `magpie` provider in `models.providers`, `openai-completions`, with magpie's models in it; `agents.defaults.model`'s primary set to it, what was there put back on Disconnect; `magpie/*` added to a `modelPolicy.allow` that would refuse it; the user's own keys in the provider and its models kept; a chat already on a model keeps it until `/model default`) |
 | jcode        | `config.toml` in `$JCODE_HOME`, else `~/.jcode` | model (a `[providers.magpie]` profile, `openai-compatible`, with magpie's models in it; `[provider] default_provider`/`default_model` set to it, what was there put back on Disconnect; the user's own keys in the profile, such as `headers` and a model's `reasoning_effort`, kept; restart open jcode sessions after connecting) |
 | MiniMax Code (mcode) | `~/.minimax/config.yaml` (`$MINIMAX_DATA_DIR`) | model (a `magpie` custom provider; magpie's models in its /model) |
@@ -592,7 +593,10 @@ solves captchas. See [provider-plugins.md](subsystems/provider-plugins.md#a-plug
 
 A plugin can also declare its own switches for its provider (`auth.options`).
 They are listed under **Plugin options** in the provider's editor, an Off/On
-each with the plugin's own words, and saved with the provider. The values are
+each with the plugin's own words (in the window's language when the
+plugin gives them, `labels` and `descriptions`), and saved with the
+provider. While a switch that leaves models out (`filtersModels`) is on,
+the Models field says the list is filtered. The values are
 kept in `pluginOptions` in `settings.json`, and the plugin reads them as it
 works. Changing one starts nothing by itself. See
 [provider-plugins.md](subsystems/provider-plugins.md#a-plugins-own-options).
@@ -889,6 +893,12 @@ same model on the Qwen AI platform's pay as you go is `qwen-decision`
 Neither plan has an API for its credits: the console's subscription page
 shows them, so magpie shows no plan usage for these keys.
 
+Volcengine Ark's System One API, in beta, is `volcengine-decision`: an Ark
+API key, asked at `https://ark.cn-beijing.volces.com/api/v1/systemone` with
+the `ark-beta-systemone-api: true` header magpie adds on Ark's host, and its
+one decision model `doubao-seed-2-1-lite-260915`. The Coding and Agent
+Plans' paths don't serve it, so it bills as pay as you go.
+
 Qwen Cloud (qwencloud.com), Alibaba's international Qwen platform, has keys
 of its own, made at home.qwencloud.com. Its pay as you go is `qwencloud`,
 at `{region}.maas.qwencloudapi.com` in six regions (`ap-southeast-1`, the
@@ -1085,6 +1095,13 @@ OpenCode ignores:
   and the icon the plugin market lists for the plugin is shown instead.
   The `package.json` icon is also the card's picture under Discover →
   Unofficial, on GitHub for a repository tagged `magpie-plugin`.
+- **The plugin's name**: `"magpie": { "name": "…" }` in its `package.json`
+  names its row in Settings → Plugins, and its sidebar tab when its page
+  gives no title, for a plugin the community's list doesn't name (that
+  list's name wins). A package's npm name, which Bun keys it by, has to be
+  ASCII, so this is where a name like 华为云 HUAWEI goes. One line of at
+  most 80 bytes; anything else is ignored. It is the package's own word:
+  never shown as reviewed, and never used to find a plugin by name.
 - **An API key's field**: a `type: "api"` method's `label` titles the key's
   field, as OpenCode's dialog does (one that only says "API key" reads
   "<provider> API key"), and its `placeholder` is the hint inside the field
@@ -1114,7 +1131,10 @@ A plugin can also be gateway middleware: `onRequest(body, ctx)` sees each
 request an agent sends before it is routed, `onProvider(body, ctx)` the
 body each provider it is tried on is sent (`ctx.provider` has its `id`,
 `name`, `account` and `model`; each try starts from what `onRequest`
-left), `onEvent(event, ctx)` each
+left), `onAccount(account, ctx)` each subscription account a try is
+about to go to (`account.ref` is an anonymous id, stable per install and
+per middleware; `{skip: true}` passes the account over for that request),
+`onEvent(event, ctx)` each
 event of a streamed reply and `onResponse(body, ctx)` a whole one, all in
 the agent's own API. A hook returns the changed object, or nothing to
 leave it; `onEvent` returns `null` to drop an event, and
@@ -1267,7 +1287,8 @@ one with `magpie model price`, or in the provider's editor under the model.
 
 A **Kimi Code** membership's models are counted at the Kimi API model each
 one is, not at the $0 models.dev lists them at for the plan: `k3` and
-`k3-256k` at `kimi-k3`, `kimi-for-coding-highspeed` at
+`k3-256k` at `kimi-k3`, `k3.1-pro` at `kimi-k3.1-pro`, `k3.1-pro-highspeed`
+at `kimi-k3.1-pro-highspeed`, `kimi-for-coding-highspeed` at
 `kimi-k2.7-code-highspeed`. `kimi-for-coding` is K2.8 Preview, which the API
 doesn't sell, so it has no price until you give it one
 (`magpie model price kimi-code/kimi-for-coding …`).
@@ -1860,6 +1881,16 @@ agent off has every window under 90% again, it signs the agent back in to
 it. *Keep … signed in to* turns this off: the agent stays on the first
 account, or on the account you picked, whatever it has left. It changes nothing in the gateway's routing.
 
+Removing the account Codex or Claude Code is signed in to (its *Remove*,
+or `magpie accounts forget <codex|claude> <email|name>`) signs the agent
+in to another of its accounts first, as that one's *Use* would, then
+forgets this one; if that switch fails, nothing is removed. Codex's only
+account is signed out instead, as `codex logout` does. Claude Code is
+never signed out: when the account is the only one it can be signed in
+to, magpie keeps it and
+says so. Add another account first, or sign out in Claude Code itself,
+then remove it.
+
 With more than one Codex account on, magpie also sets `openai_base_url`
 in Codex's config.toml, so a request the signed-in account has no
 allowance for goes on to the others through the gateway. *Only switch
@@ -1987,7 +2018,15 @@ file from the old one there. The files are only read. An account
 magpie has already is left as it is, two Team seats of one email stay two
 accounts, and an entry with only an access token (a ChatGPT web session)
 is refused, since it would stop working within days with nothing to renew
-it.
+it. For Claude it takes Claude Code's `.credentials.json`, CLIProxyAPI's
+auth files and claude-swap's export (`cswap --export <file>`, format 1;
+an encrypted one is decrypted first, and an API-key account is added as a
+key instead). A Claude sign-in is kept as the file has it, magpie asking
+Anthropic nothing, with its organization, and a cswap alias becomes the
+account's name in magpie when it has none and the name picks no other
+account. Claude Code renews it the first time it runs on it, and the
+file's copy stops working then: remove the account from cswap (`cswap
+--remove-account`) rather than switch to it there again.
 
 ### Connecting anything else
 
@@ -2415,8 +2454,13 @@ reading of its windows, refreshed about every minute, shows one used up,
 the gateway holds it as used up till the window renews, and requests go to
 the other accounts, groups and fallbacks; with none left, the request gets a
 429 saying why, unless the account spends its resets by itself and its week
-is used up, when a reset is spent first. `magpie quota credits` lists the
-accounts set not to spend them, `magpie quota credits <account>` says one's.
+is used up, when a reset is spent first. `magpie quota credits <account>
+last` (or *Only after everything else* under *Use credits*) keeps the
+credits but spends them last: once a window is used up, the account is
+tried after every other account, key and fallback that isn't on its
+credits, so the order goes subscription, then API key, then the credits.
+`magpie quota credits` lists the accounts set not to spend them and those
+that spend them last, `magpie quota credits <account>` says one's.
 It changes the gateway's routing only, never the account Codex is signed in
 to. The credits an account holds show beside its windows in `magpie quota`,
 `magpie accounts`, the Usage page and the menu bar panel.
@@ -2917,6 +2961,7 @@ magpie quota                    # what is left of every subscription, plan and k
 magpie quota refresh codex      # read Codex's cards again now (once per 30s)
 magpie quota wait codex         # block until a Codex account has allowance again
 magpie quota credits me@example.com off   # hold a ChatGPT account at its limit instead of spending credits
+magpie quota credits me@example.com last  # spend its credits only after every other account, key and fallback
 
 magpie tools                    # the tools magpie's MCP servers give agents, with their parameters
 magpie tools generate_image     # one tool in full
@@ -2967,8 +3012,14 @@ shows. So magpie finds its session with `rex ls --json` and runs
 `rex run -s <its ID> --label=<session or agent> -- /bin/sh -c '<command>; exec $SHELL -l'`,
 then names the new tab with `rex window rename`. With no such session (or one
 that ended since the list) it runs `rex new magpie --window=<session or agent> -- …`,
-whose first tab is so named. When Rex's server can't be reached (exit 4) it
-says to open Rex. The same applies to an agent's *Open in terminal* and a
+whose first tab is so named. A tab added from outside shows only in the
+app's sidebar, so magpie then brings Rex forward and asks the app to go to
+it: it takes the client of kind `app` from `rex client list --json` (the one
+attached to its session, else the last app connected) and runs
+`rex -C <client> do session.select session_id=<session> window_id=<tab>`.
+That needs *Remote Control* on in Rex's settings; with it off, with no app
+connected, or with no answer in 3 seconds, the tab stays open where it is.
+When Rex's server can't be reached (exit 4) it says to open Rex. The same applies to an agent's *Open in terminal* and a
 carried-over session (StringKe, #4565;
 [`terminal_rex.go`](../internal/gui/terminal_rex.go)).
 

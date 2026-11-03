@@ -81,6 +81,7 @@
     <a href="#signin-state">Sign-in state</a>
     <a href="#usage">Usage</a>
     <a href="#checkin">Check-in</a>
+    <a href="#load">Model load</a>
     <a href="#input">What a plugin is given</a>
     <a href="#ids">Provider ids</a>
     <a href="#test">Testing</a>
@@ -263,6 +264,7 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
     <div class="table-wrap"><table>
       <tr><th>Field</th><th>Meaning</th></tr>
       <tr><td><code>magpie.icon</code></td><td>The plugin’s picture, on its card in Discover (read from npm, or from the repository for one on GitHub) and its row in Installed, and the picture of each of its providers that doesn’t give its own: an <code>https://</code> URL or a <code>data:image/…</code> URI, at most 1 MB. SVG, PNG and the like.</td></tr>
+      <tr><td><code>magpie.name</code></td><td>The plugin’s name on its row in Installed, and on its sidebar tab when its page gives no title, for a plugin the community’s list doesn’t name (the list’s name wins). The package’s npm name has to be ASCII, so a name like 华为云 HUAWEI goes here. One line, at most 80 bytes; anything else is ignored. It is never shown as reviewed, and never used to find a plugin by name.</td></tr>
       <tr><td><code>magpie.maxConcurrency</code></td><td>How many requests each account takes at once, a whole number from 1 to 1000. A limit the user sets on the provider wins over it.</td></tr>
     </table></div>
     <p>The same fields can be set on the <code>auth</code> hook (<code>auth.icon</code>, <code>auth.maxConcurrency</code>), where they win over <code>package.json</code>. A plugin that signs in to several providers can give each its own <code>auth.icon</code> and keep <code>magpie.icon</code> for the plugin itself.</p>
@@ -571,6 +573,28 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
     </table></div>
     <p><code>streak</code> is the days in a row, and <code>message</code> is shown as it is. A hook that throws, or answers no outcome above, is <code>failed</code>. It runs in the account’s scope, so a token it renews with <code>client.auth.set</code> is saved to that account.</p>
 
+    <h2 id="load"><a class="anchor" href="#load">Model load</a></h2>
+    <p>A vendor that queues requests to a busy model can have the plugin say how busy each model is, with <code>input.magpie.load(provider, loads)</code>, magpie’s own (OpenCode has none). <code>loads</code> maps a model id to a percent from 0 up, or to <code>null</code> to say it isn’t known any more. The plugin calls it whenever it likes, from its own timer: magpie doesn’t ask for it.</p>
+    <div class="code">
+      <span class="lang">plugin</span>
+      <pre><span class="k">export default async</span> (input) =&gt; {
+  <span class="k">const</span> report = <span class="k">async</span> () =&gt; {
+    <span class="k">const</span> r = <span class="k">await</span> fetch(<span class="s">`${BASE}/load`</span>).then((r) =&gt; r.json()).catch(() =&gt; <span class="k">null</span>)
+    <span class="k">if</span> (r) input.magpie?.load?.(<span class="s">"acme"</span>, { <span class="s">"acme-large"</span>: r.large, <span class="s">"acme-small"</span>: r.small })
+  }
+  report()
+  setInterval(report, 60_000)  <span class="c">// within five minutes, or the load is unknown again</span>
+  <span class="k">return</span> { auth: { <span class="c">/* … */</span> } }
+}</pre>
+    </div>
+    <ul>
+      <li><b>Values.</b> 100 is as busy as the vendor serves at once; a vendor that queues reports past it (200 is twice that). A number below 0 counts as 0, and one past 10000 as 10000, a sanity cap. Anything else (a string, <code>NaN</code>) is dropped. Model ids match whatever their case, and <code>model@256k</code> has its model’s load unless reported itself. One call takes up to 1000 models and returns how many it took. A provider that isn’t a string, or a <code>loads</code> that isn’t an object, throws a <code>TypeError</code>.</li>
+      <li><b>Freshness.</b> Each model’s load counts for five minutes from the call that reported it. After that it is unknown, never 0: a plugin that stops calling leaves its models where they were. A model a call doesn’t name keeps its last load until its own five minutes run out.</li>
+      <li><b>Where it shows.</b> The provider editor shows it by the model, a small grey number.</li>
+      <li><b>Routing.</b> With Settings › Network and sharing › Busy models last set (Off by default; over 50, 70, 80 or 90%, or Custom… for any number from 1 to 9999, such as 150 for a vendor that queues), a model reported busier than that goes behind every other candidate a request could go to, ahead of those resting after a failure. A conversation it answered moves to the one that leads at its next turn; within a turn it stays. A model with no load known keeps its place. The Routing trace says <code>busy</code> with the load.</li>
+    </ul>
+    <p>A plugin written for older hosts checks <code>input.magpie?.load</code> first, as above.</p>
+
     <h2 id="input"><a class="anchor" href="#input">What a plugin is given</a></h2>
     <p>magpie hands a plugin what OpenCode’s <code>PluginInput</code> has, as far as it has meaning without an OpenCode server:</p>
     <div class="table-wrap"><table>
@@ -584,6 +608,7 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
       <tr><td><code>project</code></td><td><code>{ id: "magpie", worktree }</code>.</td></tr>
       <tr><td><code>$</code></td><td>Bun’s shell.</td></tr>
       <tr><td><code>serverUrl</code></td><td>A placeholder; no OpenCode server is behind it.</td></tr>
+      <tr><td><code>magpie.option</code>, <code>.options</code>, <code>.load</code></td><td>magpie’s own: the plugin’s options as the user set them, and <a href="#load">its models’ load</a>.</td></tr>
     </table></div>
     <p>The hooks magpie calls are <code>config</code>, <code>auth</code> (its methods, <code>loader</code>, <code>usage</code>, <code>refresh</code> and <code>checkin</code>), <code>provider.models</code> and <code>chat.headers</code>. A plugin’s other hooks (<code>tool</code>, <code>event</code>, <code>chat.params</code>, …) are not called. The agent runs its own tools.</p>
 
@@ -707,6 +732,7 @@ magpie plugin options model-map '{"mapping": {"fast": "deepseek/deepseek-chat"}}
     <div class="table-wrap"><table>
       <tr><th>Hook</th><th>Is given</th><th>Returns</th></tr>
       <tr><td><code>onRequest(body, ctx)</code></td><td>The request body, before routing: a new <code>model</code> routes it elsewhere.</td><td>The body, or nothing. <code>ctx.reject(status, message)</code> turns the request away with that error, in the agent’s API (403 when no status is given).</td></tr>
+      <tr><td><code>onAccount(account, ctx)</code></td><td>The subscription account a try is about to go to, before anything is sent: <code>account</code> has <code>ref</code>, <code>provider</code>, <code>name</code>, <code>kind</code> (such as <code>codex</code> or <code>claude</code>) and <code>model</code>. <code>ref</code> stands for the account without naming it: 32 hex characters, the same on every request and after magpie restarts, and different for each middleware, so a middleware can remember an account without ever being told its email or id. A new plan gives the account a new <code>ref</code>. Not called for an API key. <code>ctx.account</code> is the same object in the hooks after it for that try.</td><td><code>{skip: true}</code> passes the account over for this request: the next account or key is tried, and the account isn’t rested or held against. When every one is passed over, the agent gets the usual error that none is ready, and nothing is sent. Anything else, or nothing, uses the account.</td></tr>
       <tr><td><code>onProvider(body, ctx)</code></td><td>The request body as it is about to go to one provider; <code>ctx.provider</code> has its <code>id</code>, <code>name</code>, <code>account</code> (the subscription’s kind, such as <code>claude</code> or <code>antigravity</code>; absent for an API key) and <code>model</code>. It is called again for each provider a request is tried on, each time with the body <code>onRequest</code> left, so a change for one provider reaches no other.</td><td>The body, or nothing. The request is routed by now: it can’t be turned away or sent elsewhere.</td></tr>
       <tr><td><code>onEvent(event, ctx)</code></td><td>Each event of a streamed reply: its <code>data:</code> JSON.</td><td>The event, nothing, or <code>null</code> to leave the event out.</td></tr>
       <tr><td><code>onResponse(body, ctx)</code></td><td>A reply that isn’t streamed, whole; <code>ctx.status</code> is its status.</td><td>The body, or nothing.</td></tr>

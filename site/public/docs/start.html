@@ -150,6 +150,7 @@
       <tr><td>OpenCode, MiMo Code, DevEco Code, Pi, Crush</td><td>A <code>magpie</code> provider entry, and <code>magpie/provider/model</code></td></tr>
       <tr><td>AtomCode</td><td><code>~/.atomcode/config.toml</code>: a <code>magpie</code> provider account and one model entry per catalog model</td></tr>
       <tr><td>Snow CLI</td><td><code>~/.snow/profiles/magpie.json</code>: a <code>magpie</code> profile, made the active one (Snow App takes it in with "Sync Snow CLI API config")</td></tr>
+      <tr><td>QwenPaw</td><td>A <code>magpie</code> provider in <code>~/.qwenpaw.secret/providers/custom/magpie.json</code>, and each agent's <code>active_model</code> in its <code>agent.json</code>. Restart QwenPaw after the first connect</td></tr>
       <tr><td>Gemini CLI</td><td><code>GOOGLE_GEMINI_BASE_URL</code> pointed at the gateway, API-key auth, and the model</td></tr>
     </table></div>
     <p><b>A running session keeps the model it started with.</b> Agents read their config when they start, so the change applies to the next session. Codex builds its model list at start-up too: restart the Codex app and open <code>codex</code> sessions after a switch.</p>
@@ -165,7 +166,7 @@
     </figure>
 
     <h3>Several accounts or keys in one provider</h3>
-    <p>Open the provider’s row and tick every account or key to use. <span class="ui">Routing</span> says how requests spread over them: <span class="ui">Smart</span> (the default), <span class="ui">In order</span>, <span class="ui">In turn</span>, <span class="ui">Least used first</span>, <span class="ui">Weekly pace</span>, <span class="ui">By weight</span>, each account or key taking its share by the weight set beside it (a Max account 5, a Pro one 1), or <span class="ui">Speed first</span>, the key that answered fastest lately first. <span class="ui">Fallback</span> lists models to use instead when the provider is out of quota, rate limited or down.</p>
+    <p>Open the provider’s row and tick every account or key to use. <span class="ui">Routing</span> says how requests spread over them: <span class="ui">Smart</span> (the default), <span class="ui">In order</span>, <span class="ui">Until used up</span>, staying on the next once one is used up even after the first renews, <span class="ui">In turn</span>, <span class="ui">Least used first</span>, <span class="ui">Weekly pace</span>, <span class="ui">By weight</span>, each account or key taking its share by the weight set beside it (a Max account 5, a Pro one 1), or <span class="ui">Speed first</span>, the key that answered fastest lately first. <span class="ui">Fallback</span> lists models to use instead when the provider is out of quota, rate limited or down.</p>
 
     <h3>One model over several providers</h3>
     <p>A group is several models, from one provider or many, that an agent picks as one: <code>group/&lt;id&gt;</code>, under <em>Routing groups</em> in the picker. A model two of your providers serve under the same name becomes a group on its own; <span class="ui">New group</span> in the <span class="ui">Routing</span> tab makes one of any models you like. The first model answers for what the group can do.</p>
@@ -175,6 +176,7 @@
       <tr><th>Routing</th><th>What goes first</th></tr>
       <tr><td>Smart <code>smart</code></td><td>The default. Over the members’ accounts and keys together (a group in the group as one, see below): of the subscriptions with quota to spare, the one whose allowance renews soonest. The week decides; an account with five hours and no week (Claude Enterprise) goes by its five hours, so ahead of every week renewing later. Credits with no reset (WorkBuddy’s packages, each ending on its own day) count as renewing when the soonest of those left run out, so the WorkBuddy account whose credits end first goes first; accounts renewing together (free ones at the month’s end) go by whose credits left end first after that. One resting after a failure goes last.</td></tr>
       <tr><td>In order <code>order</code></td><td>The first model until it can’t answer, then the next.</td></tr>
+      <tr><td>Until used up <code>drain</code></td><td>One account or key until it is used up, then the next, which keeps the requests: one before it that renews meanwhile doesn’t take them back. One rate limited or failing is passed over only while it rests.</td></tr>
       <tr><td>In turn <code>rotate</code></td><td>Each conversation’s next turn goes to the next member’s account or key, spreading the load.</td></tr>
       <tr><td>Least used <code>usage</code></td><td>The account or key with the most of its allowance left.</td></tr>
       <tr><td>Weekly pace <code>pace</code></td><td>The account with the most of its week left per hour until it renews — the one with the most to lose at its reset — so less of each member’s week is lost at its reset; an account with five hours and no week (Claude Enterprise) by what its five hours have left per hour until they renew, so almost always first. One at 90% or more waits until the others can’t answer. A key by the tokens sent it lately.</td></tr>
@@ -257,6 +259,7 @@ magpie claude group/opus-anywhere    <span class="c"># use it</span></pre>
       <tr><td><code>magpie presets</code></td><td>The vendors magpie knows</td></tr>
       <tr><td><code>magpie provider add deepseek sk-…</code></td><td>Add a preset with its key</td></tr>
       <tr><td><code>magpie accounts add codex</code></td><td>Sign in to one more Claude or ChatGPT subscription</td></tr>
+      <tr><td><code>magpie accounts switch claude next</code></td><td>Sign Claude Code (or <code>codex</code>) in to the next of your accounts that has room, or the one with the most left when none has</td></tr>
       <tr><td><code>magpie accounts discovery off</code></td><td>Never read your agents’ sign-ins (Claude Code’s and Codex’s files, the Keychain); <code>on</code> reads them again</td></tr>
       <tr><td><code>magpie providers</code></td><td>Your providers: host, key, models, who uses them</td></tr>
       <tr><td><code>magpie models</code></td><td>Every model agents can pick, as <code>provider/model</code></td></tr>

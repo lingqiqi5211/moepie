@@ -150,6 +150,7 @@
       <tr><td>OpenCode、MiMo Code、DevEco Code、Pi、Crush</td><td><code>magpie</code> プロバイダのエントリと <code>magpie/provider/model</code></td></tr>
       <tr><td>AtomCode</td><td><code>~/.atomcode/config.toml</code>：<code>magpie</code> プロバイダアカウントと、カタログ内の各モデルのエントリ</td></tr>
       <tr><td>Snow CLI</td><td><code>~/.snow/profiles/magpie.json</code>：<code>magpie</code> プロファイルを作り、使用中のプロファイルにする（Snow App は「Sync Snow CLI API config」で取り込む）</td></tr>
+      <tr><td>QwenPaw</td><td><code>~/.qwenpaw.secret/providers/custom/magpie.json</code> の <code>magpie</code> プロバイダーと、各エージェントの <code>agent.json</code> の <code>active_model</code>。初回の接続後に QwenPaw を再起動</td></tr>
       <tr><td>Gemini CLI</td><td>ゲートウェイを指す <code>GOOGLE_GEMINI_BASE_URL</code>、API キー認証、そしてモデル</td></tr>
     </table></div>
     <p><b>実行中のセッションは、開始時のモデルを使い続けます。</b> エージェントは起動時に設定を読むので、変更は次のセッションから反映されます。Codex は起動時にモデル一覧も作るため、切り替えたら Codex アプリと開いている <code>codex</code> セッションを再起動してください。</p>
@@ -165,7 +166,7 @@
     </figure>
 
     <h3>1 つのプロバイダに複数のアカウントやキー</h3>
-    <p>プロバイダの行を開き、使うアカウントやキーをすべてチェックします。<span class="ui">Routing</span> はリクエストをそれらにどう振り分けるかを決めます：<span class="ui">Smart</span>（デフォルト）、<span class="ui">In order</span>、<span class="ui">In turn</span>、<span class="ui">Least used first</span>、<span class="ui">Weekly pace</span>、<span class="ui">By weight</span>（各アカウントやキーが横で設定した重みで取り分を受けます。たとえば Max アカウントは 5、Pro は 1）、<span class="ui">Speed first</span>（最近いちばん速く応答したキーが先）。<span class="ui">Fallback</span> には、プロバイダのクォータ切れ、レート制限、ダウン時に代わりに使うモデルを並べます。</p>
+    <p>プロバイダの行を開き、使うアカウントやキーをすべてチェックします。<span class="ui">Routing</span> はリクエストをそれらにどう振り分けるかを決めます：<span class="ui">Smart</span>（デフォルト）、<span class="ui">In order</span>、<span class="ui">Until used up</span>（使い切ったら次へ移り、前のものが回復しても戻りません）、<span class="ui">In turn</span>、<span class="ui">Least used first</span>、<span class="ui">Weekly pace</span>、<span class="ui">By weight</span>（各アカウントやキーが横で設定した重みで取り分を受けます。たとえば Max アカウントは 5、Pro は 1）、<span class="ui">Speed first</span>（最近いちばん速く応答したキーが先）。<span class="ui">Fallback</span> には、プロバイダのクォータ切れ、レート制限、ダウン時に代わりに使うモデルを並べます。</p>
 
     <h3>1 つのモデルを複数のプロバイダで</h3>
     <p>グループとは、1 つまたは複数のプロバイダのモデルを、エージェントが 1 つとして選べるようにまとめたものです。ピッカーの <em>Routing groups</em> の下に <code>group/&lt;id&gt;</code> として表示されます。2 つのプロバイダが同じ名前で提供しているモデルは、それだけでグループになります。<span class="ui">Routing</span> タブの <span class="ui">New group</span> では、好きなモデルを組み合わせてグループを作れます。グループで何ができるかは、最初のモデルが基準になります。</p>
@@ -175,6 +176,7 @@
       <tr><th>ルーティング</th><th>先に使われるもの</th></tr>
       <tr><td>スマート <code>smart</code></td><td>デフォルトです。メンバーのアカウントとキーをまとめて扱い（グループ内のグループは 1 つとして扱います。下記参照）、クォータに余裕のあるサブスクリプションのうち、利用枠が最も早く更新されるもの。基準は週の枠です。週の枠がなく 5 時間枠だけのアカウント（Claude Enterprise）は 5 時間枠で判断されるため、それより後に週の枠が更新されるものすべてより先になります。リセットのないクレジット（WorkBuddy のパッケージはそれぞれの日に失効します）は、残りのうち最も早く失効する時点で判断されるため、クレジットが最も早く失効する WorkBuddy アカウントが先になります。同時に更新されるアカウント（無料アカウントはすべて月末）は、その後に残りのクレジットが先に失効するものが先になります。失敗後に休止中のものは最後に回ります。</td></tr>
       <tr><td>順番どおり <code>order</code></td><td>最初のモデルが応答できなくなるまでそれを使い、次へ進みます。</td></tr>
+      <tr><td>使い切ってから次へ <code>drain</code></td><td>1 つのアカウントやキーを使い切るまで使い、その後は次へ移ってそのまま使い続けます。その間に前のものが回復しても戻りません。レート制限やエラーのものは休止中だけ飛ばします。</td></tr>
       <tr><td>持ち回り <code>rotate</code></td><td>各会話の次のターンを、次のメンバーのアカウントやキーに送り、負荷を分散します。</td></tr>
       <tr><td>使用量の少ない順 <code>usage</code></td><td>利用枠の残りが最も多いアカウントやキー。</td></tr>
       <tr><td>週のペース <code>pace</code></td><td>更新までの 1 時間あたりの週の枠の残りが最も多いアカウント、つまりリセット時に失う分が最も多いもの。これにより各メンバーの週の枠がリセットで無駄になりにくくなります。週の枠がなく 5 時間枠だけのアカウント（Claude Enterprise）は、更新までの 1 時間あたりの 5 時間枠の残りで判断されるので、ほぼ常に最初になります。使用率が 90% 以上のものは、他が応答できなくなるまで待ちます。キーは最近送ったトークン数で判断します。</td></tr>
@@ -257,6 +259,7 @@ magpie claude group/opus-anywhere    <span class="c"># これを使う</span></p
       <tr><td><code>magpie presets</code></td><td>magpie が知っているベンダー</td></tr>
       <tr><td><code>magpie provider add deepseek sk-…</code></td><td>プリセットをキー付きで追加</td></tr>
       <tr><td><code>magpie accounts add codex</code></td><td>Claude または ChatGPT のサブスクリプションをもう 1 つサインイン</td></tr>
+      <tr><td><code>magpie accounts switch claude next</code></td><td>Claude Code（または <code>codex</code>）を、まだ余裕のある次のアカウントに切り替え。どれも上限近くなら、残りが最も多いアカウントへ</td></tr>
       <tr><td><code>magpie accounts discovery off</code></td><td>エージェントのサインイン（Claude Code と Codex のファイル、キーチェーン）を読み取らない。<code>on</code> で再び読み取る</td></tr>
       <tr><td><code>magpie providers</code></td><td>プロバイダ一覧：ホスト、キー、モデル、使っているエージェント</td></tr>
       <tr><td><code>magpie models</code></td><td>エージェントが選べるすべてのモデル（<code>provider/model</code> 形式）</td></tr>

@@ -81,6 +81,7 @@
     <a href="#signin-state">登录状态</a>
     <a href="#usage">用量</a>
     <a href="#checkin">签到</a>
+    <a href="#load">模型负载</a>
     <a href="#input">插件能拿到什么</a>
     <a href="#ids">供应商 id</a>
     <a href="#test">测试</a>
@@ -263,6 +264,7 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
     <div class="table-wrap"><table>
       <tr><th>字段</th><th>含义</th></tr>
       <tr><td><code>magpie.icon</code></td><td>插件自己的图标，用在「发现」里的卡片（从 npm 读取，GitHub 上的插件从仓库读取）和「已安装」里的那一行；没有自己图标的供应商也用它：<code>https://</code> 地址或 <code>data:image/…</code> URI，最大 1 MB，SVG、PNG 等都行。</td></tr>
+      <tr><td><code>magpie.name</code></td><td>插件在「已安装」里那一行的名字；它的页面没写标题时，也是侧边栏标签的名字。只对社区列表没收录的插件有效（列表里的名字优先）。npm 包名只能是 ASCII，所以「华为云 HUAWEI」这样的名字写在这里。一行，最多 80 字节，否则忽略。它只是包自己的说法：不会显示为已审核，也不会用来按名字查找插件。</td></tr>
       <tr><td><code>magpie.maxConcurrency</code></td><td>每个账号同时接多少个请求，1 到 1000 的整数。用户在供应商上设置的上限优先。</td></tr>
     </table></div>
     <p>同样的字段也可以写在 <code>auth</code> 钩子上（<code>auth.icon</code>、<code>auth.maxConcurrency</code>），优先于 <code>package.json</code>。一个插件登录多个供应商时，可以给每个供应商各写一个 <code>auth.icon</code>，<code>magpie.icon</code> 留给插件本身。</p>
@@ -571,6 +573,28 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
     </table></div>
     <p><code>streak</code> 是连续天数，<code>message</code> 原样显示。抛出异常，或返回的 outcome 不在上表里，都算 <code>failed</code>。它在账号的作用域里运行，所以用 <code>client.auth.set</code> 续期的 token 会存到这个账号。</p>
 
+    <h2 id="load"><a class="anchor" href="#load">模型负载</a></h2>
+    <p>供应商在模型繁忙时会让请求排队的，插件可以用 <code>input.magpie.load(provider, loads)</code> 告诉 magpie 每个模型有多忙。这是 magpie 自己的接口，OpenCode 没有。<code>loads</code> 把模型 id 映射到从 0 起的百分比，或映射到 <code>null</code> 表示不再知道。插件按自己的节奏、用自己的定时器随时调用，magpie 不会来要。</p>
+    <div class="code">
+      <span class="lang">plugin</span>
+      <pre><span class="k">export default async</span> (input) =&gt; {
+  <span class="k">const</span> report = <span class="k">async</span> () =&gt; {
+    <span class="k">const</span> r = <span class="k">await</span> fetch(<span class="s">`${BASE}/load`</span>).then((r) =&gt; r.json()).catch(() =&gt; <span class="k">null</span>)
+    <span class="k">if</span> (r) input.magpie?.load?.(<span class="s">"acme"</span>, { <span class="s">"acme-large"</span>: r.large, <span class="s">"acme-small"</span>: r.small })
+  }
+  report()
+  setInterval(report, 60_000)  <span class="c">// 五分钟内要再报一次，否则负载又变成未知</span>
+  <span class="k">return</span> { auth: { <span class="c">/* … */</span> } }
+}</pre>
+    </div>
+    <ul>
+      <li><b>取值。</b>100 表示供应商同时能服务的满载；会排队的供应商可以报超过 100 的值（200 是满载的两倍）。小于 0 按 0 算，大于 10000 按 10000 算（防止离谱的值）。其他值（字符串、<code>NaN</code>）丢弃。模型 id 不区分大小写，<code>model@256k</code> 没单独报时用它所属模型的负载。一次最多 1000 个模型，返回收下的个数。provider 不是字符串，或 <code>loads</code> 不是对象，会抛出 <code>TypeError</code>。</li>
+      <li><b>时效。</b>每个模型的负载从报告它的那次调用起算五分钟有效，之后就是未知，绝不当作 0：插件不再报告时，它的模型保持原位。一次调用没提到的模型，保留上次的负载，直到它自己的五分钟到期。</li>
+      <li><b>在哪显示。</b>供应商编辑页里模型旁边的灰色小数字。</li>
+      <li><b>路由。</b>在 设置 › 网络与共享 › 繁忙的模型靠后 选了阈值（默认关闭；可选高于 50、70、80 或 90%，或选“自定义…”输入 1 到 9999 之间的任意数，比如会排队的供应商可设 150）后，报告负载高于它的模型会排到请求能去的其他候选之后，但仍在失败后休息的候选之前。它答过的对话在下一轮换到排在最前的那个；同一轮之内不换。没有已知负载的模型保持原位。路由追踪里显示 <code>busy</code> 和负载值。</li>
+    </ul>
+    <p>为旧版宿主写的插件先检查 <code>input.magpie?.load</code>，如上例。</p>
+
     <h2 id="input"><a class="anchor" href="#input">插件能拿到什么</a></h2>
     <p>magpie 交给插件的是 OpenCode <code>PluginInput</code> 里的内容，只要它在没有 OpenCode 服务端时还有意义：</p>
     <div class="table-wrap"><table>
@@ -584,6 +608,7 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
       <tr><td><code>project</code></td><td><code>{ id: "magpie", worktree }</code>。</td></tr>
       <tr><td><code>$</code></td><td>Bun 的 shell。</td></tr>
       <tr><td><code>serverUrl</code></td><td>占位值，后面没有 OpenCode 服务端。</td></tr>
+      <tr><td><code>magpie.option</code>、<code>.options</code>、<code>.load</code></td><td>magpie 自己的：用户设置的插件选项，以及<a href="#load">模型负载</a>。</td></tr>
     </table></div>
     <p>magpie 调用的钩子是 <code>config</code>、<code>auth</code>（它的 methods、<code>loader</code>、<code>usage</code>、<code>refresh</code> 和 <code>checkin</code>）、<code>provider.models</code> 和 <code>chat.headers</code>。插件的其他钩子（<code>tool</code>、<code>event</code>、<code>chat.params</code> 等）不会被调用，工具由 agent 自己运行。</p>
 
@@ -707,6 +732,7 @@ magpie plugin options model-map '{"mapping": {"fast": "deepseek/deepseek-chat"}}
     <div class="table-wrap"><table>
       <tr><th>钩子</th><th>拿到的内容</th><th>返回</th></tr>
       <tr><td><code>onRequest(body, ctx)</code></td><td>路由之前的请求体：改了 <code>model</code>，请求就会路由到别处。</td><td>请求体，或者不返回。<code>ctx.reject(status, message)</code> 会拒绝这个请求，并用 agent 的 API 格式返回这个错误（不给状态码时是 403）。</td></tr>
+      <tr><td><code>onAccount(account, ctx)</code></td><td>一次尝试即将发往的订阅账号，此时还什么都没发：<code>account</code> 有 <code>ref</code>、<code>provider</code>、<code>name</code>、<code>kind</code>（比如 <code>codex</code> 或 <code>claude</code>）和 <code>model</code>。<code>ref</code> 代表这个账号但不透露它：32 个十六进制字符，每次请求、magpie 重启后都一样，每个中间件拿到的都不同，所以中间件能记住一个账号，却永远拿不到它的邮箱或 id。换了套餐，账号的 <code>ref</code> 也会变。API 密钥不调用它。这次尝试后面的钩子里，<code>ctx.account</code> 是同一个对象。</td><td>返回 <code>{skip: true}</code> 就在这次请求里跳过这个账号：改试下一个账号或密钥，这个账号不会被休息，也不记它的错。全部被跳过时，智能体收到平常那个“没有可用的”错误，什么都不会发出去。返回别的或不返回，就用这个账号。</td></tr>
       <tr><td><code>onProvider(body, ctx)</code></td><td>请求即将发给某个供应商时的请求体；<code>ctx.provider</code> 有它的 <code>id</code>、<code>name</code>、<code>account</code>（订阅的种类，比如 <code>claude</code> 或 <code>antigravity</code>；API 密钥没有这一项）和 <code>model</code>。请求每换一个供应商尝试就再调用一次，每次拿到的都是 <code>onRequest</code> 处理后的请求体，所以为一个供应商做的改动不会带到别的供应商。</td><td>请求体，或者不返回。这时请求已经路由好了：不能再拒绝，也不能改发别处。</td></tr>
       <tr><td><code>onEvent(event, ctx)</code></td><td>流式回复里的每个事件：它的 <code>data:</code> JSON。</td><td>事件、不返回，或者 <code>null</code> 表示丢掉这个事件。</td></tr>
       <tr><td><code>onResponse(body, ctx)</code></td><td>非流式的完整回复；<code>ctx.status</code> 是它的状态码。</td><td>回复体，或者不返回。</td></tr>

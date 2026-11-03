@@ -11,11 +11,15 @@
 //	go run build/icon/gen.go tray internal/gui/tray.png     # 44px black template icon (macOS menu bar)
 //	go run build/icon/gen.go tray-flap internal/gui/trayflap # its frames when clicked (a size after the folder for a bigger look)
 //	go run build/icon/gen.go app 64 internal/gui/icon.png   # app icon at a given size
+//	go run build/icon/gen.go win 256 build/windows/icon-256.png # the Windows tile, filling its square
+//	go run build/icon/gen.go win-ico internal/gui/icon-windows.ico # it at the tray's sizes, one .ico
 //	make icons                                              # regenerates all of them plus magpie.icns
 package main
 
 import (
+	"bytes"
 	_ "embed"
+	"encoding/binary"
 	"fmt"
 	"image"
 	"image/color"
@@ -58,8 +62,17 @@ func main() {
 	case len(os.Args) == 4 && (os.Args[1] == "app" || os.Args[1] == "app-dark"):
 		n, _ := strconv.Atoi(os.Args[2])
 		img = app(n, os.Args[1] == "app-dark")
+	case len(os.Args) == 4 && os.Args[1] == "win":
+		n, _ := strconv.Atoi(os.Args[2])
+		img = win(n)
+	case len(os.Args) == 3 && os.Args[1] == "win-ico":
+		if err := winICO(os.Args[2], trayICOSizes); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
 	default:
-		fmt.Fprintln(os.Stderr, "usage: gen.go tray <out.png> | gen.go app|app-dark <size> <out.png>")
+		fmt.Fprintln(os.Stderr, "usage: gen.go tray <out.png> | gen.go app|app-dark|win <size> <out.png> | gen.go win-ico <out.ico>")
 		os.Exit(2)
 	}
 	f, err := os.Create(os.Args[len(os.Args)-1])
@@ -262,13 +275,30 @@ func glyph(n int) image.Image {
 }
 
 // app draws a rounded square, white shading to the palest grey, with the
-// bird on it in ink.
+// bird on it in ink, on macOS's icon grid: the tile is ~80% of the
+// canvas, the rest left clear as the Dock and Finder expect.
 func app(n int, dark bool) image.Image {
 	S := float64(n)
-	// macOS icon grid: the squircle occupies ~80% of the canvas
 	inset := S * 0.1
+	return tile(n, inset, (S-2*inset)*0.225, dark)
+}
+
+// win is the same tile as Windows draws an app's icon: filling its square,
+// as the icons beside it in the taskbar, the tray and Start do. On macOS's
+// grid it was a fifth smaller than its neighbours there (dzxx0496). A
+// pixel is left round it from 32px up, a 32nd of the side, so the rounded
+// corners' soft edge stays inside the square; under 32px that pixel would
+// be most of the margin and only blur the edge, so the tile meets it.
+func win(n int) image.Image {
+	inset := float64(n / 32)
+	return tile(n, inset, (float64(n)-2*inset)*0.2, false)
+}
+
+// tile draws the rounded square inset from each edge of an n-pixel canvas,
+// its corners of the given radius, and the bird on it at .8 of its side.
+func tile(n int, inset, radius float64, dark bool) image.Image {
+	S := float64(n)
 	side := S - 2*inset
-	radius := side * 0.225
 	k := side * 0.8 / 44
 	o := inset + side/2 - 22*k
 	ss := 4
@@ -313,6 +343,46 @@ func app(n int, dark bool) image.Image {
 		}
 	}
 	return img
+}
+
+// trayICOSizes are the sizes Windows asks a tray icon for (SM_CXSMICON):
+// 16px at 100% scaling, 20, 24, 32 and 40 at 125% to 250%, and 48 and 64
+// beyond. Wails picks the one it needs from the .ico, where a single PNG
+// was scaled down by the system and blurred.
+var trayICOSizes = []int{16, 20, 24, 32, 40, 48, 64}
+
+// winICO writes win's tile at each size into one .ico, each image a PNG
+// (Windows Vista on reads them).
+func winICO(out string, sizes []int) error {
+	var pngs [][]byte
+	for _, n := range sizes {
+		var b bytes.Buffer
+		if err := png.Encode(&b, win(n)); err != nil {
+			return err
+		}
+		pngs = append(pngs, b.Bytes())
+	}
+	var ico bytes.Buffer
+	le := binary.LittleEndian
+	ico.Write(le.AppendUint16(le.AppendUint16(le.AppendUint16(nil, 0), 1), uint16(len(sizes))))
+	at := 6 + 16*len(sizes)
+	for i, n := range sizes {
+		d := byte(n)
+		if n >= 256 {
+			d = 0
+		}
+		e := []byte{d, d, 0, 0}
+		e = le.AppendUint16(e, 1)  // planes
+		e = le.AppendUint16(e, 32) // bits per pixel
+		e = le.AppendUint32(e, uint32(len(pngs[i])))
+		e = le.AppendUint32(e, uint32(at))
+		ico.Write(e)
+		at += len(pngs[i])
+	}
+	for _, p := range pngs {
+		ico.Write(p)
+	}
+	return os.WriteFile(out, ico.Bytes(), 0o644)
 }
 
 // coverage rasterises a shape, scaled by k and moved to (ox, oy), onto an n×n

@@ -81,6 +81,7 @@
     <a href="#signin-state">サインイン状態</a>
     <a href="#usage">使用量</a>
     <a href="#checkin">チェックイン</a>
+    <a href="#load">モデルの負荷</a>
     <a href="#input">プラグインに渡されるもの</a>
     <a href="#ids">プロバイダ id</a>
     <a href="#test">テスト</a>
@@ -263,6 +264,7 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
     <div class="table-wrap"><table>
       <tr><th>フィールド</th><th>意味</th></tr>
       <tr><td><code>magpie.icon</code></td><td>プラグイン自身の画像。「発見」のカード（npm から、GitHub のものはリポジトリから読み込み）と「インストール済み」の行に表示され、自分の画像を持たないプロバイダにも使われます：<code>https://</code> URL または <code>data:image/…</code> URI、最大 1 MB。SVG、PNG など。</td></tr>
+      <tr><td><code>magpie.name</code></td><td>「インストール済み」の行に表示されるプラグインの名前。ページがタイトルを持たないときはサイドバーのタブ名にもなります。コミュニティのリストに載っていないプラグインだけに効きます（リストの名前が優先）。npm のパッケージ名は ASCII に限られるので、「华为云 HUAWEI」のような名前はここに書きます。1 行、最大 80 バイト。それ以外は無視されます。パッケージ自身の言葉として扱われ、レビュー済みとは表示されず、名前でプラグインを探すのにも使われません。</td></tr>
       <tr><td><code>magpie.maxConcurrency</code></td><td>各アカウントが同時に受けるリクエスト数。1 から 1000 の整数。ユーザーがプロバイダに設定した上限が優先されます。</td></tr>
     </table></div>
     <p>同じフィールドは <code>auth</code> フックにも設定でき（<code>auth.icon</code>、<code>auth.maxConcurrency</code>）、そちらが <code>package.json</code> より優先されます。複数のプロバイダにサインインするプラグインは、プロバイダごとに <code>auth.icon</code> を設定し、<code>magpie.icon</code> をプラグイン自身のものにできます。</p>
@@ -571,6 +573,28 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
     </table></div>
     <p><code>streak</code> は連続日数、<code>message</code> はそのまま表示されます。例外を投げた hook や、上の表にない outcome を返したものは <code>failed</code> です。アカウントのスコープで実行されるので、<code>client.auth.set</code> で更新したトークンはそのアカウントに保存されます。</p>
 
+    <h2 id="load"><a class="anchor" href="#load">モデルの負荷</a></h2>
+    <p>混雑したモデルへのリクエストを待たせるベンダーなら、プラグインは <code>input.magpie.load(provider, loads)</code> で各モデルの混み具合を magpie に伝えられます。magpie 独自のもので、OpenCode にはありません。<code>loads</code> はモデル id から 0 以上のパーセントへの対応で、<code>null</code> はもう分からないことを表します。プラグインは自分のタイマーで好きなときに呼びます。magpie からは求めません。</p>
+    <div class="code">
+      <span class="lang">plugin</span>
+      <pre><span class="k">export default async</span> (input) =&gt; {
+  <span class="k">const</span> report = <span class="k">async</span> () =&gt; {
+    <span class="k">const</span> r = <span class="k">await</span> fetch(<span class="s">`${BASE}/load`</span>).then((r) =&gt; r.json()).catch(() =&gt; <span class="k">null</span>)
+    <span class="k">if</span> (r) input.magpie?.load?.(<span class="s">"acme"</span>, { <span class="s">"acme-large"</span>: r.large, <span class="s">"acme-small"</span>: r.small })
+  }
+  report()
+  setInterval(report, 60_000)  <span class="c">// 5 分以内にまた報告しないと、負荷は不明に戻ります</span>
+  <span class="k">return</span> { auth: { <span class="c">/* … */</span> } }
+}</pre>
+    </div>
+    <ul>
+      <li><b>値。</b>100 はベンダーが同時に処理できる満杯の状態で、待ち行列のあるベンダーはそれを超えて報告できます（200 はその 2 倍）。0 未満は 0、10000 超は 10000 として扱います（異常値の上限）。それ以外（文字列、<code>NaN</code>）は捨てられます。モデル id は大文字小文字を区別せず、<code>model@256k</code> は個別に報告がなければ元のモデルの負荷になります。1 回の呼び出しで最大 1000 モデルまで受け取り、受け取った数を返します。provider が文字列でない、または <code>loads</code> がオブジェクトでないと <code>TypeError</code> を投げます。</li>
+      <li><b>鮮度。</b>各モデルの負荷は報告した呼び出しから 5 分間有効で、その後は不明になり、0 とはみなしません。報告をやめたプラグインのモデルは元の位置のままです。呼び出しで触れなかったモデルは、自分の 5 分が切れるまで前回の負荷を保ちます。</li>
+      <li><b>表示。</b>プロバイダーの編集画面で、モデルの横に小さな灰色の数字で出ます。</li>
+      <li><b>ルーティング。</b>設定 › ネットワークと共有 › 混雑しているモデルを後回しに でしきい値を選ぶと（既定はオフ。50、70、80、90% 超、または「カスタム…」で 1〜9999 の任意の数。待ち行列のあるベンダーなら 150 など）、それより混雑していると報告されたモデルは、リクエストが行ける他の候補の後ろ、失敗後に休んでいる候補の前に回ります。そのモデルが答えた会話は次のターンで先頭の候補に移り、ターンの途中では移りません。負荷が分からないモデルは元の位置のままです。ルーティングのトレースには <code>busy</code> と負荷が出ます。</li>
+    </ul>
+    <p>古いホスト向けのプラグインは、上の例のように先に <code>input.magpie?.load</code> を確かめます。</p>
+
     <h2 id="input"><a class="anchor" href="#input">プラグインに渡されるもの</a></h2>
     <p>magpie は OpenCode の <code>PluginInput</code> の内容を、OpenCode サーバーなしで意味をなす範囲でプラグインに渡します：</p>
     <div class="table-wrap"><table>
@@ -584,6 +608,7 @@ magpie quota                             <span class="c"># acme · Pro · 5h 37%
       <tr><td><code>project</code></td><td><code>{ id: "magpie", worktree }</code>。</td></tr>
       <tr><td><code>$</code></td><td>Bun のシェル。</td></tr>
       <tr><td><code>serverUrl</code></td><td>プレースホルダーです。背後に OpenCode サーバーはありません。</td></tr>
+      <tr><td><code>magpie.option</code>、<code>.options</code>、<code>.load</code></td><td>magpie 独自：ユーザーが設定したプラグインのオプションと、<a href="#load">モデルの負荷</a>。</td></tr>
     </table></div>
     <p>magpie が呼び出すフックは <code>config</code>、<code>auth</code>（そのメソッド、<code>loader</code>、<code>usage</code>、<code>refresh</code>、<code>checkin</code>）、<code>provider.models</code>、<code>chat.headers</code> です。プラグインのほかのフック（<code>tool</code>、<code>event</code>、<code>chat.params</code>、…）は呼び出されません。ツールはエージェント自身が実行します。</p>
 
@@ -707,6 +732,7 @@ magpie plugin options model-map '{"mapping": {"fast": "deepseek/deepseek-chat"}}
     <div class="table-wrap"><table>
       <tr><th>フック</th><th>渡されるもの</th><th>戻り値</th></tr>
       <tr><td><code>onRequest(body, ctx)</code></td><td>ルーティング前のリクエスト本文。<code>model</code> を変えると別の宛先にルーティングされます。</td><td>本文、または何も返さない。<code>ctx.reject(status, message)</code> はリクエストを断り、そのエラーをエージェントの API の形式で返します（ステータスを省くと 403）。</td></tr>
+      <tr><td><code>onAccount(account, ctx)</code></td><td>試行が送られようとしているサブスクリプションのアカウント。まだ何も送っていません。<code>account</code> には <code>ref</code>、<code>provider</code>、<code>name</code>、<code>kind</code>（<code>codex</code> や <code>claude</code> など）と <code>model</code> があります。<code>ref</code> はアカウントを名指しせずに表す 16 進 32 文字で、どのリクエストでも magpie を再起動しても同じ、ミドルウェアごとに異なります。ミドルウェアはメールアドレスや id を知らないままアカウントを覚えておけます。プランが変わると <code>ref</code> も変わります。API キーでは呼ばれません。その試行の後のフックでは <code>ctx.account</code> が同じオブジェクトです。</td><td><code>{skip: true}</code> を返すと、このリクエストではそのアカウントを飛ばし、次のアカウントかキーを試します。そのアカウントは休ませず、失敗にも数えません。すべて飛ばされたときは、使えるものがないという通常のエラーがエージェントに返り、何も送られません。それ以外か何も返さなければ、そのアカウントを使います。</td></tr>
       <tr><td><code>onProvider(body, ctx)</code></td><td>あるプロバイダに送る直前のリクエスト本文。<code>ctx.provider</code> にはその <code>id</code>、<code>name</code>、<code>account</code>（サブスクリプションの種類。<code>claude</code> や <code>antigravity</code> など。API キーにはありません）と <code>model</code> があります。リクエストを試すプロバイダごとに呼ばれ、毎回 <code>onRequest</code> が残した本文を受け取るので、あるプロバイダ向けの変更は他のプロバイダに届きません。</td><td>本文、または何も返さない。この時点でルーティングは済んでいるので、拒否も行き先の変更もできません。</td></tr>
       <tr><td><code>onEvent(event, ctx)</code></td><td>ストリーム応答の各イベントの <code>data:</code> JSON。</td><td>イベント、何も返さない、またはイベントを落とす <code>null</code>。</td></tr>
       <tr><td><code>onResponse(body, ctx)</code></td><td>ストリームでない応答の全体。<code>ctx.status</code> がそのステータスです。</td><td>本文、または何も返さない。</td></tr>

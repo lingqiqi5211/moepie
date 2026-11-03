@@ -150,6 +150,7 @@
       <tr><td>OpenCode、MiMo Code、DevEco Code、Pi、Crush</td><td>一个 <code>magpie</code> 供应商条目，以及 <code>magpie/provider/model</code></td></tr>
       <tr><td>AtomCode</td><td><code>~/.atomcode/config.toml</code>：一个 <code>magpie</code> 供应商账号，以及目录中每个模型各自的条目</td></tr>
       <tr><td>Snow CLI</td><td><code>~/.snow/profiles/magpie.json</code>：一个 <code>magpie</code> 配置文件，并设为当前配置（Snow App 用“同步 Snow CLI API 配置”导入）</td></tr>
+      <tr><td>QwenPaw</td><td><code>~/.qwenpaw.secret/providers/custom/magpie.json</code> 中的 <code>magpie</code> 提供商，以及每个智能体 <code>agent.json</code> 里的 <code>active_model</code>。首次连接后需重启 QwenPaw</td></tr>
       <tr><td>Gemini CLI</td><td><code>GOOGLE_GEMINI_BASE_URL</code> 指向网关、API 密钥认证，以及模型</td></tr>
     </table></div>
     <p><b>已在运行的会话保持它启动时的模型。</b>Agent 启动时读取配置，所以改动从下一个会话生效。Codex 也在启动时生成模型列表：切换后请重启 Codex 应用和已打开的 <code>codex</code> 会话。</p>
@@ -165,7 +166,7 @@
     </figure>
 
     <h3>一个供应商里的多个账号或密钥</h3>
-    <p>展开供应商那一行，勾选要用的每个账号或密钥。<span class="ui">路由</span> 决定请求怎么分给它们：<span class="ui">智能</span>（默认）、<span class="ui">按顺序</span>、<span class="ui">轮流</span>、<span class="ui">用量少的优先</span>、<span class="ui">重置前用完</span>、<span class="ui">按权重</span>（每个账号或密钥按旁边设的权重分得请求，比如 Max 账号设 5、Pro 账号设 1）或 <span class="ui">速度优先</span>（最近回答最快的密钥先用）。<span class="ui">备用</span> 里列出这个供应商额度用完、被限流或不可用时改用的模型。</p>
+    <p>展开供应商那一行，勾选要用的每个账号或密钥。<span class="ui">路由</span> 决定请求怎么分给它们：<span class="ui">智能</span>（默认）、<span class="ui">按顺序</span>、<span class="ui">用完再换</span>（一个用完再换下一个，前面的恢复了也不切回去）、<span class="ui">轮流</span>、<span class="ui">用量少的优先</span>、<span class="ui">重置前用完</span>、<span class="ui">按权重</span>（每个账号或密钥按旁边设的权重分得请求，比如 Max 账号设 5、Pro 账号设 1）或 <span class="ui">速度优先</span>（最近回答最快的密钥先用）。<span class="ui">备用</span> 里列出这个供应商额度用完、被限流或不可用时改用的模型。</p>
 
     <h3>跨供应商的同一个模型</h3>
     <p>路由组是几个模型（来自一个或多个供应商），Agent 把它当作一个来选：<code>group/&lt;id&gt;</code>，在选择列表的 <em>路由组</em> 下面。两个供应商用同一个名字提供的模型会自动成组；在 <span class="ui">路由</span> 标签页点 <span class="ui">新建组</span> 可以把任意模型组到一起。排第一的模型决定这个组对外的能力。</p>
@@ -175,6 +176,7 @@
       <tr><th>路由</th><th>谁排在前面</th></tr>
       <tr><td>智能 <code>smart</code></td><td>默认。把成员的账号和 Key 放在一起排（组里的路由组算一个，见下文）：还有余量的订阅里，额度最先重置的排第一。看周额度的重置时间；只有 5 小时额度、没有周额度的账号（如 Claude Enterprise）看它的 5 小时重置，所以排在所有更晚重置的周额度前面。没有重置时间的积分（WorkBuddy 的积分包，各自到期）按剩余积分最早过期的时间算，所以积分最先过期的 WorkBuddy 账号排第一；同时重置的账号（免费账号都在月底）再看剩余积分哪个先过期。失败后在休息的排最后。</td></tr>
       <tr><td>按顺序 <code>order</code></td><td>先用第一个模型，它答不了再换下一个。</td></tr>
+      <tr><td>用完再换 <code>drain</code></td><td>一个账号或 Key 用到额度用完，再换下一个，并一直用它：前面的额度恢复了也不会切回去。被限流或出错的只在休息期间跳过。</td></tr>
       <tr><td>轮流 <code>rotate</code></td><td>会话的每一轮交给下一个成员的账号或 Key，均摊负载。</td></tr>
       <tr><td>最少使用 <code>usage</code></td><td>剩余额度最多的账号或 Key 排第一。</td></tr>
       <tr><td>重置前用完 <code>pace</code></td><td>每周剩余额度除以距重置的小时数，最高的账号排第一——重置时损失最多的那个——少让成员的周额度到重置时作废；只有 5 小时额度、没有周额度的账号（如 Claude Enterprise）按 5 小时窗口的剩余额度除以距它重置的小时数算，所以几乎总排第一。用到 90% 以上的等其他账号都答不了时才用。Key 按最近发给它的 token 数排。</td></tr>
@@ -257,6 +259,7 @@ magpie claude group/opus-anywhere    <span class="c"># 使用它</span></pre>
       <tr><td><code>magpie presets</code></td><td>magpie 内置的厂商预设</td></tr>
       <tr><td><code>magpie provider add deepseek sk-…</code></td><td>用密钥添加一个预设</td></tr>
       <tr><td><code>magpie accounts add codex</code></td><td>再登录一个 Claude 或 ChatGPT 订阅</td></tr>
+      <tr><td><code>magpie accounts switch claude next</code></td><td>把 Claude Code（或 <code>codex</code>）切到下一个还有额度的账号；都已过切换线时，切到剩得最多的那个</td></tr>
       <tr><td><code>magpie accounts discovery off</code></td><td>不读取智能体的登录信息（Claude Code 和 Codex 的文件、钥匙串）；<code>on</code> 重新读取</td></tr>
       <tr><td><code>magpie providers</code></td><td>你的供应商：地址、密钥、模型、谁在用</td></tr>
       <tr><td><code>magpie models</code></td><td>Agent 能选的所有模型，写作 <code>provider/model</code></td></tr>

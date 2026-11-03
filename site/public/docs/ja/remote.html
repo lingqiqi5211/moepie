@@ -77,6 +77,7 @@
     <a href="#models">使えるもの</a>
     <a href="#quotas">クォータと使用量</a>
     <a href="#keys">短期キー</a>
+    <a href="#oidc">GitHub Actions のキー</a>
     <a href="#api">統計 API</a>
     <a href="#trouble">うまくいかないとき</a>
   </aside>
@@ -154,6 +155,35 @@ magpie gateway-key issue --ttl 30m --from &lt;id&gt; --read-only --json
 magpie gateway-key list               <span class="c"># until 10-31 14:00、expired、issued by …</span></pre>
     </div>
     <p>期限切れのキーは、どの API でも理由付きの <code>401</code>（“the gateway key "sandbox-1" expired at …: ask for a new one”）で断られます。このコンピューターからでも同じです。1 時間後に削除されます。</p>
+
+    <h2 id="oidc"><a class="anchor" href="#oidc">GitHub Actions のキー</a></h2>
+    <p>GitHub Actions のジョブは、リポジトリの secrets にゲートウェイキーを置かなくても短期キーを受け取れます。GitHub が渡す OIDC トークンと交換します。リポジトリ（必要ならブランチ、environment、任意の claim。完全一致か <code>*</code> 付き）、発行に使うゲートウェイキー、有効期間を指定するルールを書きます：</p>
+    <div class="code">
+      <span class="lang">Shell</span>
+      <button class="copy" data-copy="ex-oidc-cli">コピー</button>
+      <pre id="ex-oidc-cli">magpie gateway-key issuer &lt;id&gt; on
+magpie gateway-key oidc add --key &lt;id&gt; --repo owner/app --ref refs/heads/main --ttl 1h
+<span class="c"># ルール id と audience（magpie-&lt;ルール id&gt;）を表示</span>
+magpie gateway-key oidc list
+magpie gateway-key oidc remove &lt;rule id&gt;</pre>
+    </div>
+    <p>ワークフローでは、ルールの audience 付きトークンを GitHub に求め、<code>/v1/magpie/keys/oidc</code> に POST します：</p>
+    <div class="code">
+      <span class="lang">YAML</span>
+      <button class="copy" data-copy="ex-oidc">コピー</button>
+      <pre id="ex-oidc">permissions:
+  id-token: write
+steps:
+  - name: Get a magpie key
+    run: |
+      TOKEN=$(curl -s -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+        "$ACTIONS_ID_TOKEN_REQUEST_URL&amp;audience=magpie-&lt;rule id&gt;" | jq -r .value)
+      KEY=$(curl -s -X POST https://&lt;your magpie&gt;/v1/magpie/keys/oidc \
+        -H "Authorization: Bearer $TOKEN" -d '{"ttl":"30m"}' | jq -r .key)
+      echo "::add-mask::$KEY"
+      echo "MAGPIE_KEY=$KEY" &gt;&gt; "$GITHUB_ENV"</pre>
+    </div>
+    <p>キーはルールのゲートウェイキーの下で発行され、他の発行済みキーと同じくそのキーに縛られ、ルールの期間より長くは有効になりません。名前はリポジトリ、ブランチ、実行番号です。別のリポジトリやブランチのトークン、期限切れ、交換済みのトークンには理由付きの <code>401</code> が返ります。他のコンピューターから使えるのは magpie を共有している間だけで、断られたトークンは認証失敗の回数に数えられます。ルールがなければ何も交換されません。</p>
 
     <h2 id="api"><a class="anchor" href="#api">統計 API</a></h2>
     <p>使用量ページの内容は JSON でも、このコンピューターに、また magpie を共有している間はゲートウェイキー付きのリクエストに提供されます。予算、モデル、アカウントで制限されたキーには、自分のリクエストと上限だけが返ります。</p>

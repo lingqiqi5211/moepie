@@ -141,7 +141,7 @@ kinds ([plugin guide](https://usemagpie.ai/docs/plugins)):
   source of models, such as a subscription magpie doesn't sign in to
   itself. They sign in, list models and make requests.
 - **Gateway middleware**: rewrites requests and replies as they pass
-  (`onRequest`, `onProvider`, `onEvent`, `onResponse`).
+  (`onRequest`, `onAccount`, `onProvider`, `onEvent`, `onResponse`).
 
 A plugin can't add a row to the Agents page or write another app's
 config, so it is not how an app registers itself.
