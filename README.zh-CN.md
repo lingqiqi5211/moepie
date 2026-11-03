@@ -279,6 +279,21 @@ magpie plugin options model-map '{"mapping": {"fast": "deepseek/deepseek-chat"}}
 - **WSL**：在 Windows 上，WSL 发行版里的 Agent 一样能配置，会话也一样统计。
 - **保持唤醒**、浅色和深色，在 [Omarchy](https://omarchy.org) 上跟随你的主题。
 
+## Docker
+
+moepie 的服务器镜像是 `ghcr.io/lingqiqi5211/moepie`，支持 `linux/amd64` 和 `linux/arm64`。从 0.1.5 起，`latest`、`0.1` 和 `0.1.N` 跟随正式版本，`edge` 跟随 main。
+
+```sh
+docker run -d --name moepie --restart unless-stopped \
+  -p 127.0.0.1:3425:3425 -p 127.0.0.1:3430:3430 \
+  -e MAGPIE_WEB_KEY=$(openssl rand -hex 16) \
+  -v moepie-config:/config \
+  ghcr.io/lingqiqi5211/moepie:latest web --addr 0.0.0.0:3430 --no-open
+docker logs moepie
+```
+
+端口、`/config` 数据卷和环境变量与 [Docker 文档](https://usemagpie.ai/docs/zh/docker) 一致，只是文档里写的是上游镜像。容器里 `magpie` 和 `moepie` 是同一个命令。
+
 ## 文档
 
 | | |

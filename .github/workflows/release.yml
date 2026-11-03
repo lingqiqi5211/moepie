@@ -404,3 +404,17 @@ jobs:
       - name: Publish fork release
         if: env.PUBLISH == 'true'
         run: node .github/scripts/release-publish.mjs
+  # The release's server image, tagged 0.1.N, 0.1 and latest. Called here
+  # because the tag publish creates starts no workflow of its own.
+  docker:
+    needs: [prepare, publish]
+    if: inputs.publish
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/docker.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+      ref: ${{ needs.prepare.outputs.sha }}

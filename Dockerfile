@@ -29,8 +29,9 @@ RUN apt-get update \
     && useradd -u 65532 -g nonroot -d /config/home -s /bin/bash nonroot
 
 COPY --from=build /out/magpie /magpie
-# magpie on PATH, so `magpie accounts add …` works in that terminal
-RUN ln -s /magpie /usr/local/bin/magpie
+# magpie on PATH, so `magpie accounts add …` works in that terminal; moepie
+# is the fork's name for the same binary
+RUN ln -s /magpie /usr/local/bin/magpie && ln -s /magpie /usr/local/bin/moepie
 USER nonroot
 COPY --from=build --chown=65532:65532 /config /config
 

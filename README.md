@@ -279,6 +279,21 @@ Find them under Plugins › Discover › Gateway middleware. See [Gateway middle
 - **WSL**: on Windows, agents inside WSL distros are wired too, and their sessions counted.
 - **Keep awake**, light and dark, and your theme's look on [Omarchy](https://omarchy.org).
 
+## Docker
+
+moepie's server image is `ghcr.io/lingqiqi5211/moepie`, for `linux/amd64` and `linux/arm64`. From 0.1.5, `latest`, `0.1` and `0.1.N` follow releases; `edge` follows main.
+
+```sh
+docker run -d --name moepie --restart unless-stopped \
+  -p 127.0.0.1:3425:3425 -p 127.0.0.1:3430:3430 \
+  -e MAGPIE_WEB_KEY=$(openssl rand -hex 16) \
+  -v moepie-config:/config \
+  ghcr.io/lingqiqi5211/moepie:latest web --addr 0.0.0.0:3430 --no-open
+docker logs moepie
+```
+
+Ports, the `/config` volume and environment variables work as in the [Docker guide](https://usemagpie.ai/docs/docker), which names upstream's image. In the container, `magpie` and `moepie` are the same command.
+
 ## Documentation
 
 | | |
