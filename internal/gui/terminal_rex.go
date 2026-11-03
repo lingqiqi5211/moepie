@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -178,6 +179,11 @@ const rexSessionLabel = "magpie"
 // block, not the tab). With none, `rex new magpie --window <label>` makes it,
 // its first tab so named; so does a 3 from run, the session having ended
 // since the list.
+//
+// A tab added from outside shows only in the app's sidebar: the app keeps
+// the tab it was on, and `open -b` only brings its window forward
+// (StringKe, #4565). So the app client is then asked to go to the new tab
+// (rexSelect).
 func openInRex(bin, command, label string) error {
 	label = rexLabel(label)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -197,17 +203,88 @@ func openInRex(bin, command, label string) error {
 				rexRun(ctx, bin, "window", "rename", "-s", id, "--", made.WindowID, label)
 			}
 			rexShow()
+			rexSelect(ctx, bin, id, made.WindowID)
 			return nil
 		}
 		if rexExit(err) != 3 {
 			return rexError(err)
 		}
 	}
-	if _, err := rexRun(ctx, bin, append([]string{"new", rexSessionLabel, "--window=" + label}, rexScript(command)...)...); err != nil {
+	out, err := rexRun(ctx, bin, append([]string{"new", rexSessionLabel, "--window=" + label, "--json"}, rexScript(command)...)...)
+	if err != nil {
 		return rexError(err)
 	}
 	rexShow()
+	var made struct {
+		SessionID string `json:"session_id"`
+		Windows   []struct {
+			WindowID string `json:"window_id"`
+		} `json:"initial_windows"`
+	}
+	if json.Unmarshal(out, &made) == nil && made.SessionID != "" {
+		w := ""
+		if len(made.Windows) > 0 {
+			w = made.Windows[0].WindowID
+		}
+		rexSelect(ctx, bin, made.SessionID, w)
+	}
 	return nil
+}
+
+// rexSelectWait bounds rexSelect. A client that doesn't answer an action
+// keeps `rex do` waiting 10s ("did not answer within 10s", tried on rex
+// 0.0.1793420730 with a CLI client), and the GUI waits for the open; the
+// window is already forward by then. A var so a test waits less.
+var rexSelectWait = 3 * time.Second
+
+// rexSelect asks the Rex app to show window (a tab) of session, with
+// `rex -C <app client> do session.select session_id=… window_id=…`, the
+// app's own "Go to Session" action. The app client is the one of kind app
+// in `rex client list --json` attached to session, else the last app to
+// connect; one whose connection is lost is passed over. An app action is
+// refused unless Remote Control is on in Rex's settings, and there may be
+// no app at all (the CLI starts a server of its own): the tab is open
+// either way, so a missing client, a refusal or a slow answer is let go.
+// It runs after rexShow, so the window comes forward without waiting.
+func rexSelect(ctx context.Context, bin, session, window string) {
+	ctx, cancel := context.WithTimeout(ctx, rexSelectWait)
+	defer cancel()
+	out, err := rexRun(ctx, bin, "client", "list", "--json")
+	if err != nil {
+		return
+	}
+	var list struct {
+		Clients []struct {
+			ID    string `json:"client_id"`
+			State string `json:"connection_state"`
+			Info  struct {
+				Kind string `json:"kind"`
+			} `json:"info"`
+			Sessions []string `json:"session_ids"`
+		} `json:"clients"`
+	}
+	if json.Unmarshal(out, &list) != nil {
+		return
+	}
+	app := ""
+	for _, c := range list.Clients {
+		if c.ID == "" || c.Info.Kind != "app" || c.State == "lost" {
+			continue
+		}
+		if slices.Contains(c.Sessions, session) {
+			app = c.ID
+			break
+		}
+		app = c.ID // in the order they connected: the last one so far
+	}
+	if app == "" {
+		return
+	}
+	args := []string{"-C", app, "do", "session.select", "session_id=" + session}
+	if window != "" {
+		args = append(args, "window_id="+window)
+	}
+	rexRun(ctx, bin, args...)
 }
 
 // rexOwnSession is the full ID of magpie's own Rex session, "" with none:

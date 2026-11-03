@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"cmp"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -69,7 +70,7 @@ type pluginPage struct {
 	Spec  string `json:"spec"`
 	Name  string `json:"name"`  // its package's
 	Key   string `json:"key"`   // the window's page key
-	Title string `json:"title"` // the page's, or the package's short name
+	Title string `json:"title"` // the page's, or the package's magpie.name or short name
 	// Titles are its title by the window's language (plugin.PageSpec)
 	Titles map[string]string `json:"titles,omitempty"`
 	URL    string            `json:"url"` // the page, under pluginPagePrefix
@@ -85,12 +86,15 @@ type pluginPage struct {
 	// (plugin.ServiceSpec) through this server, relative to the page's own
 	// address: only on a page served to a browser (servePageService)
 	Service string `json:"service,omitempty"`
-	token   string
-	dir     string
-	file    string // its HTML, relative to dir, with forward slashes
-	hosted  bool   // its plugin has a part for the host too (pageHost)
-	service *plugin.ServiceSpec
-	options map[string]any // its plugin's, as plugins.json keeps them
+	// KeepAlive keeps its frame while the reader is on another page
+	// (plugin.PageSpec); else the window lets it go after a while hidden
+	KeepAlive bool `json:"keepAlive,omitempty"`
+	token     string
+	dir       string
+	file      string // its HTML, relative to dir, with forward slashes
+	hosted    bool   // its plugin has a part for the host too (pageHost)
+	service   *plugin.ServiceSpec
+	options   map[string]any // its plugin's, as plugins.json keeps them
 }
 
 // pluginAction is an item a plugin's page adds to one of magpie's menus.
@@ -108,7 +112,7 @@ type pluginPanel struct {
 	Name   string            `json:"name"`  // its package's
 	Key    string            `json:"key"`   // the panel's, among every plugin's
 	Slot   string            `json:"slot"`  // the page it is in
-	Title  string            `json:"title"` // the panel's, or the package's short name
+	Title  string            `json:"title"` // the panel's, or the package's magpie.name or short name
 	Titles map[string]string `json:"titles,omitempty"`
 	URL    string            `json:"url"`   // the panel, under pluginPagePrefix
 	Reads  []string          `json:"reads"` // what it may read, of plugin.PageReads
@@ -155,12 +159,12 @@ func windowParts() (pages []pluginPage, panels []pluginPanel) {
 			tok := pageToken(e.Spec)
 			rel, _ := filepath.Rel(spec.Dir, spec.File)
 			p := pluginPage{Spec: e.Spec, Name: name, Key: key, Title: spec.Title, Titles: spec.Titles, Reads: reads, token: tok, dir: spec.Dir,
-				URL: pluginPagePrefix + tok + "/" + filepath.ToSlash(rel), file: filepath.ToSlash(rel), hosted: !only, options: e.Options}
+				URL: pluginPagePrefix + tok + "/" + filepath.ToSlash(rel), file: filepath.ToSlash(rel), hosted: !only, options: e.Options, KeepAlive: spec.KeepAlive}
 			if !only {
 				p.service = spec.Service
 			}
 			if p.Title == "" {
-				p.Title = plugin.ShortName(name)
+				p.Title = cmp.Or(plugin.InstalledName(e.Spec), plugin.ShortName(name))
 			}
 			if spec.Icon != "" {
 				p.Icon = pluginPagePrefix + tok + "/" + spec.Icon
@@ -185,7 +189,7 @@ func windowParts() (pages []pluginPage, panels []pluginPanel) {
 			p := pluginPanel{Spec: e.Spec, Name: name, Key: fmt.Sprintf("%s-%d", key, i), Slot: spec.Slot, Title: spec.Title, Titles: spec.Titles, Reads: reads,
 				token: tok, dir: spec.Dir, URL: pluginPagePrefix + tok + "/" + filepath.ToSlash(rel), file: filepath.ToSlash(rel), hosted: !only}
 			if p.Title == "" {
-				p.Title = plugin.ShortName(name)
+				p.Title = cmp.Or(plugin.InstalledName(e.Spec), plugin.ShortName(name))
 			}
 			panels = append(panels, p)
 		}

@@ -337,6 +337,14 @@ leaving it off; Save posting each changed one by the plugin's provider id
 before the provider, and none switched back. Chromium and WebKit, 1100 and
 420 wide, every language.
 
+`plugin-option-words.test.cjs` checks a plugin option in the reader's
+language (plugins#590): its `labels`, `descriptions` and `confirms` by the
+window's language, zh-TW falling back to zh and the rest to the plain
+words; and, while a `filtersModels` switch is on as saved, the note under
+the Models field's chips that the list is filtered, inside the editor; off,
+none. A WorkBuddy moved onto its plugin, Chromium and WebKit, 1100 and 420
+wide, every language.
+
 `plugin-move-overflow.test.cjs` checks a Plugins card that offers a
 built-in's accounts: the button is one word beside the name, as Install is
 ("Move", its title saying whose accounts and how many), on one line, and it
@@ -371,6 +379,12 @@ why one didn't load, updates one and removes one. The add sheet's
 "More in Plugins" row (the providers list has no button of its own) and
 "look for a plugin" link lead there. English and Chinese, Chromium and WebKit,
 with the API faked.
+
+`plugin-npm-unknown.test.cjs` checks that a suggested plugin npm said
+nothing of (npm or the dist branch not read in time) offers Install, not
+Coming soon, and that the page asks again and then shows its version,
+while one npm said it doesn't have still reads Coming soon. Every
+language, Chromium and WebKit, wide and narrow, with the API faked.
 
 `plugins-more-discover.test.cjs` checks that the add sheet's "More in
 Plugins" row and its "look for a plugin" link open Plugins on Discover,
@@ -1021,8 +1035,12 @@ asked in the app's own dialog; Cancel and Escape post nothing and go back to
 the editor, Sign out posts login/forget and says so. With another account
 saved the one in use has no Sign out but Remove, which posts login/forget
 (vincentzhang1_55530 on Discord: magpie signs Codex in to another account
-first), and a signed_in refusal is said in the reader's language. No select, no left border, the page doesn't move; in
-English and Chinese.
+first), and a signed_in refusal is said in the reader's language. Claude Code
+signed in to one of two accounts has Remove too (StringKe, #4532); signed in to
+its only account it can be signed in to (the other a setup token) it has neither
+Remove nor Sign out and says why in zh, zh-TW, ja and de, and a signed_in_only
+refusal is said in the reader's language. No select, no left border, the page
+doesn't move; in English and Chinese.
 
 `nokey-editor.test.cjs` opens two local Ollama providers saved with no key,
 one from the preset and one custom, as /api/providers gives them: a click

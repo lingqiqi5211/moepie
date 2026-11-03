@@ -173,6 +173,7 @@ func TestSettingsSaveKeepsWhatItDoesNotSend(t *testing.T) {
 		CodexAutoResetOnly:   map[string]string{"me@example.com": "expiring"},
 		CodexResetLead:       180,
 		CodexNoCredits:       []string{"me@example.com"},
+		CodexCreditsLast:     []string{"two@example.com"},
 		CodexWarmAtOf:        map[string]string{"me@example.com": "09:00"},
 		TextSize:             125,
 		UpdateSkip:           "0.1.500",
@@ -199,6 +200,9 @@ func TestSettingsSaveKeepsWhatItDoesNotSend(t *testing.T) {
 	was.RequestArchiveLocal, was.RequestArchiveLocalMB = true, 256
 	was.ProxyCustom = "http://me:secret@proxy.example:8080"
 	was.PanelShortcut = "Ctrl+Alt+K"
+	was.SearcherThen = []string{"fake/m1", "fake/m2"} // set in its own row
+	was.RouterNote = "Los Angeles"                    // the Library's servers/hub-note
+	was.BusyLoad = 150                                // the Routing page's busy-load
 	if err := settings.Save(was); err != nil {
 		t.Fatal(err)
 	}

@@ -3,5 +3,6 @@
 package gui
 
 // raceOn says the tests run under -race, where sync.Pool lets a quarter of
-// what is put in it go, so a test of what a pool saves is skipped.
+// what is put in it go (json's encoders, regexp's matchers), so a test of
+// how much a path allocates skips its bound.
 const raceOn = true

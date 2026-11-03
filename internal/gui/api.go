@@ -318,6 +318,9 @@ type stateJSON struct {
 	// started card's first step ("add a model source") is done once
 	// there is one, agents found or not
 	Served int `json:"served"`
+	// GatewayOther is a magpie of another version serving the gateway in
+	// this one's place, which the Agents page says (gateway_older.go)
+	GatewayOther *gatewaySkew `json:"gatewayOther,omitempty"`
 }
 
 // unlistedJSON is a model of a provider kept for routing groups, and the
@@ -621,7 +624,7 @@ func searchState(s *settingsJSON) {
 	s.SearchAuto, s.SearchUnused = gateway.AutoSearcher(), gateway.SearcherUnused()
 	s.SearchEfforts, s.SearchEffortNow = gateway.SearchEfforts(), gateway.SearchEffortNow()
 	if f, ok := gateway.SearcherFailed(); ok {
-		s.SearchFailed = &searchFailedJSON{Searcher: f.Searcher, Why: f.Why, NothingFound: f.NothingFound, NotSearched: f.NotSearched, At: f.At}
+		s.SearchFailed = &searchFailedJSON{Searcher: f.Searcher, Why: f.Why, NothingFound: f.NothingFound, NotSearched: f.NotSearched, Instead: f.Instead, At: f.At}
 	}
 	s.SearchChoices = []searchChoiceJSON{}
 	for _, c := range gateway.Searchers() {
@@ -649,6 +652,7 @@ type searchFailedJSON struct {
 	Why          string    `json:"why,omitempty"`
 	NothingFound bool      `json:"nothingFound,omitempty"`
 	NotSearched  bool      `json:"notSearched,omitempty"`
+	Instead      string    `json:"instead,omitempty"` // who, named after it, searched in its place
 	At           time.Time `json:"at"`
 }
 
@@ -1046,8 +1050,9 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 			return
 		}
 		s := state()
-		writeJSON(rw, s)
-		keepState(s)
+		if sum, ok := writeStateJSON(rw, s); ok {
+			keepStateSummed(s, sum)
+		}
 	})
 	mux.HandleFunc("POST /api/set", func(rw http.ResponseWriter, r *http.Request) {
 		var in struct{ Agent, Field, Value string }
@@ -1377,11 +1382,19 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 				return
 			}
 		}
-		if v := strings.TrimSpace(in.Searcher); v != "" && v != "off" && v != cur.Searcher {
-			id, _, _ := strings.Cut(v, "/")
-			if !slices.ContainsFunc(gateway.Searchers(), func(c gateway.SearcherChoice) bool { return c.Provider.ID == id }) {
-				fail(rw, fmt.Errorf("%s can't search the web for other models", id))
-				return
+		// the searchers after the one named, set in their own row: a save
+		// that doesn't send them (prefsKeep has none) keeps them, and an
+		// empty list clears them
+		if in.SearcherThen == nil {
+			in.SearcherThen = cur.SearcherThen
+		}
+		for _, v := range append([]string{in.Searcher}, in.SearcherThen...) {
+			if v = strings.TrimSpace(v); v != "" && v != "off" && v != cur.Searcher && !slices.Contains(cur.SearcherThen, v) {
+				id, _, _ := strings.Cut(v, "/")
+				if !slices.ContainsFunc(gateway.Searchers(), func(c gateway.SearcherChoice) bool { return c.Provider.ID == id }) {
+					fail(rw, fmt.Errorf("%s can't search the web for other models", id))
+					return
+				}
 			}
 		}
 		if err := settings.Edit(func(s *settings.Settings) error {
@@ -1470,6 +1483,7 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 			in.CORSOrigins = cur.CORSOrigins                   // set on its own (cors below)
 			in.AllowIPs = cur.AllowIPs                         // set on its own (allowips below)
 			in.FetchPrivate = cur.FetchPrivate                 // in settings.json only
+			in.RouterNote = cur.RouterNote                     // set on its own (the Library's servers/hub-note)
 			in.GitHubToken = cur.GitHubToken                   // set on its own (github-token below), never sent to the page
 			in.ProxyCustom = cur.ProxyCustom                   // set by settings.Save from the proxy, never by the page
 			in.RequestArchive = cur.RequestArchive             // the Gateway page's, set on its own
@@ -1508,6 +1522,7 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 			// how agents' lists name models, set on its own for the agents to be told
 			in.PlainNames, in.PlainOwnNames = cur.PlainNames, cur.PlainOwnNames
 			in.BareModelIDs = cur.BareModelIDs // set on its own (bare-ids below)
+			in.BusyLoad = cur.BusyLoad         // and so is this (busy-load below)
 			in.CodexAgentsV1 = cur.CodexAgentsV1
 			in.FullContext = cur.FullContext // set on its own (full-context below)
 			in.CompactAt = cur.CompactAt     // and so is the threshold
@@ -1536,6 +1551,7 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 			in.CodexResetLead = cur.CodexResetLead         // and how early before one expires (codex-reset-lead)
 			// and which of them spend their credits, set there too
 			in.CodexNoCredits = cur.CodexNoCredits
+			in.CodexCreditsLast = cur.CodexCreditsLast // and which only after everything else
 			// and each Codex account's own daily warm-up (codex-warm-at below)
 			in.CodexWarmAtOf = cur.CodexWarmAtOf
 			// and the text size, which the keyboard changes too (text-size below)
@@ -1736,6 +1752,24 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 		if err := provider.SetBareModelIDs(in.On); err != nil {
 			fail(rw, err)
 			return
+		}
+		writeJSON(rw, settingsState())
+	})
+	// the load over which a model its plugin says is busy goes behind
+	// the others (settings.BusyLoad, axelburks on Discord): 0 for off
+	mux.HandleFunc("POST /api/settings/busy-load", func(rw http.ResponseWriter, r *http.Request) {
+		var in struct{ At int }
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			fail(rw, err)
+			return
+		}
+		s := settings.Load()
+		if s.BusyLoad != in.At {
+			s.BusyLoad = in.At
+			if err := settings.Save(s); err != nil {
+				fail(rw, err)
+				return
+			}
 		}
 		writeJSON(rw, settingsState())
 	})
@@ -2055,11 +2089,13 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 		writeJSON(rw, settingsState())
 	})
 	// whether a Codex account spends its credits once its allowance is
-	// used up, the Usage card's toggle, set on its own
+	// used up, the Usage card's toggle, set on its own, and with Last
+	// whether only after everything else (left as it is when not sent)
 	mux.HandleFunc("POST /api/settings/codex-credits", func(rw http.ResponseWriter, r *http.Request) {
 		var in struct {
 			User string
 			On   bool
+			Last *bool
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			fail(rw, err)
@@ -2069,7 +2105,14 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 			fail(rw, fmt.Errorf("which Codex account?"))
 			return
 		}
-		if err := provider.SetCodexCredits(in.User, in.On); err != nil {
+		mode := provider.CreditsOff
+		if in.On {
+			mode = provider.CreditsOn
+			if (in.Last == nil && provider.CodexCreditsLast(in.User)) || (in.Last != nil && *in.Last) {
+				mode = provider.CreditsLast
+			}
+		}
+		if err := provider.SetCodexCreditsMode(in.User, mode); err != nil {
 			fail(rw, err)
 			return
 		}
@@ -2779,6 +2822,9 @@ func state() stateJSON {
 	s.Unlisted = unlistedModels()
 	s.CLIBehind = cliBehind()
 	s.ConfigBlocked = configBlocked()
+	if served.Load() == nil {
+		s.GatewayOther = gatewayOther.Load()
+	}
 	for _, e := range provider.Served() {
 		if e.Group == "" {
 			s.Served++
@@ -2954,11 +3000,12 @@ const sentRowsKept = 4
 // hasn't got. The whole answer, built in a buffer to hash and send, was
 // 25 MB of a warm start's 183 MB live heap over a full history (16,600
 // sessions), kept between polls and grown again by each (#2278).
-func writeJSONRows[T any](rw http.ResponseWriter, r *http.Request, key string, rows []T, rest any) {
+// It returns the tag, or "" when a row could not be encoded.
+func writeJSONRows[T any](rw http.ResponseWriter, r *http.Request, key string, rows []T, rest any) string {
 	tail, err := json.Marshal(rest)
 	if err != nil {
 		fail(rw, err)
-		return
+		return ""
 	}
 	k, _ := json.Marshal(key)
 	head := append(append([]byte{'{'}, k...), ":["...)
@@ -2988,7 +3035,7 @@ func writeJSONRows[T any](rw http.ResponseWriter, r *http.Request, key string, r
 		b, err := encode(i)
 		if err != nil {
 			fail(rw, err)
-			return
+			return ""
 		}
 		if i > 0 {
 			whole.Write([]byte{','})
@@ -3004,7 +3051,7 @@ func writeJSONRows[T any](rw http.ResponseWriter, r *http.Request, key string, r
 	if had == tag {
 		rw.Header().Set("X-Magpie-Same", "1")
 		rw.WriteHeader(http.StatusOK)
-		return
+		return tag
 	}
 	sentRows.Lock()
 	was, ok := sentRows.rows[had]
@@ -3037,12 +3084,12 @@ func writeJSONRows[T any](rw http.ResponseWriter, r *http.Request, key string, r
 			b, err := encode(i)
 			if err != nil {
 				// the first pass encoded it: nothing else changes a row
-				return
+				return tag
 			}
 			item(b)
 		}
 		out.Write(end)
-		return
+		return tag
 	}
 	at := make(map[[16]byte][]int, len(was))
 	for j, s := range was {
@@ -3062,7 +3109,7 @@ func writeJSONRows[T any](rw http.ResponseWriter, r *http.Request, key string, r
 			run()
 			b, err := encode(i)
 			if err != nil {
-				return
+				return tag
 			}
 			item(b)
 			continue
@@ -3078,6 +3125,7 @@ func writeJSONRows[T any](rw http.ResponseWriter, r *http.Request, key string, r
 	}
 	run()
 	out.Write(end)
+	return tag
 }
 
 func fail(rw http.ResponseWriter, err error) {
