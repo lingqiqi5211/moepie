@@ -96,6 +96,9 @@ export const FakePlugin = async ({ client }) => ({
       cfg.provider[ID].models["sensenova-u1.5-lite"] = { name: "sensenova-u1.5-lite", limit: { context: 131072, output: 32768 } }
       cfg.provider[ID].models["flux-2"] = { name: "Flux 2", provider: { npm: "@ai-sdk/anthropic" }, limit: { context: 1000, output: 100 } }
     }
+    // $FAKE_SEES: a model on the provider's openai-compatible that takes
+    // images, as WorkBuddy's plugin serves its models
+    if (process.env.FAKE_SEES) cfg.provider[ID].models["fake-sees"] = { name: "Fake Sees", modalities: { input: ["text", "image"], output: ["text"] }, limit: { context: 1000, output: 100 } }
     // $FAKE_DEEPSEEK: a DeepSeek model, as Cline's cline-pass/deepseek-v4-pro
     if (process.env.FAKE_DEEPSEEK) cfg.provider[ID].models["deepseek-v4-pro"] = { name: "DeepSeek V4 Pro", limit: { context: 1000, output: 100 } }
     // $FAKE_GLM: a GLM model, as Cline's cline-pass/glm-5.3
@@ -147,6 +150,12 @@ export const FakePlugin = async ({ client }) => ({
       cfg.provider[ID].models["fake-on"] = { name: "Fake On", reasoning: true, variants: levels(["low", "high", "max"]), limit: { context: 1000, output: 100 } }
       // Trae's levels as Our Free Model's plugin lists them (nianshou5)
       cfg.provider[ID].models["fake-trae"] = { name: "Fake Trae", reasoning: true, variants: levels(["light", "high", "extra_high"]), limit: { context: 1000, output: 100 } }
+    }
+    // $FAKE_TEMP: a model whose vendor turns temperature and top_p away,
+    // said as Factory 0.1.31's config models say it of its OpenAI route
+    // (plugins#154); fake-1 beside it says nothing and takes them
+    if (process.env.FAKE_TEMP) {
+      cfg.provider[ID].models["fake-cold"] = { name: "Fake Cold", temperature: false, limit: { context: 1000, output: 100 } }
     }
     // $FAKE_ZEN: a model as opencode-zen-free 0.1.3's config hook writes
     // it, from models.opencode.ai on 2026-10-11 (#1595, tkhs101): it

@@ -9,6 +9,7 @@ import (
 
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/mcpauth"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // Result is what a change did to the agents.
@@ -93,7 +94,9 @@ func (l *Library) sync() *Result {
 // agents gone from here that still have what magpie gave them (held) only
 // have what was unticked taken out, after the rest.
 func syncSteps(all, gone []*Target, b *backups, res *Result) []func(*Library) {
-	var steps []func(*Library)
+	// a skill whose app moved it is followed first, for every agent to
+	// get the moved one (skill_moved.go)
+	steps := []func(*Library){func(l *Library) { l.followMovedSkills() }}
 	for _, t := range all {
 		steps = append(steps, func(l *Library) {
 			l.syncInstructions(t, b, res)
@@ -191,6 +194,9 @@ func Sync() (*Result, error) {
 }
 
 func (l *Library) syncMCP(t *Target, b *backups, res *Result) {
+	if res.unreached(t) {
+		return
+	}
 	if t.MCP == nil {
 		return
 	}
@@ -495,6 +501,11 @@ type View struct {
 	// the library's (#2679), at HubPath<agent> on the gateway
 	MCPHub  bool   `json:"mcpHub"`
 	HubPath string `json:"hubPath"`
+	// HubNote is what the router says of itself to the agents (settings'
+	// RouterNote), and HubName what it says with none: this computer's
+	// name, to an agent on another computer (gateway.hubWhere)
+	HubNote string `json:"hubNote"`
+	HubName string `json:"hubName"`
 	// CheckDue is set when the skills from GitHub weren't checked for
 	// updates since magpie started, or not for a while: the page checks
 	// them as it shows them (#1449)
@@ -518,9 +529,7 @@ func Glance(problems []Problem) (*View, error) { return readView(problems, true)
 func readView(problems []Problem, glance bool) (*View, error) {
 	mu.Lock()
 	locked := true
-	// each folder on the way to a path is looked at once while the lock
-	// is held (linkmemo.go, #1771)
-	forget := readParts()
+	forget := func() {}
 	defer func() {
 		if locked {
 			forget()
@@ -530,6 +539,19 @@ func readView(problems []Problem, glance bool) (*View, error) {
 	l, err := load()
 	if err != nil {
 		return nil, err
+	}
+	// each folder on the way to a path is looked at once while the lock
+	// is held (linkmemo.go, #1771)
+	forget = readParts()
+	// a skill whose app moved it to its new version's folder is linked
+	// there (skill_moved.go); what was kept of the links is let go then,
+	// for the rest of the read to see the new one
+	if l.followMovedSkills() {
+		forget()
+		forget = readParts()
+		if err := l.save(); err != nil {
+			return nil, err
+		}
 	}
 	// a plugin's tools, a server of their own (plugin_tools.go): saved,
 	// and given to the agents by a sync of their own
@@ -546,7 +568,7 @@ func readView(problems []Problem, glance bool) (*View, error) {
 	// the agents are found once for the whole read: finding them looks
 	// through every agent's folders, in WSL too (#1624)
 	targets, asleep := targetsAsleep(false)
-	v := &View{Agents: []AgentView{}, Servers: []ServerView{}, Skills: []SkillView{}, FoundSkills: []FoundSkill{}, Instructions: l.instructionsView(targets, asleep), Dir: Dir(), Backups: BackupDir(), CopySkills: l.CopySkills, MCPHub: l.MCPHub, HubPath: gateway.HubMCPPath, Partial: glance}
+	v := &View{Agents: []AgentView{}, Servers: []ServerView{}, Skills: []SkillView{}, FoundSkills: []FoundSkill{}, Instructions: l.instructionsView(targets, asleep), Dir: Dir(), Backups: BackupDir(), CopySkills: l.CopySkills, MCPHub: l.MCPHub, HubPath: gateway.HubMCPPath, HubNote: settings.Shared().RouterNote, HubName: gateway.HostName(), Partial: glance}
 	for _, t := range targets {
 		av := AgentView{ID: t.Agent.ID, Name: t.Agent.Name, Icon: t.Agent.Icon, Instructions: t.Instructions, Skills: t.Skills,
 			SkillsAlso: t.SkillsAlso, Note: t.Note, MCPVia: t.MCPVia, ProjectSkills: ProjectSkillsDir(t.Agent.ID), ProjectMCP: ProjectMCPFile(t.Agent.ID),
