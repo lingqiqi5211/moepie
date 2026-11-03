@@ -171,7 +171,9 @@ type Tool struct {
 
 // Request is a call to a model, whichever API it arrived in.
 type Request struct {
-	// clientCache is non-nil only for the Claude bridge's explicit opt-in.
+	// clientCache is non-nil only for a request read with its client's
+	// marks: the Claude bridge's explicit opt-in, and a Messages ask
+	// translated to an Anthropic upstream (parseTranslated, #4571).
 	clientCache *clientCache
 	// leanPrompt has the Claude bridge give the caller's instructions as
 	// the run's system prompt, in place of Claude Code's (ClaudeLeanPrompt).
@@ -181,6 +183,12 @@ type Request struct {
 	// Windows with Claude Code in WSL), so the run's own prompt describes
 	// another machine than the one the tools run on (envElsewhereNote).
 	envElsewhere bool
+	// envInTurns: that working directory is named in a message (Claude
+	// Code's environment as a {role: "system"} message), not in the
+	// caller's instructions (envTurnsNote).
+	envInTurns bool
+	// envDir: that working directory, as the caller names it.
+	envDir string
 	// envUnknown: the caller is on another computer (remoteCaller) and its
 	// instructions name no working directory, so the run's own prompt
 	// describes a machine no tool runs on, and nothing says which does
@@ -188,6 +196,10 @@ type Request struct {
 	envUnknown bool
 	// remoteCaller: the request came from another computer (not local).
 	remoteCaller bool
+	// branch, for the Claude bridge, is the session of the run whose
+	// reply made the calls this request answers after another request
+	// did: its run branches off it there (subscriptionBridge.branch).
+	branch *savedSession
 	// hourMarks has the cache marks magpie adds on Anthropic's Messages
 	// (anthropicBody) last an hour: a Responses client's (Codex's), whose
 	// turns are often more than five minutes apart and whose own vendor
@@ -195,6 +207,11 @@ type Request struct {
 	// client asked prompt_cache_retention "in_memory", or the upstream
 	// turned the ttl away (hourMarksRefused).
 	hourMarks bool
+
+	// strictSaid has a Chat request's tools say strict as each is set,
+	// false included, as OpenCode's own do: Zen's free tier
+	// (zenFreeTools).
+	strictSaid bool
 
 	Model      string
 	System     string
@@ -909,6 +926,10 @@ func budgetOf(effort string) int {
 	}
 	return 10000
 }
+
+// ThinkingBudget is the Anthropic thinking budget the gateway reads an
+// effort level as, for an agent's config that has to name one (ZCode's).
+func ThinkingBudget(effort string) int { return budgetOf(effortOf(effort)) }
 
 // effortOfBudget goes the other way, for Anthropic clients asking others.
 func effortOfBudget(n int) string {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/yetone/magpie/internal/access"
 	"github.com/yetone/magpie/internal/sessions"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // The MCP hub (#2679): with the Library's switch on, magpie is the one MCP
@@ -166,19 +167,25 @@ func (s *Server) hubMCPCall(r *http.Request, agent string, m mcpMessage) (any, m
 		if agent == "" {
 			say = "The tools of every MCP server in magpie's Library, each named <server>__<tool>. Add servers in magpie's Library → MCP."
 		}
+		title := "Magpie MCP hub"
+		if w := hubWhere(r); w != "" {
+			say += " This router: " + w + ". Each of its tools' descriptions starts with [" + w + "]; when another MCP server gives the same tools, choose between them by this."
+			title += " · " + w
+		}
 		if MCPHub == nil || !MCPHub.On() {
 			say = errHubOff
 		}
 		return map[string]any{
 			"protocolVersion": mcpVersion(m),
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "magpie", "title": "Magpie MCP hub", "version": Version},
+			"serverInfo":      map[string]any{"name": "magpie", "title": title, "version": Version},
 			"instructions":    say,
 		}, nil
 	case "ping":
 		return map[string]any{}, nil
 	case "tools/list":
 		ts := hubTools(r.Context(), agent)
+		where := hubWhere(r)
 		list := make([]any, 0, len(ts))
 		for _, t := range ts {
 			spec := make(map[string]json.RawMessage, len(t.Spec)+1)
@@ -189,6 +196,13 @@ func (s *Server) hubMCPCall(r *http.Request, agent string, m mcpMessage) (any, m
 			spec["name"] = name
 			if s, ok := spec["inputSchema"]; !ok || !json.Valid(s) {
 				spec["inputSchema"] = json.RawMessage(`{"type":"object","properties":{}}`)
+			}
+			if where != "" {
+				var d string
+				json.Unmarshal(spec["description"], &d)
+				d, _ = strings.CutPrefix(d, "["+where+"]")
+				d = strings.TrimSpace("[" + where + "] " + strings.TrimSpace(d))
+				spec["description"], _ = json.Marshal(d)
 			}
 			list = append(list, spec)
 		}
@@ -270,6 +284,27 @@ type hubCallMeta struct {
 		Workspaces map[string]json.RawMessage `json:"workspaces"`
 	} `json:"x-codex-turn-metadata"`
 }
+
+// hubWhere is what the router says of itself to the agent of r, for an
+// agent given the same tools by two routers (one in China, one in Los
+// Angeles) to tell them apart: the user's own words (settings'
+// RouterNote, set under the router's switch), else this computer's name
+// to an agent on another computer. An agent on this computer with no
+// words set is told nothing: there it is the router at hand, and the
+// computer's name stays off its prompts.
+func hubWhere(r *http.Request) string {
+	if n := settings.CleanRouterNote(settings.Shared().RouterNote); n != "" {
+		return n
+	}
+	if !local(r) {
+		return hostName()
+	}
+	return ""
+}
+
+// HostName is this computer's name, what the router says of itself to an
+// agent on another computer when the user set no words of their own.
+func HostName() string { return hostName() }
 
 // hubRootsWait is how long the agent is given to say its roots.
 var hubRootsWait = 3 * time.Second

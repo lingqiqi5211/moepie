@@ -399,11 +399,35 @@ func (rs *responsesSocket) held(id string) ([]json.RawMessage, bool) {
 	return nil, false
 }
 
-func (rs *responsesSocket) keep(t heldTurn) {
+// keep holds the reply id ends: the conversation before this turn (held
+// already), the turn's own input and the reply's items. The input is
+// copied out of the frame it was read from: a view kept it whole, with
+// Codex's tools and instructions, on every turn a socket held, ~39 MB of
+// a long session's live heap.
+func (rs *responsesSocket) keep(id string, prior, fresh, reply []json.RawMessage) {
+	t := heldTurn{id: id, items: make([]json.RawMessage, 0, len(prior)+len(fresh)+len(reply))}
+	t.items = append(t.items, prior...)
+	t.items = append(t.items, ownItems(fresh)...)
+	t.items = append(t.items, reply...)
 	rs.turns = append(rs.turns, t)
 	if len(rs.turns) > socketKeep {
 		rs.turns = append(rs.turns[:0:0], rs.turns[len(rs.turns)-socketKeep:]...)
 	}
+}
+
+// ownItems are items copied into one buffer of their own.
+func ownItems(items []json.RawMessage) []json.RawMessage {
+	n := 0
+	for _, it := range items {
+		n += len(it)
+	}
+	buf := make([]byte, 0, n)
+	out := make([]json.RawMessage, len(items))
+	for i, it := range items {
+		buf = append(buf, it...)
+		out[i] = buf[len(buf)-len(it) : len(buf) : len(buf)]
+	}
+	return out
 }
 
 // turn serves one response.create.
@@ -421,6 +445,7 @@ func (rs *responsesSocket) turn(ctx context.Context, t *socketTurnRun, frame []b
 		return
 	}
 	input := fresh
+	var held []json.RawMessage
 	if raw := q["previous_response_id"]; len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
 		var id string
 		json.Unmarshal(raw, &id)
@@ -431,7 +456,7 @@ func (rs *responsesSocket) turn(ctx context.Context, t *socketTurnRun, frame []b
 				"Previous response with id '"+id+"' not found.", "previous_response_id")
 			return
 		}
-		input = append(prior[:len(prior):len(prior)], fresh...)
+		held, input = prior, append(prior[:len(prior):len(prior)], fresh...)
 		rs.continued++
 	}
 	// a warmup (generate false) asks for no reply: Codex sends it with
@@ -454,7 +479,7 @@ func (rs *responsesSocket) turn(ctx context.Context, t *socketTurnRun, frame []b
 		resp["usage"] = map[string]any{"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 		b, _ = json.Marshal(map[string]any{"type": "response.completed", "response": resp})
 		if rs.write(ctx, b) == nil {
-			rs.keep(heldTurn{id: id, items: input})
+			rs.keep(id, held, fresh, nil)
 		}
 		return
 	}
@@ -480,7 +505,7 @@ func (rs *responsesSocket) turn(ctx context.Context, t *socketTurnRun, frame []b
 		return
 	}
 	if out.id != "" && out.completed {
-		rs.keep(heldTurn{id: out.id, items: append(input[:len(input):len(input)], out.items...)})
+		rs.keep(out.id, held, fresh, out.items)
 	}
 }
 

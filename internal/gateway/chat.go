@@ -581,6 +581,9 @@ func buildChat(r *Request, model, host string, rejectTemp bool) []byte {
 			if len(t.Schema) > 0 {
 				fn["parameters"] = t.Schema
 			}
+			if r.strictSaid {
+				fn["strict"] = t.Strict
+			}
 			tools = append(tools, map[string]any{"type": "function", "function": fn})
 		}
 		out["tools"] = tools
@@ -1518,7 +1521,7 @@ func stopFromChat(s string) string {
 		return "length"
 	case "tool_calls", "function_call":
 		return "tool"
-	case "content_filter":
+	case "content_filter", "sensitive": // "sensitive": Zhipu's filter
 		return "filter"
 	}
 	return "stop"

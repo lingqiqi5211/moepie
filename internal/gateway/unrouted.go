@@ -220,6 +220,9 @@ type unroutedHold struct {
 	excused time.Duration
 	due     bool
 	unknown *time.Timer
+	// each kind of known wait ever met (wait), and how many of it are
+	// under way: 0 once ended, the entry kept for bodyArriving
+	kinds map[string]int
 
 	// the same for the maskings under way (noteMasking), whose time
 	// counts toward unroutedMost no more: how many, since when, the time
@@ -250,7 +253,7 @@ func noteMasking(ctx context.Context) func() {
 		return func() {}
 	}
 	u.masking.Add(1)
-	waited := u.wait()
+	waited := u.wait("")
 	u.wmu.Lock()
 	if u.mwaits == 0 {
 		u.msince = time.Now()
@@ -316,23 +319,46 @@ func (u *unroutedHold) checkMost() {
 // until the func it answers is called: the time it spends there counts
 // toward unroutedMost alone, not unroutedUnknown.
 func noteWait(ctx context.Context) (done func()) {
+	return noteWaitKind(ctx, "")
+}
+
+// noteWaitKind is noteWait for a wait of a named kind, which bodyArriving
+// reads to tell a body still arriving from one waiting for room.
+func noteWaitKind(ctx context.Context, kind string) (done func()) {
 	u, _ := ctx.Value(unroutedKey{}).(*unroutedHold)
 	if u == nil {
 		return func() {}
 	}
-	return u.wait()
+	return u.wait(kind)
 }
 
-// wait begins a known wait, and answers the func that ends it, once.
-func (u *unroutedHold) wait() func() {
+// wait begins a known wait of kind, and answers the func that ends it,
+// once. A kind of "" is counted but not named: a phase whose time its own
+// wait names already.
+func (u *unroutedHold) wait(kind string) func() {
 	u.wmu.Lock()
 	if u.waits == 0 {
 		u.since = time.Now()
 	}
 	u.waits++
+	if kind != "" {
+		if u.kinds == nil {
+			u.kinds = map[string]int{}
+		}
+		u.kinds[kind]++
+	}
 	u.wmu.Unlock()
 	var once sync.Once
-	return func() { once.Do(u.waited) }
+	return func() {
+		once.Do(func() {
+			if kind != "" {
+				u.wmu.Lock()
+				u.kinds[kind]--
+				u.wmu.Unlock()
+			}
+			u.waited()
+		})
+	}
 }
 
 // waited ends a known wait: the last to end adds its time to excused,
@@ -404,7 +430,7 @@ func (b waitedBody) Read(p []byte) (int, error) {
 	}
 	b.u.bodyActive.Store(true)
 	defer b.u.bodyActive.Store(false)
-	done := b.u.wait()
+	done := b.u.wait("body")
 	defer done()
 	n, err := b.ReadCloser.Read(p)
 	if n > 0 {
@@ -417,6 +443,30 @@ func (b waitedBody) Read(p []byte) (int, error) {
 var errBodyStopped = errors.New("magpie stopped reading this request's body: it was still arriving when magpie answered for it")
 
 func (u *unroutedHold) inBody() bool { return u.bodyActive.Load() }
+
+// bodyArriving is whether the handler has begun reading the body, is
+// between two of its reads, and less has come than the request's own
+// Content-Length says. The hold can run out in the gap between two reads
+// of a trickled body, and a read's absence alone answered such a request
+// 504, as if magpie held it of its own (a full run raced one out there,
+// #4511); a body short of its length is still arriving, and the time is
+// the client's. Not before its first read: a request waiting for body
+// room (bodyRoom.take) is held by magpie, whose 503 or 504 says so, and
+// its client may have sent the whole body already. A body read whole, a
+// length never said and an empty one are judged by the read alone.
+func (u *unroutedHold) bodyArriving() bool {
+	d := u.r.ContentLength
+	if d <= 0 || u.bodyRead.Load() >= d {
+		return false
+	}
+	u.wmu.Lock()
+	defer u.wmu.Unlock()
+	_, read := u.kinds["body"]
+	return read && u.kinds["body room"] == 0
+}
+
+// bodySaid is how much of u's request's body had come, and when the last
+// of it did: "12 KB of 3 MB, the last 2s ago".
 func (u *unroutedHold) bodySaid() string {
 	n, of := u.bodyRead.Load(), ""
 	if d := u.r.ContentLength; d > 0 {
@@ -532,7 +582,7 @@ func (u *unroutedHold) giveUp(unknown bool) {
 	}
 	held := time.Since(f.start).Round(time.Second)
 	msg, where, status := unroutedMsg(held, u.masking.Load() > 0), "", http.StatusGatewayTimeout
-	if u.inBody() {
+	if u.inBody() || u.bodyArriving() {
 		where = " its body still arriving (" + u.bodySaid() + ")"
 		msg, status = unroutedBodyMsg(held, u.bodySaid()), http.StatusRequestTimeout
 	}

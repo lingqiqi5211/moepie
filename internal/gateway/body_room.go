@@ -124,7 +124,7 @@ func (b *bodyRoomT) take(ctx context.Context, n int64) error {
 	}
 	start := time.Now()
 	log.Printf("gateway: a %d MiB request body waits for room: %d MiB of %d MiB held (%s)", n>>20, held>>20, room>>20, why)
-	defer noteWait(ctx)()
+	defer noteWaitKind(ctx, "body room")()
 	timer := time.NewTimer(bodyRoomWait)
 	defer timer.Stop()
 	var err error

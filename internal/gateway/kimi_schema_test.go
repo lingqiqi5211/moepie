@@ -1,10 +1,12 @@
 package gateway
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -126,36 +128,6 @@ func TestKimiToolEnumTypesItemsBeforeEnum(t *testing.T) {
 	}
 }
 
-// A $ref whose target is itself a $ref is typed at the end of the chain,
-// not beside the $ref: Moonshot refuses one there, 400 "when using $ref,
-// type should be defined in the referenced schema instead of the parent
-// schema" (#3205), and the whole request fails.
-func TestKimiToolRefTypesRefChain(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	kimi, err := provider.FromPreset("kimi-code-cn")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ask := `{"model":"kimi/m","tools":[{"type":"function","function":{"name":"m","parameters":{"type":"object","properties":{` +
-		`"a":{"$ref":"#/$defs/A"},"b":{"$ref":"#/$defs/Gone"}},` +
-		`"$defs":{"A":{"$ref":"#/$defs/B"},"B":{"properties":{"q":{"type":"string"}}},` +
-		`"Gone":{"$ref":"#/$defs/Nowhere"}}}}}]}`
-	out := kimiToolRefTypes(kimi, provider.Chat, []byte(ask))
-	if !json.Valid(out) {
-		t.Fatalf("Kimi was sent invalid JSON: %s", out)
-	}
-	defs := gjson.GetBytes(out, "tools.0.function.parameters.$defs")
-	if got := defs.Get("B.type").String(); got != "object" {
-		t.Errorf("the end of the chain typed %q, want object: %s", got, defs.Get("B").Raw)
-	}
-	for _, n := range []string{"A", "Gone"} {
-		if t2 := defs.Get(n + ".type"); t2.Exists() {
-			t.Errorf("a type beside a $ref in %s: %s", n, defs.Get(n).Raw)
-		}
-	}
-}
-
 // A schema a tool's $ref reaches goes to Kimi with a type: Kimi expands
 // the $ref and refuses a target with none, 400 "At path 'properties.b':
 // detected infinite recursion without termination condition", and Codex on
@@ -242,6 +214,82 @@ func TestKimiToolRefTypes(t *testing.T) {
 			if sent.Raw != w {
 				t.Errorf("%s %s was sent:\n%s\nwant:\n%s", r.path, id, sent.Raw, w)
 			}
+		}
+	}
+}
+
+// A $ref whose target is itself a $ref goes without a type beside it:
+// Moonshot refuses one there, 400 "At path '$defs.__schema14': when using
+// $ref, type should be defined in the referenced schema instead of the
+// parent schema" (#3205), and the whole request fails. Codex writes such
+// defs beside what it changed of a reused one — its automation_update's
+// targetThreadId reaches {"format":"uuid","description":"tt","$ref":
+// "#/$defs/__schema1"} (the fixture is what ChatGPT.app 26.930's zod
+// builds) — so the chain is resolved to the final target and the type, if
+// one is due, is written there; __schema1 has a type, so the def goes as
+// Codex sent it.
+func TestKimiToolRefTypesRefChain(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	kimi, err := provider.FromPreset("kimi-code-cn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kimi.ID, kimi.Key, kimi.Models = "kimi", "k", []string{"m"}
+	if err := provider.Save(kimi); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := os.ReadFile("../provider/testdata/codex_automation_update_schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	s := New()
+	s.client = &http.Client{Transport: countTransport(func(r *http.Request) (*http.Response, error) {
+		b, _ := io.ReadAll(r.Body)
+		got[r.URL.Host+r.URL.Path] = string(b)
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{"id":"c","object":"chat.completion","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))}, nil
+	})}
+	body := `{"model":"kimi/m","messages":[{"role":"user","content":"hi"}],` +
+		`"tools":[{"type":"function","function":{"name":"mcp__codex_app__automation_update","parameters":` + string(schema) + `}}]}`
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
+	if rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	b := got["api.kimi.com/coding/v1/chat/completions"]
+	if b == "" {
+		t.Fatal("nothing was sent to Kimi")
+	}
+	if !json.Valid([]byte(b)) {
+		t.Fatalf("Kimi was sent invalid JSON:\n%s", b)
+	}
+	sent := gjson.Get(b, "tools.0.function.parameters")
+	if !sent.Exists() {
+		t.Fatalf("no parameters were sent:\n%s", b)
+	}
+	// Moonshot's check, as an assertion: nothing it refuses may be left —
+	// no type beside a $ref anywhere in the schema as it goes.
+	var besideRef []string
+	walkSchema(sent, func(s gjson.Result) {
+		if s.Get("type").Exists() && s.Get(`\$ref`).Type == gjson.String {
+			besideRef = append(besideRef, s.Raw)
+		}
+	})
+	if len(besideRef) > 0 {
+		t.Errorf("Kimi was sent a type beside a $ref, refused 400 \"when using $ref, type should be defined in the referenced schema instead of the parent schema\":\n%s",
+			strings.Join(besideRef, "\n"))
+	}
+	if def := sent.Get(`$defs.__schema14`); !def.Exists() {
+		t.Error("Codex's format-and-$ref def is gone")
+	} else {
+		var buf bytes.Buffer
+		if err := json.Compact(&buf, []byte(def.Raw)); err != nil {
+			t.Fatal(err)
+		}
+		if buf.String() != `{"format":"uuid","description":"tt","$ref":"#/$defs/__schema1"}` {
+			t.Errorf("Codex's format-and-$ref def was rewritten:\n%s", def.Raw)
 		}
 	}
 }

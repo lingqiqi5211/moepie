@@ -95,6 +95,16 @@ var heldBodies struct {
 	list atomic.Pointer[[][]byte]
 	// facts: a held body's bodyFacts, by the body's first byte (factsOf)
 	facts map[*byte]heldFacts
+	// long: what longBody found of a held body, by its first byte
+	long map[*byte]heldLong
+}
+
+// heldLong is what longBody found of a held body: valid or not, and its
+// top level's members.
+type heldLong struct {
+	n       int
+	valid   bool
+	members []memberSpan
 }
 
 // heldBodiesMost bounds heldBodies: a body past it is decoded with copies, as
@@ -144,6 +154,7 @@ func holdBody(ctx context.Context, body []byte) {
 			return
 		}
 		delete(heldBodies.facts, unsafe.SliceData(body))
+		delete(heldBodies.long, unsafe.SliceData(body))
 		next := slices.Delete(slices.Clone(cur), i, i+1)
 		heldBodies.list.Store(&next)
 	})
@@ -833,7 +844,10 @@ var topSplit atomic.Pointer[func(data []byte)]
 // at its top level again by each of the dozen decodes it went through,
 // each a walk over every byte of the conversation.
 func longBody(data []byte) (valid bool, members []memberSpan) {
-	s := validSum{len(data), maphash.Bytes(validSeed, data)}
+	if e, held := heldLongOf(data); held {
+		return e.valid, e.members
+	}
+	s := validSum{len(data), validHash(data)}
 	validMemo.Lock()
 	i := slices.IndexFunc(validMemo.sums[:], func(e validEntry) bool { return e.validSum == s })
 	if i >= 0 && validMemo.sums[i].members != nil {
@@ -874,6 +888,64 @@ func longBody(data []byte) (valid bool, members []memberSpan) {
 
 var validSeed = maphash.MakeSeed()
 
+// validHash is data's sum in validMemo.
+func validHash(data []byte) uint64 {
+	if f := validHashed.Load(); f != nil {
+		(*f)(data)
+	}
+	return maphash.Bytes(validSeed, data)
+}
+
+// validHashed, when set (tests), is told of each body validHash sums.
+var validHashed atomic.Pointer[func(data []byte)]
+
+// heldLongOf is what longBody finds of data when data is a body being
+// served (holdBody), whole, and whether it is one. A held body is not
+// written while held, so it is known again by where it is, not by a hash
+// of all its bytes: each of the dozen decodes a request went through
+// summed its whole body, a twentieth of the gateway's CPU on long Codex
+// requests (#4371). What is found is kept until the body is released.
+func heldLongOf(data []byte) (heldLong, bool) {
+	key := unsafe.SliceData(data)
+	heldBodies.Lock()
+	e, ok := heldBodies.long[key]
+	heldBodies.Unlock()
+	if ok && e.n == len(data) {
+		return e, true
+	}
+	l := heldBodies.list.Load()
+	if l == nil || !slices.ContainsFunc(*l, func(b []byte) bool { return unsafe.SliceData(b) == key && len(b) == len(data) }) {
+		return heldLong{}, false
+	}
+	e = heldLong{n: len(data)}
+	if f := validScanned.Load(); f != nil {
+		(*f)(data)
+	}
+	if e.valid = jsonCheck(data); e.valid {
+		if raw := trimJSON(data); raw[0] == '{' {
+			if f := topSplit.Load(); f != nil {
+				(*f)(data)
+			}
+			e.members = []memberSpan{}
+			eachMemberAt(raw, func(k0, k1, v0, v1 int) bool {
+				e.members = append(e.members, memberSpan{k0, k1, v0, v1})
+				return true
+			})
+		}
+	}
+	heldBodies.Lock()
+	defer heldBodies.Unlock()
+	// only while body is held: one released may be freed, and its memory
+	// given to another body that would read as this one (factsOf)
+	if l := heldBodies.list.Load(); l != nil && slices.ContainsFunc(*l, func(b []byte) bool { return unsafe.SliceData(b) == key && len(b) == len(data) }) {
+		if heldBodies.long == nil {
+			heldBodies.long = map[*byte]heldLong{}
+		}
+		heldBodies.long[key] = e
+	}
+	return e, true
+}
+
 // validScanned, when set (tests), is told of each body of validMemoMin or
 // more that jsonValid checks byte by byte.
 var validScanned atomic.Pointer[func(data []byte)]
@@ -885,7 +957,10 @@ func jsonValid(data []byte) bool {
 	if len(data) < validMemoMin {
 		return jsonCheck(data)
 	}
-	s := validSum{len(data), maphash.Bytes(validSeed, data)}
+	if e, held := heldLongOf(data); held {
+		return e.valid
+	}
+	s := validSum{len(data), validHash(data)}
 	validMemo.Lock()
 	known := slices.ContainsFunc(validMemo.sums[:], func(e validEntry) bool { return e.validSum == s })
 	validMemo.Unlock()

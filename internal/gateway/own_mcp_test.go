@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/yetone/magpie/internal/access"
@@ -174,5 +175,45 @@ func TestOwnMCPListsPluginToolsWhileOn(t *testing.T) {
 	defer gwtool.Serve(gwtool.PluginTools)()
 	if got := ownMCPNames(t, s); got["magpie-tools"] != ToolsMCPPath {
 		t.Fatalf("plugins/tools on: %v", got)
+	}
+}
+
+// Each of magpie's own servers the Library's Discover lists says why it
+// can't answer yet exactly while ownMCP leaves it out, and tells nothing
+// set up from turned off in Settings (matrix0487 on Discord: all three in
+// Discover, never a dead tool).
+func TestOwnUnreadyWhileNotListed(t *testing.T) {
+	fresh(t)
+	toolsAre(t, 0)
+	for _, n := range []string{"magpie-web-search", "magpie-vision", imageServerName} {
+		if why := OwnUnready(n); !strings.Contains(why, "yet") {
+			t.Errorf("%s with nothing set up: %q", n, why)
+		}
+	}
+	if why := OwnUnready("magpie-browser"); why != "" {
+		t.Errorf("magpie-browser: %q", why)
+	}
+	s, _ := eyed(t)
+	if got := ownMCPNames(t, s); got["magpie-vision"] == "" || OwnUnready("magpie-vision") != "" {
+		t.Fatalf("a model sees: listed %v, unready %q", got, OwnUnready("magpie-vision"))
+	}
+	noVision(t)
+	if why := OwnUnready("magpie-vision"); !strings.Contains(why, "off in Settings") {
+		t.Fatalf("vision off: %q", why)
+	}
+	st := settings.Load()
+	st.ImageGen = "off"
+	if err := settings.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	if why := OwnUnready(imageServerName); !strings.Contains(why, "off in Settings") {
+		t.Fatalf("image generation off: %q", why)
+	}
+	stop := gwtool.Gate() // plugins/search off
+	defer stop()
+	searchOn()
+	defer func() { searchOn = gwtool.Serve(gwtool.WebSearch) }()
+	if why := OwnUnready("magpie-web-search"); !strings.Contains(why, "Plugins") {
+		t.Fatalf("plugins/search off: %q", why)
 	}
 }

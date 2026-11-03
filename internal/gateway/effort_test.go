@@ -227,28 +227,6 @@ func TestTraceRecordsTheEffortSent(t *testing.T) {
 	}
 }
 
-// requestEffort reads the reasoning a request asks for in each API's words.
-func TestRequestEffort(t *testing.T) {
-	for _, c := range []struct {
-		proto provider.Protocol
-		body  string
-		want  string
-	}{
-		{provider.Chat, `{"reasoning_effort":"low"}`, "low"},
-		{provider.Chat, `{"model":"m"}`, ""},
-		{provider.Responses, `{"reasoning":{"effort":"xhigh","summary":"auto"}}`, "xhigh"},
-		{provider.Responses, `{"reasoning":{"summary":"auto"}}`, ""},
-		{provider.Anthropic, `{"thinking":{"type":"adaptive"},"output_config":{"effort":"medium"}}`, "medium"},
-		{provider.Anthropic, `{"thinking":{"type":"enabled","budget_tokens":4096}}`, "low"},
-		{provider.Anthropic, `{"thinking":{"type":"disabled"},"output_config":{"effort":"high"}}`, ""},
-		{provider.Anthropic, `{"output_config":{"effort":"high"}}`, ""},
-	} {
-		if got := requestEffort(c.proto, []byte(c.body)); got != c.want {
-			t.Errorf("%s %s: %q, want %q", c.proto, c.body, got, c.want)
-		}
-	}
-}
-
 // A Gemini request's thinkingConfig is the reasoning it asks for, read
 // as parseGemini reads it (#4529): its level, or its budget as the level
 // it is nearest, by either spelling of the fields' names.
@@ -276,6 +254,28 @@ func TestGeminiRequestEffort(t *testing.T) {
 		}
 		if r.Effort != c.want {
 			t.Errorf("%s: parseGemini effort %q, want %q", c.body, r.Effort, c.want)
+		}
+	}
+}
+
+// requestEffort reads the reasoning a request asks for in each API's words.
+func TestRequestEffort(t *testing.T) {
+	for _, c := range []struct {
+		proto provider.Protocol
+		body  string
+		want  string
+	}{
+		{provider.Chat, `{"reasoning_effort":"low"}`, "low"},
+		{provider.Chat, `{"model":"m"}`, ""},
+		{provider.Responses, `{"reasoning":{"effort":"xhigh","summary":"auto"}}`, "xhigh"},
+		{provider.Responses, `{"reasoning":{"summary":"auto"}}`, ""},
+		{provider.Anthropic, `{"thinking":{"type":"adaptive"},"output_config":{"effort":"medium"}}`, "medium"},
+		{provider.Anthropic, `{"thinking":{"type":"enabled","budget_tokens":4096}}`, "low"},
+		{provider.Anthropic, `{"thinking":{"type":"disabled"},"output_config":{"effort":"high"}}`, ""},
+		{provider.Anthropic, `{"output_config":{"effort":"high"}}`, ""},
+	} {
+		if got := requestEffort(c.proto, []byte(c.body)); got != c.want {
+			t.Errorf("%s %s: %q, want %q", c.proto, c.body, got, c.want)
 		}
 	}
 }

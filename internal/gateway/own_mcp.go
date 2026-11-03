@@ -5,6 +5,8 @@ import (
 
 	"github.com/yetone/magpie/internal/gwtool"
 	"github.com/yetone/magpie/internal/plugin"
+	"github.com/yetone/magpie/internal/provider"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // OwnMCPPath lists the MCP servers magpie serves itself (web search,
@@ -56,4 +58,39 @@ func ownMCP() []OwnMCP {
 
 func (s *Server) ownMCPList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"servers": ownMCP()})
+}
+
+// OwnUnready is why magpie's own server name (Magpie Web Search, Magpie
+// Image Recognition, Magpie Image) can't answer yet, in English for the
+// Library's Discover to say on its row: "" while ownMCP lists it, and for
+// any other name. Its tools answer all the same, with how to set it up
+// (matrix0487 on Discord: all three in Discover, never a dead tool).
+func OwnUnready(name string) string {
+	switch name {
+	case "magpie-web-search":
+		switch {
+		case canSearch():
+			return ""
+		case !searchServed():
+			return "Web search is off in Plugins › Built-in: its tools say so until it is turned on"
+		}
+		return "Nothing searches yet: add a search API in Settings → Models → Web search, or a provider that can search. Until then its tools say so"
+	case "magpie-vision":
+		if _, ok := seer(); ok {
+			return ""
+		}
+		if provider.HeldSettings().Vision == "off" {
+			return "Image recognition is off in Settings → Models → Images: its tool says so until a model is picked there"
+		}
+		return "No model that sees images is set up yet: it reads images once a provider with one is added, and says so until then"
+	case imageServerName:
+		if _, ok := drawer(); ok {
+			return ""
+		}
+		if settings.Load().ImageGen == "off" {
+			return "Image generation is off in Settings → Models → Images: its tools say so until a model is picked there"
+		}
+		return "No model that draws images is set up yet: it draws once a provider with an image model is added, and says so until then"
+	}
+	return ""
 }

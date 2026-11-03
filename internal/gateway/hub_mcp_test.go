@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yetone/magpie/internal/access"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // fakeHub is the library's servers, as the gateway asks for them.
@@ -343,5 +344,95 @@ func TestHubMCPHeldToKeyLimit(t *testing.T) {
 	}
 	if len(f.ran()) != 0 {
 		t.Errorf("ran %q", f.ran())
+	}
+}
+
+// whereReply is what an agent is told of the router: initialize's
+// instructions and title, and each tool's description.
+func whereReply(t *testing.T, h http.Handler, addr string, hdr ...string) (instructions, title string, descs []string) {
+	t.Helper()
+	var init struct {
+		Result struct {
+			Instructions string
+			ServerInfo   struct{ Title string }
+		}
+	}
+	if err := json.Unmarshal(hubPost(h, "claude", addr, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`, hdr...).Body.Bytes(), &init); err != nil {
+		t.Fatal(err)
+	}
+	var list struct {
+		Result struct {
+			Tools []struct{ Description string }
+		}
+	}
+	if err := json.Unmarshal(hubPost(h, "claude", addr, toolsList, hdr...).Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, x := range list.Result.Tools {
+		descs = append(descs, x.Description)
+	}
+	return init.Result.Instructions, init.Result.ServerInfo.Title, descs
+}
+
+// Two routers serving the same tools (packinggoodsllc_07668 on Discord:
+// one magpie in China, one in Los Angeles) are told apart by what each
+// says of itself: the user's words (RouterNote) in initialize's
+// instructions and title and before each tool's description, to every
+// caller; with none, this computer's name to an agent on another
+// computer, and nothing to one on this computer.
+func TestHubMCPSaysWhere(t *testing.T) {
+	fresh(t)
+	t.Setenv("MAGPIE_ADDR", "")
+	t.Setenv("MAGPIE_PUBLIC_URL", "")
+	old := hostName
+	hostName = func() string { return "la-box" }
+	t.Cleanup(func() { hostName = old })
+	f := &fakeHub{on: true, tools: map[string][]HubTool{"claude": {
+		{Server: "fetch", Tool: "fetch", Spec: hubSpec("fetch")},
+		{Server: "fs", Tool: "read", Spec: map[string]json.RawMessage{"name": json.RawMessage(`"read"`)}},
+	}}}
+	withHub(t, f)
+	h := lanGuard(New().Handler())
+	const there = "192.0.2.7:4000"
+	_, secrets := newCaller(t, "Laptop")
+	auth := []string{"Authorization", "Bearer " + secrets[0]}
+
+	// nothing set, this computer: as before
+	say, title, descs := whereReply(t, h, here)
+	if strings.Contains(say, "la-box") || title != "Magpie MCP hub" || strings.Join(descs, "|") != "Does fetch.|" {
+		t.Fatalf("this computer, nothing set: %q %q %q", say, title, descs)
+	}
+	// nothing set, another computer: this computer's name
+	say, title, descs = whereReply(t, h, there, auth...)
+	if !strings.Contains(say, "This router: la-box.") || title != "Magpie MCP hub · la-box" || strings.Join(descs, "|") != "[la-box] Does fetch.|[la-box]" {
+		t.Fatalf("another computer, nothing set: %q %q %q", say, title, descs)
+	}
+	// the user's words, to every caller, one line and once
+	if err := settings.SetRouterNote("  Los Angeles\n (US)  "); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		addr string
+		hdr  []string
+	}{{here, nil}, {there, auth}} {
+		say, title, descs = whereReply(t, h, c.addr, c.hdr...)
+		if !strings.Contains(say, "This router: Los Angeles (US).") || title != "Magpie MCP hub · Los Angeles (US)" || strings.Join(descs, "|") != "[Los Angeles (US)] Does fetch.|[Los Angeles (US)]" {
+			t.Fatalf("%s, set: %q %q %q", c.addr, say, title, descs)
+		}
+	}
+	// a server whose descriptions say it already (another magpie's router
+	// in this one's Library) isn't said twice
+	f.mu.Lock()
+	f.tools["claude"][0].Spec["description"] = json.RawMessage(`"[Los Angeles (US)] Does fetch."`)
+	f.mu.Unlock()
+	if _, _, descs = whereReply(t, h, here); descs[0] != "[Los Angeles (US)] Does fetch." {
+		t.Fatalf("said twice: %q", descs)
+	}
+	// off, it says only that it's off
+	f.mu.Lock()
+	f.on = false
+	f.mu.Unlock()
+	if say, _, _ = whereReply(t, h, here); say != errHubOff {
+		t.Fatalf("off: %q", say)
 	}
 }
