@@ -1533,7 +1533,7 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 			// which Codex accounts spend a reset by themselves, set on the Usage card
 			in.CodexAutoReset = cur.CodexAutoReset
 			in.CodexAutoResetOnly = cur.CodexAutoResetOnly // and at which of the two times
-		in.CodexResetLead = cur.CodexResetLead         // and how early before one expires (codex-reset-lead)
+			in.CodexResetLead = cur.CodexResetLead         // and how early before one expires (codex-reset-lead)
 			// and which of them spend their credits, set there too
 			in.CodexNoCredits = cur.CodexNoCredits
 			// and each Codex account's own daily warm-up (codex-warm-at below)

@@ -39,7 +39,7 @@ func TestAgentOpenRunsOnlyTheAgent(t *testing.T) {
 
 	var opened []string
 	was := agentTerminal
-	agentTerminal = func(run, choice string) error { opened = append(opened, run); return nil }
+	agentTerminal = func(run, label, choice string) error { opened = append(opened, run); return nil }
 	t.Cleanup(func() { agentTerminal = was })
 
 	h := Handler(nil, nil)

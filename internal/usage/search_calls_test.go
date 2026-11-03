@@ -76,7 +76,7 @@ func TestSearchAPIRowsListedNotCounted(t *testing.T) {
 }
 
 // cybercaius on Discord: the Requests page's purposes were All, Connection
-// check and Unmarked while the log held searches. A search row, a search
+// check and the unmarked one while the log held searches. A search row, a search
 // API's or one a provider's model ran with its own tool, gives the purpose
 // list Web search, and that purpose picks it.
 func TestSearchRowsListTheirPurpose(t *testing.T) {

@@ -20,16 +20,16 @@ const effortDiskPeriods = 4
 // fork never wrote that format and has no old entry to migrate.
 type effortDiskFile struct {
 	Version int
-	Entries []effortDiskEntry
+	Entries []codexEffortDiskEntry
 }
 
-type effortDiskEntry struct {
+type codexEffortDiskEntry struct {
 	Period Period
 	Key    string
 	Value  map[string][]sessions.ModelEffort
 }
 
-func effortDiskPath() string {
+func codexEffortDiskPath() string {
 	return filepath.Join(filepath.Dir(sessions.CachePath()), "moepie-effort-v1.json")
 }
 
@@ -73,8 +73,8 @@ func effortDiskKey(st requestState, p Period, now time.Time) string {
 // Readers and writers run under codexEffortBuilding. Another process may
 // replace the file and lose an entry, but each surviving entry still has to
 // match its own complete input key; a lost write can only cause a miss.
-func readEffortDisk() []effortDiskEntry {
-	b, err := os.ReadFile(effortDiskPath())
+func readEffortDisk() []codexEffortDiskEntry {
+	b, err := os.ReadFile(codexEffortDiskPath())
 	if err != nil {
 		return nil
 	}
@@ -100,7 +100,7 @@ func saveEffortDisk(key string, p Period, value map[string][]sessions.ModelEffor
 	if key == "" || value == nil {
 		return
 	}
-	entries := []effortDiskEntry{{Period: p, Key: key, Value: value}}
+	entries := []codexEffortDiskEntry{{Period: p, Key: key, Value: value}}
 	for _, entry := range readEffortDisk() {
 		if entry.Period != p && entry.Value != nil {
 			entries = append(entries, entry)
@@ -114,7 +114,7 @@ func saveEffortDisk(key string, p Period, value map[string][]sessions.ModelEffor
 		return
 	}
 	// Like requests-v1.bin, publish a complete private temp file by rename.
-	path := effortDiskPath()
+	path := codexEffortDiskPath()
 	if os.MkdirAll(filepath.Dir(path), 0o700) != nil {
 		return
 	}

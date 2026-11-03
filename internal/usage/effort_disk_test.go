@@ -91,7 +91,7 @@ func TestCodexEffortDiskBadFilesRebuild(t *testing.T) {
 		t.Run(bad, func(t *testing.T) {
 			effortFixture(t)
 			CodexModelEffort(All)
-			if err := os.WriteFile(effortDiskPath(), []byte(bad), 0o600); err != nil {
+			if err := os.WriteFile(codexEffortDiskPath(), []byte(bad), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			forgetEffortForRestart()
@@ -120,7 +120,7 @@ func TestCodexEffortDiskBoundedAndPrivate(t *testing.T) {
 			t.Fatal("oldest period was not evicted")
 		}
 	}
-	info, err := os.Stat(effortDiskPath())
+	info, err := os.Stat(codexEffortDiskPath())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,10 +129,10 @@ func TestCodexEffortDiskBoundedAndPrivate(t *testing.T) {
 		t.Fatalf("effort cache mode = %o, want private", info.Mode().Perm())
 	}
 	// An unwritable cache location is only a miss, with the ledger usable.
-	if err := os.Remove(effortDiskPath()); err != nil {
+	if err := os.Remove(codexEffortDiskPath()); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(effortDiskPath(), 0o700); err != nil {
+	if err := os.Mkdir(codexEffortDiskPath(), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	forgetEffortForRestart()

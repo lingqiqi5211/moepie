@@ -467,6 +467,11 @@ func Update(action string, in Change) (string, error) {
 			keys[i].Accounts = as
 		case "quotas-key":
 			keys[i].Quotas = in.Quotas
+		case "issuer-key":
+			// may issue short-lived keys under itself (POST /v1/magpie/keys)
+			if in.Issues && (keys[i].Issuer != "" || !keys[i].Expires.IsZero()) {
+				return "", errors.New("An issued key can't issue keys of its own: let a key of yours issue them")
+			}
 			keys[i].Issues = in.Issues
 		case "on-key", "off-key":
 			keys[i].Off = action == "off-key"

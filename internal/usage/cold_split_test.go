@@ -46,7 +46,7 @@ func TestFirstBuildPairsSpans(t *testing.T) {
 		codexEffortBuilding.Lock()
 		effortOlds = map[Period]*effortOld{}
 		codexEffortBuilding.Unlock()
-		for _, path := range []string{pageDiskPath(), heatDiskPath(), effortDiskPath()} {
+		for _, path := range []string{pageDiskPath(), heatDiskPath(), effortDiskPath(), codexEffortDiskPath()} {
 			os.Remove(path)
 		}
 	}

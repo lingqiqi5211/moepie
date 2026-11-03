@@ -9749,9 +9749,6 @@ function drawEditor(p, presetID) {
     const xb = extraBodyOf(draft.extraBody);
     if (xb.error) { shown(ed.querySelector(".extra-body textarea"))?.focus(NO_SCROLL); return editorError(t("Extra body: {why}", { why: xb.error }), "warn"); }
     body.extraBody = xb.value;
-    const rh = replyHeadersOf(draft.replyHeaders);
-    if (rh.error) { shown(ed.querySelector(".reply-headers"))?.focus(NO_SCROLL); return editorError(t("Reply headers: {why}", { why: rh.error }), "warn"); }
-    body.replyHeaders = rh.value;
     if (decides || custom) body.decide = (custom && draft.api !== "decide" && !p?.decide ? "" : draft.decide || "").trim();
     if ((body.decide || "").includes(WORKSPACE)) { ed.querySelector(".workspace-id")?.focus(NO_SCROLL); return editorError(t("Give the workspace ID your API key belongs to, or pick the Token Plan"), "warn"); }
     if (custom) {
@@ -11271,17 +11268,13 @@ function renderModels(p) {
       const moreTier = el("button", "text action mtier-add", t("Long-context price"));
       moreTier.title = tierRow.title;
       let tierOpen = false;
+      const drawTier = () => { tierRow.hidden = !tierOpen && !tierNow() && !listTier; moreTier.hidden = !tierRow.hidden; };
       moreTier.onclick = (e) => { e.preventDefault(); tierOpen = true; drawTier(); above.focus(NO_SCROLL); };
-      const drawTier = () => {
-        tierRow.hidden = !tierOpen && !tierNow() && !listTier;
-        moreTier.hidden = !tierRow.hidden;
-      };
       priceBox.append(moreTier, tierRow);
       drawTier();
       const showPrice = () => {
-        const pr = priceNow();
+        const pr = priceNow(), tr = tierNow();
         cells.forEach((c, i) => { const k = parts[i][0]; c.value = !pr ? "" : k === "cache_write_1h" ? pr.cache_write_1h ? shown(pr.cache_write_1h) : "" : shown(pr[k]); });
-        const tr = tierNow();
         above.value = tr ? tokenSize(tr.above) : "";
         tierCells.forEach((c, i) => { c.value = tr ? shown(tr[tierParts[i][0]]) : ""; });
         drawTier();

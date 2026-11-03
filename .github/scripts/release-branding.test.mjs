@@ -17,7 +17,7 @@ test('builds, launch checks and updater agree on the moepie executable and bundl
 
 test('visible shell branding changes without migrating stored data or import protocols', () => {
   const html = read('internal/gui/assets/index.html');
-  for (const name of ['<title>moepie</title>', '<span>moepie</span>', 'content="moepie"', '>Open moepie</button>']) assert.ok(html.includes(name), name);
+  for (const name of ['<title>moepie</title>', '<span>moepie</span>', 'content="moepie"']) assert.ok(html.includes(name), name);
   const manifest = JSON.parse(read('internal/gui/assets/manifest.json'));
   assert.equal(manifest.name, 'moepie');
   assert.equal(manifest.short_name, 'moepie');

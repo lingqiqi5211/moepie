@@ -457,17 +457,17 @@ func sessionRoutes(mux *http.ServeMux, w Windows) {
 			fail(rw, errors.New("opening Terminal is only for the Mac app"))
 			return
 		}
-		run := ""
+		run, name := "", ""
 		for _, a := range agent.Detected() {
 			if a.ID == in.Agent {
-				run = agentCommand(a)
+				run, name = agentCommand(a), a.Name
 			}
 		}
 		if run == "" {
 			fail(rw, errors.New("no command starts this agent"))
 			return
 		}
-		if err := agentTerminal(run, settings.Load().SessionTerminal); err != nil {
+		if err := agentTerminal(run, name, settings.Load().SessionTerminal); err != nil {
 			fail(rw, err)
 			return
 		}

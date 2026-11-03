@@ -1599,6 +1599,14 @@ func (p Provider) baseOf(api string) string {
 func (p Provider) Base(proto Protocol) string {
 	switch proto {
 	case Chat:
+		// Vertex AI's partner models, on Google's OpenAI-compatible chat
+		// completions at the project (VertexPartner)
+		if p.IsVertex() {
+			if b := p.vertexBase(); b != "" {
+				return b + "/endpoints/openapi"
+			}
+			return ""
+		}
 		return p.Chat
 	case Responses:
 		return p.Responses

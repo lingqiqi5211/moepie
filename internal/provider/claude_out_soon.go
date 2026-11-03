@@ -210,7 +210,7 @@ func claudeLookDue() bool {
 		switch {
 		case l.Active:
 			active = l.User
-		case l.On && l.Lapsed == "" && l.home == "" && !l.Token:
+		case l.On && l.Lapsed == "" && l.home == "":
 			spare = true
 		}
 	}

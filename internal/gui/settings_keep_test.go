@@ -185,6 +185,7 @@ func TestSettingsSaveKeepsWhatItDoesNotSend(t *testing.T) {
 		GuideHidden:          true,
 		GatewayMode:          "off",
 		QuotaReads:           "asked",
+		SearchAll:            true,
 		NoAccountDiscovery:   true,
 		RedactModel:          true,
 		RedactModelName:      "astrlink-guard",

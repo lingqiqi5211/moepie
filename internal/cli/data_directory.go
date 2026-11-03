@@ -118,7 +118,7 @@ func migrate(exe string) error {
 	}
 	var lerr error
 	if b := update.Bundle(); b != "" {
-		lerr = update.OpenBeside(b, true)
+		lerr = update.OpenBeside(b, true, false)
 	} else {
 		lerr = update.StartBeside(exe, true, "settings")
 	}

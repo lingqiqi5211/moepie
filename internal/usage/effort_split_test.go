@@ -45,6 +45,8 @@ func TestCodexEffortSettledFromDisk(t *testing.T) {
 		requestCache.Lock()
 		requestCache.pairs = nil
 		requestCache.Unlock()
+		// moepie's whole-answer cache would answer before the split is asked
+		os.Remove(codexEffortDiskPath())
 	}
 	restart()
 	t.Cleanup(restart)

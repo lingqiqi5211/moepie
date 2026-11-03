@@ -31,9 +31,7 @@ async function downloadArchive(name, b) {
   const q = `date=${encodeURIComponent(date)}&id=${encodeURIComponent(aid)}`;
   if (web) {
     const a = el("a");
-    a.href = "/api/archive/file?" + q;
-    a.download = "";
-    a.click();
+    Object.assign(el("a"), { href: "/api/archive/file?" + q, download: "" }).click();
     return;
   }
   b.classList.add("busy");
@@ -546,8 +544,7 @@ function renderUsage() {
   $("#usageAccountsHead").hidden = $("#usageAccounts").hidden = empty || !u.accounts?.length;
   if (empty) {
     stats.classList.add("empty");
-    const none = noCallsIn(period);
-    stats.append(el("div", "none", t(none) + " " + t("Point an agent at a catalog model and use it; every call through the gateway is counted here.")));
+    stats.append(el("div", "none", t(noCallsIn(period)) + " " + t("Point an agent at a catalog model and use it; every call through the gateway is counted here.")));
     $("#usageNote").textContent = "";
     $("#usageClear").hidden = true;
     return;
