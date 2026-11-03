@@ -137,7 +137,13 @@ function routingPage(part) {
   foot.append(cap, stats);
   const log = el("div", "rt-log");
   const logHead = el("div", "rt-log-head");
-  const steps = el("ol", "rt-steps");
+  // One complete detail card, following compact design B. Raw request
+  // metadata and the vendor's evidence unfold below its result.
+  const detailPanel = el("article", "rt-detail-panel");
+  const route = el("div", "rt-route");
+  const diag = el("details", "rt-diag"), diagSum = el("summary");
+  const requestInfo = el("dl", "rt-request-body"), requestNotes = el("div", "rt-request-notes");
+  diag.append(diagSum, requestInfo, requestNotes);
   // what the request's prompt held: its context window (context.js)
   const ctxBox = el("div", "rt-ctx");
   // each session's context window, under the card, while several send at
@@ -147,7 +153,8 @@ function routingPage(part) {
   // the request's own request and response, opened from its head
   const bodies = el("div", "rt-bodies");
   bodies.hidden = true;
-  log.append(logHead, steps, bodies, ctxBox, ctxSess);
+  detailPanel.append(logHead, route, diag, bodies);
+  log.append(detailPanel, ctxBox, ctxSess);
   const off = el("div", "none rt-off");
   // over the stage while a replay plays: the time it is replaying, which
   // requests are in flight then, and where it is among them
@@ -1295,29 +1302,6 @@ function routingPage(part) {
     const whose = Object.keys(WHO).filter((k) => sum[k] > 0).map((k) => t(WHO[k], { ms: ms1(sum[k]) }));
     return [t("Where the time went"), whose.join(" · "), parts.map((p) => t(p.label) + " " + ms1(p.v)).join(" · ")].filter(Boolean).join(": ");
   }
-  function timeElement(tr) {
-    const parts = timeParts(tr), total = parts.reduce((a, p) => a + p.v, 0) || 1;
-    const box = el("div", "rt-time");
-    const head = el("div", "rt-time-head", t("Where the time went"));
-    const sum = {};
-    for (const p of parts) sum[p.who] = (sum[p.who] || 0) + p.v;
-    for (const k of Object.keys(WHO)) if (sum[k] > 0) head.append(el("span", "rt-time-who " + k, t(WHO[k], { ms: ms1(sum[k]) })));
-    const bar = el("div", "rt-time-bar");
-    bar.setAttribute("aria-hidden", "true");
-    const list = el("ul", "rt-time-parts");
-    for (const p of parts) {
-      const seg = el("span", p.who);
-      seg.style.flexGrow = String(p.v / total);
-      seg.title = t(p.label) + " " + ms1(p.v);
-      bar.append(seg);
-      const li = el("li", p.who);
-      li.append(el("span", "k", t(p.label)), el("span", "v", ms1(p.v)));
-      list.append(li);
-    }
-    box.append(head, bar, list);
-    return box;
-  }
-
   // what the gateway adds to WorkBuddy's "unapproved channel" refusal
   // (provider.WBRefusedHint, #182): the agent gets it in English, the page
   // says it apart from the vendor's words, in its own language
@@ -2821,7 +2805,7 @@ function routingPage(part) {
 
   // the log is drawn again only when what it says changes: it is asked to
   // on every trace update (#308)
-  let logR = null, headKey = "", stepsKey = "", stepsFor = "";
+  let logR = null, headKey = "", stepsKey = "";
   let bodiesFor = 0, bodiesKey = ""; // the request opened to its bodies (renderBodies)
   function renderLog() {
     const r = logR = pinned || cur;
@@ -2832,21 +2816,30 @@ function routingPage(part) {
     if (headKey !== head) {
       headKey = head;
       logHead.replaceChildren(
-        el("span", "", rp ? t("How the request at {time} was routed", { time: clock(r.time) })
-          : pinned ? t("How the request at {time} was routed", { time: clock(r.time) }) : t("How the last request was routed")));
+        el("h3", "rt-log-heading", rp || pinned ? t("How the request at {time} was routed", { time: clock(r.time) }) : t("Latest request")));
       // what masking kept from the vendor, its record a click away
       if ((r.masked?.n || r.masked?.warned) && !rp) logHead.append(maskedBadge(r.masked));
       logHead.append(el("span", "grow"));
-      if (!rp && r.done) {
+      if (!rp) {
         const usage = el("button", "text", t("View usage"));
+        usage.disabled = !r.done;
         usage.dataset.feature = "usage"; // it opens on the Usage page
         usage.onclick = () => window.openUsageRoute(logR);
         const open = bodiesFor === r.id;
         const wire = el("button", "text rt-bodies-b", t(open ? "Hide request and response" : "Request and response"));
+        wire.disabled = !r.done;
         wire.setAttribute("aria-expanded", String(open));
-        wire.onclick = () => { bodiesFor = bodiesFor === logR.id ? 0 : logR.id; renderLog(); };
+        wire.onclick = () => {
+          const r = logR;
+          bodiesFor = bodiesFor === r.id ? 0 : r.id;
+          // Inspect the request the reader clicked, even as newer calls
+          // arrive. Otherwise its bodies vanish on the next trace update.
+          if (bodiesFor) pinned = r;
+          renderLog();
+        };
         logHead.append(wire, usage);
         const again = el("button", "text", t("Replay"));
+        again.disabled = !r.done;
         again.onclick = () => replay([logR], pinned);
         logHead.append(again);
         // and on from it: the requests listed after it, as they came
@@ -2929,26 +2922,9 @@ function routingPage(part) {
     );
     bodies.replaceChildren(grid);
   }
-  // holdStory keeps the story of the live request, its head and its lines,
-  // as tall as the tallest of the last few requests told, at this
-  // width: a request under way is told in fewer lines than one answered
-  // ("is answering…", then "answered in 4.0 s…" over two lines at a
-  // phone's width), and its head gets View usage and Replay, taller than
-  // the words, once it is done. So each new request moved the context
-  // window under it up and back down (dumplings on Discord: the card
-  // jittered on every request). Only the last STORY_HELD told count: one
-  // told in many lines (a request handed on from member to member) no
-  // longer holds the box that tall for good, and it shrinks back once
-  // that many shorter ones have come after it (夜松云 on Discord: the box
-  // grew and never shrank back). Each request told counts, answered or
-  // under way, at the height it has now: on a busy gateway a request is
-  // answered as the next starts, the two come in one trace, and the
-  // newest is always under way, so counting only those told answered
-  // held the long one for good (shensmart on Discord, a remote magpie in
-  // a local browser: the room grew with use). A request picked, a replay
-  // or a past day is drawn at its own height. A change of width measures it again at
-  // once, as it is then (the list coming in under it can take a
-  // scrollbar's width off it before the first live request)
+  // Keep only the action header stable across recent live requests. The
+  // compact summary and optional diagnostics always use their own content
+  // height: reserving an earlier request's height leaves a blank panel.
   const STORY_HELD = 3;
   let storyHold = { key: "", told: new Map() }, storyDrawn = "", storyW = 0;
   function holdStory() {
@@ -2961,14 +2937,14 @@ function routingPage(part) {
     if (key === storyHold.key && storyDrawn === headKey + stepsKey) return;
     if (key !== storyHold.key) storyHold = { key, told: new Map() };
     storyDrawn = headKey + stepsKey;
-    [logHead, steps].forEach((e) => { e.style.minHeight = ""; });
+    [logHead, route, diag].forEach((e) => { e.style.minHeight = ""; });
     if (!follow || !w || !logR) return;
-    const hs = [logHead, steps].map((e) => e.getBoundingClientRect().height);
+    const hs = [logHead].map((e) => e.getBoundingClientRect().height);
     // a request's own height as told now, kept by its id: the last few only
     storyHold.told.set(logR.id, hs);
     const ids = [...storyHold.told.keys()].sort((x, y) => y - x);
     for (const id of ids.slice(STORY_HELD)) storyHold.told.delete(id);
-    [logHead, steps].forEach((e, i) => {
+    [logHead].forEach((e, i) => {
       const held = Math.max(0, ...[...storyHold.told.values()].map((h) => h[i]));
       if (held > hs[i]) e.style.minHeight = held + "px";
     });
@@ -2976,14 +2952,13 @@ function routingPage(part) {
   // grown since it was measured (a font come in): measured again as it is
   // and the head's line told again, so it is held from the first width
   // on, not from the second's next telling (a pick before it isn't held)
-  new ResizeObserver(() => { storyW = steps.clientWidth; storyDrawn = ""; holdStory(); if (headOf) header(...headOf); }).observe(steps);
+  new ResizeObserver(() => { storyW = route.clientWidth; storyDrawn = ""; holdStory(); if (headOf) header(...headOf); }).observe(route);
   // renderCtx draws the request's context window under its story, with
   // its session's prompts request by request; drawn again only when what
   // it shows changes. Live, the next request is patched into the card
   // that is there, so only what changed changes and nothing under it moves
   // (Zhenzhen on Discord: each new request flashed the whole card, and its
-  // grid went and came back); a request the reader picks comes in afresh,
-  // its cells one after another
+  // grid went and came back); a request the reader picks comes in afresh
   //
   // ctxFor is a request opened to see its context window (the Usage
   // page's Context tab): its card shows unfolded, it alone, whatever the
@@ -3114,36 +3089,212 @@ function routingPage(part) {
     return [s.slice(0, hit.i), name, s.slice(hit.i + hit.n.length)].filter((x) => x !== "");
   }
 
+  // The story is told in steps: received, routed, each try and each wait
+  // before the next, a row each and on a line of time above them, each
+  // row opening to the story's lines about it. Open is the step the
+  // reader opened, kept by its request for the last few opened ("" all
+  // shut); none opened, or one gone since (a wait asked again), the last
+  // step that failed, else the last try, else the routing (stepDefault)
+  const STEPS_KEPT = 8;
+  const timeOpen = new Map();
+  let stepLast = null;
+  const routeSum = el("div", "rt-sum"), routeMeta = el("div", "rt-meta");
+  const hero = el("section", "rt-hero"), heading = el("div", "rt-hero-heading");
+  const title = el("h2", "rt-outcome"), badge = el("span", "rt-badge");
+  heading.append(title, badge);
+  hero.append(routeSum, heading, routeMeta);
+  const analysis = el("div", "rt-analysis"), result = el("div", "rt-result");
+  let analysisKey = "";
+  route.append(hero, analysis, result);
+  const diagOpen = new Map();
+  let diagWant = false;
+  diag.addEventListener("toggle", () => {
+    if (!logR || diag.open === diagWant) return;
+    diagWant = diag.open;
+    diagOpen.delete(logR.id);
+    diagOpen.set(logR.id, diag.open);
+    for (const id of diagOpen.keys()) if (diagOpen.size > STEPS_KEPT) diagOpen.delete(id);
+    // the reader's own fold isn't held at its old height
+    storyHold = { key: "", told: new Map() };
+    storyDrawn = "";
+    holdStory();
+  });
+
+  function keepTiming(r, key, open) {
+    const kept = timeOpen.get(r.id) || new Set();
+    if (open) kept.add(key); else kept.delete(key);
+    timeOpen.delete(r.id);
+    timeOpen.set(r.id, kept);
+    for (const id of timeOpen.keys()) if (timeOpen.size > STEPS_KEPT) timeOpen.delete(id);
+  }
+
+  // The account chosen and the request's recorded time side by side; why
+  // the others weren't used and every measured phase unfold below them,
+  // across the summary's width (design B)
+  const OWNER = { magpie: "magpie", net: "Network", vendor: "Vendor", other: "Not measured" };
+  const secHead = (title, tail) => {
+    const h = el("div", "rt-sec-head");
+    h.append(el("h4", "", title));
+    if (tail) h.append(el("span", "", tail));
+    return h;
+  };
+  function renderAnalysis(r, items, list, end) {
+    const parts = r.tries.flatMap((tr, i) => tr.done ? timeParts(i === 0 ? { ...tr, masking: r.masking } : tr) : []);
+    for (const s of list) if (!s.tr && s.ms && !s.run) parts.push({ who: "magpie", label: "Retry wait", v: s.ms });
+    if (parts.length && r.done) {
+      const rest = (r.ms || 0) - parts.reduce((n, p) => n + p.v, 0);
+      if (rest >= 1) parts.push({ who: "other", label: "Not measured", v: rest });
+    }
+    const why = r.tries.length > 1 ? tryWhy(r, r.tries.length - 1) : items.find((x) => x[1] === "why")?.[0];
+    const left = r.left || [];
+    const key = JSON.stringify([r.id, document.documentElement.lang, end.w && seat(end.w), end.model, why, items.filter((x) => x[4] === "route").map((x) => x[0]), r.order, left,
+      r.tries.map((tr) => [tr.id, tr.model, tr.done, tr.status, tr.fail]), parts, r.done, r.ms]);
+    if (key === analysisKey) return;
+    analysisKey = key;
+    // the account chosen, and why
+    const decision = el("section", "rt-decision"), all = r.order.length + left.length;
+    decision.append(secHead(t("Account selection"), all > 1 ? t("{n} accounts", { n: all }) : ""));
+    const selected = el("div", "rt-selected"), name = el("div", "rt-selected-name");
+    if (end.w) name.append(icon(logoOf(end.w)), el("strong", "", where(end.w)));
+    else name.append(el("strong", "", r.provider || r.model));
+    if (end.model) name.append(el("code", "mdl", end.model));
+    const pickRow = el("div", "rt-selected-row");
+    pickRow.append(name, el("span", "rt-selected-tag", t(end.w ? "Selected account" : "Not selected yet")));
+    selected.append(pickRow);
+    if (why) selected.append(el("p", "rt-decision-why", why));
+    const last = r.tries[r.tries.length - 1];
+    if (last?.effort) selected.append(el("p", "rt-decision-caption", effortNote(r, last)));
+    decision.append(selected);
+    // the others, each tried, not reached or skipped, with why
+    const others = [];
+    for (const w of r.order) {
+      if (w === end.w) continue;
+      const own = r.tries.filter((tr) => tried(r, tr) === w), tr = own[own.length - 1];
+      others.push([w, ...(!tr ? (w.fallback ? [t("fallback"), "fb", ""] : [t("Not reached"), "", ""])
+        : !tr.done ? [t("answering…"), "live", ""]
+        : tryOk(tr) ? [String(tr.status), "ok", ""]
+        : [failed(tr) || failWord("other"), "bad", tryWhy(r, r.tries.indexOf(tr))])]);
+    }
+    for (const x of left) others.push([x, t("Skipped"), "skip", leftWhy(x)]);
+    const said = new Set(left.map(leftWhy));
+    const notes = items.filter((x) => x[4] === "route" && x[0] !== why && !said.has(x[0])).map((x) => x[0]);
+    let more = null;
+    if (others.length || notes.length) {
+      more = el("details", "rt-decision-more");
+      more.open = !!timeOpen.get(r.id)?.has("candidates");
+      const sum = el("summary");
+      sum.append(el("span", "", t(others.length ? "Why the other accounts weren't used" : "Candidates and routing details")));
+      if (others.length > 1) sum.append(el("span", "rt-sum-tail", t("{n} accounts", { n: others.length })));
+      const box = el("div", "rt-others");
+      for (const [w, tag, tone, say] of others) {
+        const row = el("div", "rt-other"), n = el("span", "n");
+        n.append(icon(logoOf(w)), w.model ? `${where(w)} · ${w.model}` : where(w));
+        row.append(n, el("span", "tag " + tone, tag), el("span", "why", say));
+        box.append(row);
+      }
+      for (const s of notes) box.append(el("p", "rt-note", s));
+      more.append(sum, box);
+      more.addEventListener("toggle", () => keepTiming(r, "candidates", more.open));
+    }
+    // the request's recorded time by owner; each phase unfolds below
+    const timing = el("section", "rt-timing"), total = parts.reduce((n, p) => n + p.v, 0) || 1;
+    timing.append(secHead(t("Where the time went"), r.done && r.ms ? took(r.ms) : ""));
+    let fine = null;
+    if (!r.done) {
+      const running = el("div", "rt-live-time");
+      running.append(el("span", "rt-live-label"), el("b", "rt-live-elapsed"));
+      timing.append(running);
+      if (parts.length) timing.append(el("p", "rt-time-note", t("Recorded completed attempts")));
+    }
+    if (!parts.length && r.done) timing.append(el("p", "rt-timing-empty", t("No timing breakdown recorded")));
+    if (parts.length) {
+      const sum = el("div", "rt-time-sum"), bar = el("div", "rt-time-bar"), body = el("div", "rt-time-parts");
+      bar.setAttribute("aria-hidden", "true");
+      for (const who of Object.keys(OWNER)) {
+        const own = parts.filter((p) => p.who === who);
+        if (!own.length) continue;
+        const ms = own.reduce((n, p) => n + p.v, 0), label = t(OWNER[who]);
+        const row = el("div", "rt-time-who " + who);
+        row.append(el("span", "", label), el("b", "", ms1(ms)));
+        sum.append(row);
+        const seg = el("span", who);
+        seg.style.flexGrow = String(ms / total);
+        seg.title = label + " " + ms1(ms);
+        bar.append(seg);
+        const group = el("div", "rt-time-group " + who), ul = el("ul");
+        group.append(el("b", "rt-time-owner", label), ul);
+        for (const p of own) {
+          const li = el("li"), trk = el("span", "rt-trk"), fill = el("i");
+          fill.style.width = (100 * p.v / total).toFixed(2) + "%";
+          trk.append(fill);
+          li.append(trk, el("span", "k", t(p.label)), el("span", "v", ms1(p.v)));
+          ul.append(li);
+        }
+        body.append(group);
+      }
+      timing.append(sum, bar);
+      const top = parts.filter((p) => p.who !== "other" && p.v >= total * .15).sort((a, b) => b.v - a.v).slice(0, 2);
+      if (top.length) timing.append(el("p", "rt-time-note", t("Mostly: {parts}", { parts: top.map((p) => t(p.label)).join(" · ") })));
+      fine = el("details", "rt-time-fine");
+      fine.open = !!timeOpen.get(r.id)?.has("request");
+      const fs = el("summary");
+      fs.append(el("span", "", t("{n} measured phases", { n: parts.length })));
+      fine.append(fs, body);
+      fine.addEventListener("toggle", () => keepTiming(r, "request", fine.open));
+    }
+    analysis.replaceChildren(...[decision, timing, more, fine].filter(Boolean));
+    updateLiveTiming(r, list);
+    updateCaption();
+  }
+
+  // A running attempt (or retry pause) has a measured elapsed clock, not
+  // a guessed ownership split. Patch it in place between trace updates.
+  function updateLiveTiming(r, list) {
+    const running = analysis.querySelector(".rt-live-time");
+    if (!running || r.done) return;
+    const active = list.findLast(s => s.run);
+    const label = active?.tr ? t("Try {n}", { n: r.tries.indexOf(active.tr) + 1 })
+      : active ? t("Retry wait") : t("Routing");
+    const ms = active ? active.ms : since(now(), at(r.time));
+    setText(running.firstChild, label);
+    setText(running.lastChild, took(Math.round(ms || 0)) + "…");
+  }
+
   function renderSteps(r) {
     const items = [];
+    // the step each line is told under: "in", "route", "try<i>" or "none"
+    let of = "in";
+    const add = (s, c, tr, w) => items.push([s, c, tr, w, of]);
     const main = r.order.find((x) => !x.fallback);
-    items.push([r.group
+    add(r.group
       ? t("{agent} asked for the routing group {name}: {members}", { agent: agentName(r.agent), name: r.group.name, members: treeText(r.group) })
       : main && main.model !== r.model && wentOn(r) === r.model
       ? t("{agent} asked for {model}: {name} serves it, and the vendor is asked for {sent}", { agent: agentName(r.agent), model: r.model, name: main.name, sent: main.model })
-      : t("{agent} asked for {model}", { agent: agentName(r.agent), model: r.model }) + " → " + (main?.name || r.provider), ""]);
-    if (tagKind(r)) items.push([kindWhy(r), "aside kind"]);
-    else if (r.subagent) items.push([subagentWhy(r), "aside"]);
-    if (movedSays(r)) items.push([movedWhy(r), tagKind(r) ? "aside" : "aside stood"]);
-    if (r.subagentEffort) items.push([t("The subagent effort set in magpie is {effort}; the model's supported levels and a routing group's fixed member effort still apply.", { effort: t(r.subagentEffort) }), "aside"]);
-    if (r.sealedTask) items.push([t(r.group
+      : t("{agent} asked for {model}", { agent: agentName(r.agent), model: r.model }) + " → " + (main?.name || r.provider), "");
+    if (tagKind(r)) add(kindWhy(r), "aside kind");
+    else if (r.subagent) add(subagentWhy(r), "aside");
+    if (movedSays(r)) add(movedWhy(r), tagKind(r) ? "aside" : "aside stood");
+    if (r.subagentEffort) add(t("The subagent effort set in magpie is {effort}; the model's supported levels and a routing group's fixed member effort still apply.", { effort: t(r.subagentEffort) }), "aside");
+    if (r.sealedTask) add(t(r.group
       ? "This subagent task is encrypted. Only ChatGPT accounts can read it; other providers (such as Claude) are excluded regardless of quota."
-      : "This subagent task is encrypted. Only ChatGPT accounts can read it."), "aside"]);
-    items.push([affWhy(r, true) || ruleWhy(r, true) || firstWhy(r), "why"]);
-    for (const s of nestedWhy(r)) items.push([s, "why"]);
+      : "This subagent task is encrypted. Only ChatGPT accounts can read it."), "aside");
+    of = "route";
+    add(affWhy(r, true) || ruleWhy(r, true) || firstWhy(r), "why");
+    for (const s of nestedWhy(r)) add(s, "why");
     // the member a line is about, where it is one: a skipped one's line, a try's
     const skipped = new Map((r.left || []).map((x) => [leftWhy(x), x]));
-    for (const a of asides(r)) items.push([a, "aside", undefined, skipped.get(a)]);
+    for (const a of asides(r)) add(a, "aside", undefined, skipped.get(a));
     r.tries.forEach((tr, i) => {
-      items.push([tryWhy(r, i), tr.done ? (tryOk(tr) ? "ok" : "bad") : "wait", undefined, tried(r, tr)]);
+      of = "try" + i;
+      add(tryWhy(r, i), tr.done ? (tryOk(tr) ? "ok" : "bad") : "wait", undefined, tried(r, tr));
       // where its time went, once it is done: the first try's has the
       // request's masking before it
       const timed = i === 0 && r.masking > 0 ? { ...tr, masking: r.masking } : tr;
       const when = tr.done && timeSaid(timed);
-      if (when) items.push([when, "aside time", timed]);
+      if (when) add(when, "aside time", timed);
       // a plugin or Claude Code sent it, out of magpie's sight: said, so
       // its missing split doesn't read as a request that lost it (lute)
-      if (tr.done && !tr.net && tryOk(tr) && SENT_BY[tr.sentBy]) items.push([t(SENT_BY[tr.sentBy]), "aside"]);
+      if (tr.done && !tr.net && tryOk(tr) && SENT_BY[tr.sentBy]) add(t(SENT_BY[tr.sentBy]), "aside");
       // each model Copilot's Auto picked for it, where from, and whether
       // Copilot refused it, on which API and with Auto's session token or
       // without (#256)
@@ -3152,57 +3303,171 @@ function routingPage(part) {
         if (p.skipped) s += " · " + t("not from /auto: {why}", { why: p.skipped });
         if (p.api) s += " · " + t(p.session ? "sent to {api} with Auto's session token" : "sent to {api}", { api: p.api });
         if (p.refused) s += " · " + t("Copilot refused it: {error}", { error: p.refused });
-        items.push([s, "aside"]);
+        add(s, "aside");
       }
       // what the vendor said, word for word: the why above is magpie's reading of it
       if (tr.done && !tryOk(tr) && tr.error) {
         const hint = HINTS.find((h) => tr.error.endsWith(" — " + h));
         const said = hint ? tr.error.slice(0, -(hint.length + 3)) : tr.error;
-        items.push([t("It said: {error}", { error: said.length > 600 ? said.slice(0, 600) + "…" : said }), "aside said"]);
-        if (hint) items.push([t(hint), "aside"]);
+        add(t("It said: {error}", { error: said.length > 600 ? said.slice(0, 600) + "…" : said }), "aside said");
+        if (hint) add(t(hint), "aside");
       }
       // the reply said another model answered it
-      if (tr.done && tryOk(tr) && tr.swapped) items.push([swapWhy(tr), "swap", tr]);
+      if (tr.done && tryOk(tr) && tr.swapped) add(swapWhy(tr), "swap", tr);
       // another magpie's routing group named the member it routed to
-      else if (tr.done && tryOk(tr) && tr.routed) items.push([routedWhy(tr), "aside", tr]);
-      if (tr.done && tryOk(tr) && tr.upstream) items.push([upstreamWhy(tr), "aside upstream-said", tr]);
+      else if (tr.done && tryOk(tr) && tr.routed) add(routedWhy(tr), "aside", tr);
+      if (tr.done && tryOk(tr) && tr.upstream) add(upstreamWhy(tr), "aside upstream-said", tr);
     });
-    if (r.done && !r.tries.length) items.push([t("Nothing was tried: {error}", { error: r.error || r.status }), "bad"]);
+    of = "none";
+    if (r.done && !r.tries.length) add(t("Nothing was tried: {error}", { error: r.error || r.status }), "bad");
+    const list = stepsOf(r, items), end = endOf(r);
     const aboutKey = (w) => w ? seat(w) : "";
     const logos = [...r.order, ...(r.left || [])].map(logoOf);
-    const key = JSON.stringify([tagKind(r), items.map(([s, c, tr, w]) => [s, c, tr?.model, tr?.served, aboutKey(w)]), logos]);
-    // a different request starts its steps at the top, even when they say
-    // what the last one's said (the box is routing.css's, #3764); the same
-    // request keeps its scroll while its steps grow
-    if (stepsFor !== r.id) { steps.scrollTop = 0; stepsFor = r.id; }
-    if (stepsKey === key) return;
-    stepsKey = key;
-    // A line that says the same stays the very node it was, and a new line
-    // takes its logo from one going: a logo made afresh loads its picture
-    // again and, in WebKit, blinks out for a frame, and the story is drawn
-    // again on every request that comes in and at each of its steps, so
-    // with an agent at work every logo in it blinked on and off
-    const was = new Map([...steps.children].map((li) => [li.dataset.k, li]));
-    const lis = items.map(([s, c, tr, w]) => {
-      const k = JSON.stringify([tagKind(r), s, c, tr?.model, tr?.served, aboutKey(w), logos]);
-      const old = was.get(k);
-      if (old) { was.delete(k); return { li: old }; }
-      return { k, s, c, tr, w };
+    const key = JSON.stringify([r.id, r.time, document.documentElement.lang, tagKind(r), items.map(([s, c, tr, w, of]) => [s, c, tr?.model, tr?.served, aboutKey(w), of]), logos,
+      list.map((s) => [s.k, s.label, s.tone, s.one]), [end.badge, end.tone, end.model, aboutKey(end.w), movedSays(r)]]);
+    if (stepsKey !== key) {
+      stepsKey = key;
+      drawDetail(r, items, end);
+    }
+    // what runs on (a try answering, a wait) is measured again at each
+    // telling, in place: nothing is drawn afresh, so nothing blinks
+    stepTimes(r, list);
+    renderAnalysis(r, items, list, end);
+    // Design B already explains the decision and timing. Diagnostics are
+    // opt-in, including retries and running requests, and stay as toggled.
+    const want = diagOpen.get(r.id) || false;
+    if (diag.open !== want) { diagWant = want; diag.open = want; }
+    if (!diagSum.firstChild) diagSum.append(el("span"), el("span", "rt-sum-tail"));
+    setText(diagSum.firstChild, t("Request and routing information"));
+    setText(diagSum.lastChild, r.tries.length > 1 ? t("{n} tries", { n: r.tries.length }) : "");
+    stepLast = { r, items, keys: list.map((s) => s.k).join() };
+  }
+  // a request under way runs on between tellings: its times measured
+  // again each second, in place; a step come or gone, it is told again
+  function tickSteps() {
+    const r = stepLast?.r;
+    if (!r || r.done || rp || r !== logR || log.hidden) return;
+    const list = stepsOf(r, stepLast.items);
+    if (list.map((s) => s.k).join() !== stepLast.keys) renderLog();
+    else stepTimes(r, list);
+  }
+
+  // a failed try said short: its status and why
+  const failed = (tr) => [tr.status, failWord(tr.gone ? "canceled" : tr.fail)].filter(Boolean).join(" · ");
+  // how long after t0 a time read off the trace was; one that won't parse is at t0
+  const since = (s, t0) => { const v = at(s) - t0; return Number.isFinite(v) ? Math.max(0, v) : 0; };
+  // the request's steps, each from the request's start and, a try's or a
+  // wait's, for how long: a wait is the time between a try and the next
+  // (its Again, or a pause the trace doesn't name), or the one under way
+  function stepsOf(r, items) {
+    const t0 = at(r.time), out = [];
+    const ran = (s) => Number.isFinite(t0) ? since(s, t0) : 0;
+    const first = (k) => items.find((x) => x[4] === k)?.[0] || "";
+    const pause = (k, from, ms, one, run) => out.push({ k, label: t("Pause"), tone: "wait", at: from, ms, one, run });
+    out.push({ k: "in", label: t("Received"), tone: "", at: 0, one: first("in") });
+    out.push({ k: "route", label: t("Routing"), tone: "", at: 0, one: first("route") });
+    let end = 0;
+    r.tries.forEach((tr, i) => {
+      const from = ran(tr.start);
+      if (i && from - end >= 100) pause("wait" + i, end, from - end, t("Waited, then asked again"));
+      const ms = tr.done ? tr.ms || 0 : since(now(), at(tr.start));
+      const w = tried(r, tr), name = w ? where(w) : tr.model || r.provider;
+      const tone = !tr.done ? "live" : tryOk(tr) ? "ok" : "bad";
+      const fail = failed(tr);
+      out.push({ k: "try" + i, label: t("Try {n}", { n: i + 1 }), tone, at: from, ms, tr, run: tone === "live", fail,
+        one: tone === "live" ? t("{who} is answering…", { who: w ? `${who(w)} · ${w.model}` : name })
+          : tone === "ok" ? t("{who} answered", { who: name }) : name + " · " + (fail || failWord("other")) });
+      end = from + ms;
     });
-    keepIcons(...was.values());
-    replaceKeeping(steps, lis.map((x) => {
-      if (x.li) return x.li;
-      const { k, s, c, tr, w } = x;
-      const li = el("li", c);
-      li.dataset.k = k;
-      li.append(...(/^(why|ok|bad|wait|aside)$/.test(c) ? logoed(s, r, w) : [s]));
-      if (c === "aside kind") li.prepend(kindTag(r), " ");
-      if (c === "aside stood") li.prepend(movedTag(r), " ");
-      if (c === "swap") li.prepend(swapTag(tr), " ");
-      if (c === "aside time") li.replaceChildren(timeElement(tr));
-      return li;
-    }));
+    // to be asked again: waited for still, or its agent gone in the wait;
+    // under way it is drawn from its start, done only as long as the others
+    const last = r.tries[r.tries.length - 1];
+    const to = Math.max(end, r.done ? r.ms || 0 : ran(now()));
+    if (last?.done && last.again && !tryOk(last) && (!r.done || last.gone) && (!r.done || to - end >= 100)) {
+      pause("wait" + r.tries.length, end, to - end, r.done ? failWord("canceled") : t("Waiting to ask again"), !r.done);
+    }
+    if (r.done && !r.tries.length) out.push({ k: "none", label: t("Failed"), tone: "bad", at: 0, one: first("none") });
+    return out;
+  }
+
+  // how a request ended, as its badge says: under way, failed, answered
+  // at once, by the same seat asked again, or by another
+  function endOf(r) {
+    const ok = r.tries.find((tr) => tr.done && tryOk(tr)), tr = ok || r.tries[r.tries.length - 1], w = tr && tried(r, tr);
+    // a try's own seat: the order's member, else the key it names
+    const seatOf = (x) => { const v = tried(r, x); return v ? seat(v) : x.id + "|" + x.model; };
+    const [badge, tone] = !r.done ? [tr && !tr.done ? t("answering…") : waitWord(r), "live"]
+      : outcome(r)[1] === "bad" ? [t("Failed"), "bad"]
+      : r.tries.length < 2 ? [t("Done"), "ok"]
+      : [t(r.tries.every((x) => seatOf(x) === seatOf(tr)) ? "Retried" : "Rerouted, then answered"), "ok"];
+    return { badge, tone, w, model: tr?.model || w?.model || "" };
+  }
+
+  // The path, result title and measured figures are separate regions in B.
+  // Raw evidence is kept below them, never another step table or timeline.
+  function drawDetail(r, items, end) {
+    keepIcons(routeSum, requestNotes);
+    const path = el("span", "rt-path"), arrow = () => el("span", "ar", "→");
+    const to = el("span", "rt-named");
+    if (end.w) to.append(icon(logoOf(end.w)), end.w.name || r.provider);
+    else to.append(r.provider || "");
+    path.append(el("span", "", agentName(r.agent)), arrow(), el("code", "mdl", end.model || r.model), arrow(), to);
+    routeSum.replaceChildren(path, ...rowTags(r));
+    setText(title, t(!r.done ? "Reply in progress" : end.tone === "bad" ? "Request failed" : "Reply complete"));
+    badge.className = "rt-badge " + end.tone;
+    const kept = r.affinity && ["session", "turn", "cache"].includes(r.affinity.why) && end.w?.id === r.affinity.last;
+    const extra = kept ? t("Kept session account") : r.tries.length > 1 ? t("{n} tries", { n: r.tries.length }) : "";
+    badge.hidden = !extra;
+    setText(badge, extra);
+    const state = el("span", "rt-result-icon", !r.done ? "·" : end.tone === "ok" ? "✓" : "!");
+    state.setAttribute("aria-hidden", "true");
+    const say = el("p"), who = agentName(r.agent);
+    say.append(el("strong", "", t(!r.done ? "Waiting for a reply" : end.tone === "ok" ? "Reply delivered to {agent}" : "Reply not delivered to {agent}", { agent: who })));
+    const retry = r.tries.length > 1 ? t("{n} tries", { n: r.tries.length }) : r.done && end.tone === "ok" ? t("No retries") : "";
+    if (retry) say.append(" · " + retry);
+    const when = el("time", "", rowClock(r.time));
+    when.dateTime = r.time;
+    when.title = t("Received");
+    result.className = "rt-result " + end.tone;
+    result.replaceChildren(state, say, when);
+    const last = r.tries[r.tries.length - 1];
+    const info = [["Request model name", r.model], ["Vendor model", end.model], ["Request reasoning effort", last?.effort || r.effort], ["Routing result", end.badge], ["Received", rowClock(r.time)]];
+    requestInfo.replaceChildren(...info.flatMap(([k, v]) => [el("dt", "", t(k)), el("dd", "", v || "—")]));
+    const groups = [];
+    for (const key of new Set(items.map(x => x[4]))) {
+      const section = el("section", "rt-evidence");
+      const i = /^try(\d+)$/.exec(key);
+      section.append(el("h4", "", i ? t("Try {n}", { n: Number(i[1]) + 1 }) : t(key === "in" ? "Received" : key === "route" ? "Routing" : "Failed")));
+      const ul = el("ul");
+      for (const [text, cls, tr, w, of] of items) {
+        if (of !== key || cls === "aside time") continue;
+        const li = el("li", cls);
+        li.append(...logoed(text, r, w));
+        if (cls === "swap") li.prepend(swapTag(tr), " ");
+        ul.append(li);
+      }
+      section.append(ul);
+      groups.push(section);
+    }
+    requestNotes.replaceChildren(...groups);
     keptIcons = null;
+  }
+
+  // Four stable metric positions; missing measurements stay unknown. The
+  // received timestamp belongs to the result/footer and raw request data.
+  function stepTimes(r, list) {
+    const total = Math.max(1, r.done ? r.ms || 0 : since(now(), at(r.time)), ...list.map(s => s.at + (s.ms || 0)));
+    const { prompt, read } = promptOf(r);
+    const stats = [[t("Duration"), took(Math.round(total)) + (!r.done ? "…" : "")],
+      [t("First token"), r.ttft ? took(r.ttft) : "—"], [t("Cache hit"), prompt ? pct(100 * read / prompt) : "—"],
+      [t("Tokens"), Number.isFinite(r.tokens) ? tokens(r.tokens) : "—"]];
+    const names = stats.map(x => x[0]).join("|");
+    if (routeMeta.dataset.k !== names) {
+      routeMeta.dataset.k = names;
+      routeMeta.replaceChildren(...stats.map(([k]) => { const s = el("span", "rt-stat"); s.append(el("span", "k", k), el("b")); return s; }));
+    }
+    stats.forEach(([, v], i) => setText(routeMeta.children[i].lastChild, v));
+    updateLiveTiming(r, list);
   }
 
   // pick sets the stage to a past request, or back to live with the newest.
@@ -3223,6 +3488,10 @@ function routingPage(part) {
   // Context tab), which shows unfolded for it
   window.openRoute = async (id, time, o = {}) => {
     let r = routes.get(id);
+    // out of sight the poll waits (or has yet to hear this magpie's trace):
+    // a request since then is live all the same, not a past one held with
+    // "Back to live"
+    if (!r && (sightWait || !loaded)) { await catchUp(); r = routes.get(id); }
     if (!r) {
       const res = await fetch("/api/gateway/route?id=" + encodeURIComponent(id) + "&day=" + encodeURIComponent(time.slice(0, 10)));
       if (res.status === 404) throw new Error(t("Routing history for this request is no longer available."));
@@ -4840,14 +5109,14 @@ function routingPage(part) {
   let second = 0;
   function countdown() {
     if (!shown()) { clearInterval(second); second = 0; return; }
-    second ||= setInterval(() => { if (!shown()) return countdown(); if (!pinned && loaded && cur) sync(); render(); renderActs(listed()); }, 1000);
+    second ||= setInterval(() => { if (!shown()) return countdown(); if (!pinned && loaded && cur) sync(); render(); renderActs(listed()); tickSteps(); }, 1000);
   }
   countdown();
 
   function offline(msg) {
     off.textContent = msg;
     off.hidden = !msg;
-    for (const e of [top, stage, foot, log]) e.hidden = !!msg;
+    for (const e of [top, pane, foot, log]) e.hidden = !!msg;
     more.hidden = !!msg;
   }
 
@@ -4900,6 +5169,37 @@ function routingPage(part) {
   function inSightAgain() {
     if (sightWait && inSight()) { const go = sightWait; sightWait = null; go(); }
   }
+  // take: a trace's answer taken in, the newest 60 kept; the ids new to
+  // the page are returned
+  function take(d) {
+    if (d.seq < seq) routes.clear(); // the gateway started over
+    const fresh = [];
+    for (const r of d.routes) {
+      if (!routes.has(r.id)) fresh.push(r.id);
+      routes.set(r.id, whole(r));
+    }
+    // one heard of as under way that the gateway has let go of since
+    // (finished and trimmed while the page was out of sight) is not
+    // under way forever: the gateway lists every id it still keeps
+    if (Array.isArray(d.ids)) {
+      const kept = new Set(d.ids);
+      for (const [id, r] of routes) if (!r.done && !kept.has(id)) routes.delete(id);
+    }
+    for (const id of [...routes.keys()].sort((a, b) => a - b).slice(0, -60)) routes.delete(id);
+    return fresh;
+  }
+  // catchUp: the trace read once, not waited on, for openRoute while the
+  // poll asks nothing. seq stays the poll's: it reads the same again in
+  // sight and draws it. Another magpie's trace (#2606), or none (the
+  // gateway down), takes nothing
+  async function catchUp() {
+    try {
+      const d = await (await fetch(`/api/gateway/trace?after=${seq}`)).json();
+      if (!d.mine || (loaded && (d.by?.pid || 0) !== (by?.pid || 0))) return;
+      noteAccounts(d);
+      take(d);
+    } catch {}
+  }
   async function poll() {
     for (;;) {
       if (heard && !inSight()) {
@@ -4935,27 +5235,14 @@ function routingPage(part) {
           await new Promise((r) => setTimeout(r, 5000));
           continue;
         }
-        if (d.seq < seq) routes.clear(); // the gateway started over
+        const fresh = take(d); // played once loaded
         seq = d.seq;
         const first = !loaded;
-        const fresh = [];
-        for (const r of d.routes) {
-          if (!routes.has(r.id) && !first) fresh.push(r.id);
-          routes.set(r.id, whole(r));
-        }
-        // one heard of as under way that the gateway has let go of since
-        // (finished and trimmed while the page was out of sight) is not
-        // under way forever: the gateway lists every id it still keeps
-        if (Array.isArray(d.ids)) {
-          const kept = new Set(d.ids);
-          for (const [id, r] of routes) if (!r.done && !kept.has(id)) routes.delete(id);
-        }
-        for (const id of [...routes.keys()].sort((a, b) => a - b).slice(0, -60)) routes.delete(id);
         const back = caught;
         caught = false;
         loaded = true;
         offMsg = "";
-        renderPanel(first || d.routes.some((r) => r.done));
+        renderPanel();
         liveDots();
         // a request done is a day's count grown: heard of now and then
         if (first || (d.routes.some((r) => r.done) && performance.now() - daysAt > 15e3)) { daysAt = performance.now(); loadDays(); }

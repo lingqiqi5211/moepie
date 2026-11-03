@@ -38,6 +38,52 @@ three.
 
 ## Constraints and failure behavior
 
+### Routing's live request card
+
+The live Routing card keeps the request it is explaining while that request
+is running, even when other conversations send newer requests. Once it
+finishes, a newer request still waiting to route does not displace a routed
+one. Pinned requests, historical days and replay retain their own selection;
+background requests still animate without replacing the card's explanation.
+When the card advances, its explanation advances with it, even if the next
+request already animated while the previous card was held.
+The choice is made by `told` in
+[`plugins/routing/client.js`](../../internal/gui/assets/plugins/routing/client.js).
+Verification: `routing-concurrent-hold.test.cjs` in five languages, Chromium
+and WebKit.
+
+### Routing request story
+
+The request detail fills the same available width as the Context card,
+following compact design B: actions in the header, agent → model → provider, a distinct outcome
+title and status, then four stable metrics (duration, first token, prompt
+cache hit and tokens). Missing measurements show an em dash. Actions remain
+in place but are disabled until the request has finished. Opening request
+and response pins the clicked request, so newer live calls cannot replace
+the bodies being inspected; Back to live resumes following new requests.
+
+Account selection and request-wide recorded timing sit side by side, stacking
+on a narrow screen. Candidate exclusions unfold across the card, as do the
+measured phases grouped by magpie, network and vendor. Unmeasured time is
+marked separately. Retry waits are named within magpie’s group. No example
+values from the design are inserted into a real request.
+
+A result row names the receiving agent, retry count and received timestamp.
+The final disclosure holds requested/vendor models, reasoning effort and the
+original routing evidence, including vendor errors and explanations for
+requests sent outside magpie. There is no additional timeline or step table.
+Disclosures keep their state across updates and when revisiting one of the
+last eight requests. A new request starts folded. The card uses its current
+content height rather than reserving an older story’s empty space; only the
+action header retains recent height for stability.
+
+Code: `renderSteps`, `drawDetail`, `renderAnalysis`, `stepTimes` and
+`tickSteps` in [`plugins/routing/client.js`](../../internal/gui/assets/plugins/routing/client.js).
+Verification: `routing-route-timeline.test.cjs` (whole card in five languages,
+320–1280 px, updates and live/completed/failed requests),
+`routing-story-shrinks.test.cjs`, `routing-time-went.test.cjs`,
+`routing-failed-open.test.cjs` and `routing-order-unknown.test.cjs`.
+
 ### Routing canvas
 
 The live diagram sits in a fixed viewport (70% of the view height, at least

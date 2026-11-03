@@ -146,7 +146,7 @@ for (const engine of engines) {
       "mnames": `<div class="mnames" data-box>${rows(30)}</div>`,
       "mchips": `<div class="mchips" data-box>${rows(40, "span")}</div>`,
       "lib-picks": `<div class="lib-picks" data-box>${rows(30)}</div>`,
-      "rt-steps": `<ol class="rt-steps" data-box>${rows(20, "li")}</ol>`,
+      "rt-steps": `<div class="rt-steps" role="list" data-box>${rows(30)}</div>`,
       "ag-diff-box": `<div class="ag-diff-box" data-box>${rows(30)}</div>`,
       "a new box": `<div style="max-height:200px;overflow-y:auto" data-box>${rows(30)}</div>`,
     };

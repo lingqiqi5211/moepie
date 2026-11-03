@@ -95,56 +95,64 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await page.locator(".rt-day").nth(1).click();
       await page.locator(".rt-req").nth(routes.length - 1).waitFor();
       await page.locator(".rt-req").nth(0).click();
-      const box = page.locator(".rt-steps li.time .rt-time");
+      // a request answered at once folds its steps: unfolded to read its try
+      const diag = page.locator(".rt-diag");
+      if (!await diag.evaluate((e) => e.open)) await diag.locator(":scope > summary").click();
+      const fine = page.locator(".rt-analysis > .rt-time-fine");
+      await fine.locator(":scope > summary").dispatchEvent("click");
+      const box = page.locator(".rt-analysis");
       await box.waitFor();
       assert.equal(await box.count(), 1);
       const seen = await box.evaluate((b) => {
-        const story = b.closest(".rt-steps").getBoundingClientRect();
+        const story = b.closest(".rt-detail-panel").getBoundingClientRect();
         const out = [...b.querySelectorAll("*")].filter((e) => {
           const r = e.getBoundingClientRect();
           return r.width > 0 && (r.left < story.left - 0.5 || r.right > story.right + 0.5);
         }).map((e) => e.className);
         const segs = [...b.querySelectorAll(".rt-time-bar span")].map((s) => ({ who: s.className, w: s.getBoundingClientRect().width }));
         return {
-          head: b.querySelector(".rt-time-head").firstChild.textContent,
+          head: b.querySelector(".rt-timing .rt-sec-head h4").textContent,
           who: [...b.querySelectorAll(".rt-time-who")].map((e) => e.className.split(" ")[1]),
-          parts: [...b.querySelectorAll(".rt-time-parts li")].map((li) => [li.className, li.querySelector(".k").textContent, li.querySelector(".v").textContent]),
+          parts: [...b.querySelectorAll(".rt-time-parts li")].map((li) => [li.closest(".rt-time-group").className.split(" ")[1], li.querySelector(".k").textContent, li.querySelector(".v").textContent]),
           segs, out, border: [...b.querySelectorAll("*")].map((e) => getComputedStyle(e).borderLeftWidth).filter((w) => w !== "0px"),
           barW: b.querySelector(".rt-time-bar").getBoundingClientRect().width,
         };
       });
       assert.equal(seen.head, want[lang].head);
-      assert.deepEqual(seen.who, ["magpie", "net", "vendor"]);
+      assert.deepEqual(seen.who.filter(w => w !== "other"), ["magpie", "net", "vendor"]);
       // queue, own, DNS, connect, TLS, send, the vendor's wait, first
       // token, streaming: no pool, no requests before it
-      assert.deepEqual(seen.parts.map((p) => p[0]), ["magpie", "magpie", "net", "net", "net", "net", "vendor", "vendor", "vendor"]);
+      assert.deepEqual(seen.parts.filter(p => p[0] !== "other").map((p) => p[0]), ["magpie", "magpie", "net", "net", "net", "net", "vendor", "vendor", "vendor"]);
       assert.equal(seen.parts[0][1], want[lang].slot);
       assert.equal(seen.parts[6][1], want[lang].vendor);
       assert.match(seen.parts[0][2], /40/);
       assert.match(seen.parts[1][2], /2\.4/);
       assert.match(seen.parts[6][2], /1\.8/);
-      assert.equal(seen.segs.length, 9);
-      // the bar is to scale: the vendor's wait is the widest
+      // one segment per owner, each phase listed under it
+      assert.deepEqual(seen.segs.filter(s => s.who !== "other").map((s) => s.who), ["magpie", "net", "vendor"]);
+      // the bar is to scale: the vendor's share is the widest
       const widest = seen.segs.reduce((a, s) => (s.w > a.w ? s : a));
       assert.equal(widest.who, "vendor");
-      assert(seen.segs[6].w > seen.barW * 0.3, JSON.stringify(seen));
+      assert(seen.segs[2].w > seen.barW * 0.3, JSON.stringify(seen));
       assert.deepEqual(seen.out, [], "out of the story");
-      assert.deepEqual(seen.border, []);
-      if (process.env.ARTIFACT_DIR) await page.locator(".rt-steps").screenshot({ path: path.join(process.env.ARTIFACT_DIR, `${engine}-${lang}-time-went-story.png`) });
+
+      if (process.env.ARTIFACT_DIR) await page.locator(".rt-request-notes").screenshot({ path: path.join(process.env.ARTIFACT_DIR, `${engine}-${lang}-time-went-story.png`) });
 
       // the plugin's try: no network timing, no breakdown, the try's own
       // line still there
       await page.locator(".rt-req").nth(1).click();
       await page.locator(".rt-req").nth(1).and(page.locator('[aria-pressed="true"]')).waitFor();
-      await page.locator(".rt-steps li.ok").first().waitFor();
-      assert.equal(await page.locator(".rt-time").count(), 0);
-      const why = page.locator(".rt-steps li.aside", { hasText: want[lang].plugin });
+      // answered at once: its steps fold under the diagnostics
+      if (!await page.locator(".rt-diag").evaluate((e) => e.open)) await page.locator(".rt-diag > summary").click();
+      await page.locator(".rt-request-notes li.ok").first().waitFor();
+      assert.equal(await page.locator(".rt-analysis .rt-time-sum").count(), 0);
+      const why = page.locator(".rt-request-notes li.aside", { hasText: want[lang].plugin });
       await why.waitFor();
       assert.equal(await why.count(), 1);
       // and the routed try, which has its split, says nothing of the kind
       await page.locator(".rt-req").nth(0).click();
-      await page.locator(".rt-steps li.time .rt-time").waitFor();
-      assert.equal(await page.locator(".rt-steps li.aside", { hasText: want[lang].plugin }).count(), 0);
+      await page.locator(".rt-analysis .rt-time-sum").waitFor();
+      assert.equal(await page.locator(".rt-request-notes li.aside", { hasText: want[lang].plugin }).count(), 0);
       assert.deepEqual(errors, []);
     });
   }

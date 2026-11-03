@@ -83,7 +83,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         // Live, the page follows the newest request and draws its story above
         // the list once the trace is in; measure after that, not mid-load.
         if (live) await page.locator(".rt-req").nth(0).and(page.locator('[aria-pressed="true"]')).waitFor();
-        await page.locator(".rt-steps li").first().waitFor();
+        await page.locator(".rt-request-notes li").first().waitFor({ state: "attached" });
         let was = await row.evaluate((e) => e.getBoundingClientRect().top);
         for (let i = 0, same = 0; i < 40 && same < 3; i++) {
           await page.waitForTimeout(50);
@@ -91,14 +91,21 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           same = Math.abs(now - was) <= 1 ? same + 1 : 0;
           was = now;
         }
-        await row.click();
+        // the click sent to it, not pointed: the taller canvas can put the
+        // list below the fold, and Playwright's own scroll to what it clicks
+        // would read as the page moving
+        await row.dispatchEvent("click");
         await page.waitForTimeout(400);
         assert(Math.abs((await row.evaluate((e) => e.getBoundingClientRect().top)) - was) <= 1, "picking the request moved the page");
         assert.equal(await row.getAttribute("aria-pressed"), "true");
         assert(!(await page.locator(".rt-log").evaluate((e) => e.hidden)), "the story is hidden");
         assert((await page.locator(".rt-log-head").textContent()).includes(want[lang].head));
-        const got = await page.locator(".rt-steps li").evaluateAll((ls) => ls.map((l) => [l.className, l.textContent]));
+        const got = await page.locator(".rt-request-notes li").evaluateAll((ls) => ls.map((l) => [l.className, l.textContent]));
         assert.deepEqual(got.filter(([c]) => c === "aside said").map(([, s]) => s), [want[lang].said], JSON.stringify(got));
+        // Diagnostics are opt-in; the failed try is selected inside them.
+        assert.equal(await page.locator('.rt-diag').evaluate(e => e.open), false);
+        await page.locator('.rt-diag > summary').dispatchEvent('click');
+        await page.locator(".rt-request-notes li.said", { hasText: vendor }).waitFor();
 
         // and back to the one that answered
         await page.locator(".rt-req").nth(0).click();

@@ -104,7 +104,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const req = page.locator(".rt-req").first();
         await req.waitFor();
         if (await req.getAttribute("aria-pressed") !== "true") await req.click();
-        await page.locator(".rt-steps li.why").first().waitFor();
+        await page.locator(".rt-steps li.why").first().waitFor({ state: "attached" });
+        await page.locator(".rt-steps .rt-det:not([hidden])").first().waitFor(); // the step open at first, seen
         const want = await say("key set to {api} only, no {api} URL · sent on the others", { api: "OpenAI Responses" });
         await page.waitForFunction((w) => [...document.querySelectorAll(".rt-act .st")].some((e) => e.textContent.trim() === w), want);
         assert.equal(await sideways(page), false, "the page scrolls sideways");

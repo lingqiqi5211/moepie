@@ -92,7 +92,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await page.locator(".rt-days .rt-day").nth(1).click();
         await page.locator(".rt-req").first().waitFor();
         await page.locator(".rt-req").first().click();
-        await page.locator(".rt-steps li").first().waitFor();
+        await page.locator(".rt-steps li").first().waitFor({ state: "attached" });
+        await page.locator(".rt-steps .rt-det:not([hidden])").first().waitFor(); // the step open at first, seen
         await page.waitForTimeout(300);
         const w = want[lang];
         const steps = await page.locator(".rt-steps li").evaluateAll((ls) => ls.map((l) => [l.className, l.textContent]));

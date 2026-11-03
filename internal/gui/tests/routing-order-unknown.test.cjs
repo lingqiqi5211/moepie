@@ -85,9 +85,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           const row = page.locator(".rt-req", { hasText: name }).first();
           await row.waitFor();
           await row.dispatchEvent("click"); // the list may run past a narrow window
-          await page.locator(".rt-steps li").first().waitFor();
-          await page.waitForFunction((name) => document.querySelector(".rt-steps")?.textContent.includes(name), name);
-          return page.locator(".rt-steps li").evaluateAll((ls) => ls.map((l) => [l.className, l.textContent.trim()]));
+          await page.locator(".rt-request-notes li").first().waitFor({ state: "attached" });
+          await page.waitForFunction((name) => document.querySelector(".rt-request-notes")?.textContent.includes(name), name);
+          return page.locator(".rt-request-notes li").evaluateAll((ls) => ls.map((l) => [l.className, l.textContent.trim()]));
         };
 
         let got = await story("coding");
@@ -115,7 +115,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert(!wAsides.includes(await unknown("opencode")), JSON.stringify(wAsides));
         assert(wAsides.includes(await unknown("腾讯-国际")), JSON.stringify(wAsides));
 
-        const spills = await page.locator(".rt-steps li").evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().right > document.documentElement.clientWidth + 0.5).map((e) => e.textContent.slice(0, 40)));
+        // All preserved evidence is readable within the raw-data fold.
+        if (!await page.locator(".rt-diag").evaluate(e => e.open)) await page.locator(".rt-diag > summary").dispatchEvent("click");
+        const spills = await page.locator('.rt-request-notes li').evaluateAll(es => es.filter(e => !e.getClientRects().length || e.getBoundingClientRect().right > document.documentElement.clientWidth + .5).map(e => e.textContent));
         assert.deepEqual(spills, []);
         assert.deepEqual(errors, []);
       });

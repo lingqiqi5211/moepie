@@ -110,7 +110,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           assert.equal(await page.locator(".rt-hub i").isHidden(), true, "the chip names no routing");
           // the story says the same, where it said "Nothing could take ."
           const why = page.locator(".rt-steps li.why").first();
-          await why.waitFor();
+          await why.waitFor({ state: "attached" });
+          await page.locator(".rt-steps .rt-det:not([hidden])").first().waitFor(); // the step open at first, seen
           assert.equal((await why.textContent()).trim(), want);
           const body = await page.locator("#view-routing").innerText();
           assert.ok(!body.includes(lone[lang]), "the one-account hint is not shown");

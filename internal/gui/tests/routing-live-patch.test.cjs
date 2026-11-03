@@ -6,8 +6,8 @@
 // (first without its prompt, as the gateway reads that beside it, then
 // with it, then done), twice: the requests listed before stay the same
 // nodes, the new one goes in beside them, the context window's card and
-// grid are the ones that were there, patched, and the grid and its box
-// keep their height on every frame between. In Chromium and WebKit, at a
+// its bar of parts are the ones that were there, patched, and the bar and
+// its box keep their height on every frame between. In Chromium and WebKit, at a
 // phone's width and a desk's; with the card open, and folded to its head
 // (magpie.ctxShut), whose nodes, bar and height stay the same too.
 const assert = require("node:assert/strict");
@@ -78,8 +78,6 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await t.test(`${width}x${height}, open`, async () => {
         const context = await browser.newContext({ viewport: { width, height } });
         const page = await context.newPage();
-        // the block grid, the look these cells are drawn in (the map is the default)
-        await page.addInitScript(() => { try { localStorage.setItem("magpie.ctxLook", "grid"); } catch {} });
         page.setDefaultTimeout(5000);
         page.setDefaultNavigationTimeout(60000);
         const errors = [];
@@ -88,16 +86,16 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await page.route("**/*", serve(feed));
         await page.goto("http://magpie.test/?view=routing");
         await page.locator(".rt-req").nth(first.length - 1).waitFor();
-        await page.locator(".rt-ctx .ctx-waffle").waitFor();
-        await page.waitForTimeout(1500); // the cells come in, the first play ends
+        await page.locator(".rt-ctx .ctx-segbar .ctx-seg").first().waitFor();
+        await page.waitForTimeout(1500); // the bars grow in, the first play ends
 
         // what is there now, and every layout from here on
         await page.evaluate(() => {
-          const box = document.querySelector(".rt-ctx"), grid = box.querySelector(".ctx-waffle");
+          const box = document.querySelector(".rt-ctx"), grid = box.querySelector(".ctx-segbar");
           window.__was = { rows: [...document.querySelectorAll(".rt-req")], items: [...box.querySelectorAll(".ctx-row, .ctx-leg")], card: box.querySelector(".ctx-card"), grid, cells: [...grid.children], box: box.offsetHeight, gridH: grid.offsetHeight };
           window.__sizes = [];
           window.__ro = new ResizeObserver(() => {
-            const g = document.querySelector(".rt-ctx .ctx-waffle");
+            const g = document.querySelector(".rt-ctx .ctx-segbar");
             window.__sizes.push({ box: box.offsetHeight, grid: g ? g.offsetHeight : 0 });
           });
           window.__ro.observe(box);
@@ -130,7 +128,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         ]);
         const got = await page.evaluate(() => {
           window.__ro.disconnect();
-          const box = document.querySelector(".rt-ctx"), grid = box.querySelector(".ctx-waffle"), rows = [...document.querySelectorAll(".rt-req")];
+          const box = document.querySelector(".rt-ctx"), grid = box.querySelector(".ctx-segbar"), rows = [...document.querySelectorAll(".rt-req")];
           const w = window.__was;
           return {
             rows: rows.length,
@@ -148,15 +146,15 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal(got.rows, first.length + 2, "both new requests are listed");
         assert.deepEqual(got.kept, first.map(() => true), "the requests listed before are the same nodes");
         assert(got.card, "the context window's card is the one that was there");
-        assert(got.grid, "its grid is the one that was there");
-        assert(got.cells, "its cells are the ones that were there");
-        assert(got.items, "its legend and contents rows are the ones that were there");
+        assert(got.grid, "its bar is the one that was there");
+        assert(got.cells, "its parts are the ones that were there");
+        assert(got.items, "its tags and contents rows are the ones that were there");
         // and it tells of the newest request
         assert.match(got.crumbs, /#105$/);
         assert.equal(got.used, "130K");
-        assert.equal(got.gridH, got.grid0, "the grid keeps its height");
+        assert.equal(got.gridH, got.grid0, "the bar keeps its height");
         for (const s of got.sizes) {
-          assert.equal(s.grid, got.grid0, `the grid kept its height on every frame: ${JSON.stringify(got.sizes)}`);
+          assert.equal(s.grid, got.grid0, `the bar kept its height on every frame: ${JSON.stringify(got.sizes)}`);
           assert(s.box >= got.box0 - 1, `the context window never collapsed: ${JSON.stringify([got.box0, got.sizes])}`);
         }
         assert.deepEqual(got.scroll, [], "the page doesn't scroll by itself");
@@ -167,8 +165,6 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await t.test(`${width}x${height}, folded`, async () => {
         const context = await browser.newContext({ viewport: { width, height } });
         const page = await context.newPage();
-        // the block grid, the look these cells are drawn in (the map is the default)
-        await page.addInitScript(() => { try { localStorage.setItem("magpie.ctxLook", "grid"); } catch {} });
         await page.addInitScript(() => { try { localStorage.setItem("magpie.ctxShut", "1"); } catch {} });
         page.setDefaultTimeout(5000);
         page.setDefaultNavigationTimeout(60000);
@@ -218,13 +214,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           const box = document.querySelector(".rt-ctx"), w = window.__was, rows = [...document.querySelectorAll(".rt-req")];
           return {
             kept: w.rows.every((r) => rows.includes(r)), line: box.querySelector(".ctx-card") === w.line && box.querySelector(".ctx-head") === w.head, bar: box.querySelector(".ctx-stack") === w.bar,
-            card: !box.querySelector(".ctx-card").classList.contains("shut") || box.querySelector(".ctx-waffle").getClientRects().length > 0, h: box.offsetHeight, h0: w.h, sizes: window.__sizes, scroll: window.__scroll,
+            card: !box.querySelector(".ctx-card").classList.contains("shut") || box.querySelector(".ctx-segbar").getClientRects().length > 0, h: box.offsetHeight, h0: w.h, sizes: window.__sizes, scroll: window.__scroll,
             list: document.querySelector(".rt-reqs").getBoundingClientRect().top, list0: w.list,
           };
         });
         assert(got.kept, "the requests listed before are the same nodes");
         assert(got.line && got.bar, "the folded card, its head and bar are the ones that were there");
-        assert(!got.card, "it stays folded, its grid out of sight");
+        assert(!got.card, "it stays folded, its bar out of sight");
         for (const h of [got.h, ...got.sizes]) assert.equal(h, got.h0, `the folded card keeps its height: ${JSON.stringify([got.h0, got.sizes])}`);
         assert.equal(got.list, got.list0, "the request list stays where it was");
         assert.deepEqual(got.scroll, [], "the page doesn't scroll by itself");

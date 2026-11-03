@@ -108,7 +108,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await req.waitFor();
       await req.click();
       const story = page.locator(".rt-steps li.kind");
-      await story.waitFor();
+      await story.waitFor({ state: "attached" });
+      await page.locator(".rt-steps .rt-det:not([hidden])").first().waitFor(); // the step open at first, seen
       assert.match(await story.textContent(), w.story);
       assert.deepEqual(errors, []);
     });

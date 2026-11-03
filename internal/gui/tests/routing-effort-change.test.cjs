@@ -1,7 +1,7 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
 // In the Routing page's Requests list a request whose reasoning was changed
 // on the way ("· medium → low", "· medium → xhigh") keeps it in its own
-// column: never drawn over the time taken, first token and tokens beside it,
+// column: never drawn over the time taken and first token beside it,
 // at any width of the window (#435, azir12345: 文字重叠 — "medium → low" and
 // "15 秒 · 首字 14 秒 · 6.9k token" were drawn on top of each other, while
 // rows at "· low" were fine: the rows share their columns, the numbers' one
@@ -22,8 +22,8 @@ const at = (i) => new Date(now.getTime() - (i + 1) * 9e3).toISOString();
 const seat = { id: "codex:a", provider: "codex", name: "Codex", who: "ann@example.com", kind: "account", agent: "codex", model: "gpt-6.1-sol" };
 // newest first, as in the report: one under way at a changed effort, a
 // title call at a changed effort, a long one changed up, plain "low" ones,
-// and further down one whose numbers run long (three tries, minutes, a
-// million tokens): the numbers' column is as wide as its widest, and where
+// and further down one whose numbers run long (three tries, minutes; its
+// tokens are Usage's): the numbers' column is as wide as its widest, and where
 // it went is left the rest, which can be next to nothing
 const rows = [
   { asked: "medium", sent: "xhigh", done: false },
@@ -150,7 +150,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const meta = page.locator(".rt-req").nth(1).locator(".meta");
         assert.equal(await meta.locator(".duration .v").textContent(), lang === "zh" ? "15 秒" : "15 s", `${width}px`);
         assert.equal(await meta.locator(".ttft .v").textContent(), lang === "zh" ? "14 秒" : "14 s", `${width}px`);
-        assert.equal(await meta.locator(".tokens .v").textContent(), "6.9k", `${width}px`);
+        assert.equal(await meta.locator(".tokens").count(), 0, `${width}px: tokens are Usage's`);
         // where it went and the level asked for give way first: the level
         // sent is whole in every row, at every width
         const cut = await page.locator(".rt-req .ef").evaluateAll((es) => es.map((e) => {

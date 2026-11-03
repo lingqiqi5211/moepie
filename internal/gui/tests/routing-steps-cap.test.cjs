@@ -61,7 +61,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     const steps = page.locator(".rt-steps");
     const pickTo = async (n) => {
       await rows.nth(routes.length - n).click(); // newest first
-      await page.waitForFunction((n) => document.querySelectorAll(".rt-steps li").length > (n % 2 ? 0 : 40), n);
+      await page.waitForFunction((n) => document.querySelectorAll(".rt-steps .rt-st").length > (n % 2 ? 0 : 40), n);
     };
     const shape = () => steps.evaluate((s) => ({ h: s.getBoundingClientRect().height, sh: s.scrollHeight, top: s.scrollTop, under: document.querySelector(".rt-req").getBoundingClientRect().top }));
 
@@ -70,8 +70,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     await pickTo(2);
     const long = await shape();
     assert(long.sh > 600, `40 keys' story must be long (${long.sh}px)`);
-    assert(long.h <= 201, `the story's box grew to ${long.h}px`);
-    assert(long.under - short.under <= 201, `the request list moved ${long.under - short.under}px between a one-key and a 40-key request`);
+    assert(long.h <= 421, `the story's box grew to ${long.h}px`);
+    assert(long.under - short.under <= 421, `the request list moved ${long.under - short.under}px between a one-key and a 40-key request`);
 
     // scrolled down in one story, another request's starts at its top
     await steps.evaluate((s) => { s.scrollTop = 400; });

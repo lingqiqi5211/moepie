@@ -66,7 +66,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
             const req = page.locator(".rt-req").first();
             await req.waitFor();
             if (await req.getAttribute("aria-pressed") !== "true") await req.click();
-            await page.locator(".rt-steps li.why").first().waitFor();
+            await page.locator(".rt-steps li.why").first().waitFor({ state: "attached" });
+            await page.locator(".rt-steps .rt-det:not([hidden])").first().waitFor(); // the step open at first, seen
             await page.waitForFunction(() => [...document.querySelectorAll(".rt-accts > li")].every((li) => li.querySelector("em")?.textContent.trim()));
             const tr = (key, vars) => page.evaluate(([lang, key, vars]) => {
               const s = (lang !== "en" && I18N[lang]?.[key]) || key;
