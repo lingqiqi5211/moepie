@@ -1005,7 +1005,10 @@ func TestCRTidyTwentyFourMBLine(t *testing.T) {
 			} else if string(got) != c.want {
 				t.Fatal("the line came out other than wanted")
 			}
-			if elapsed > 8*time.Second {
+			// -race instruments every access (about 8x here) and CI runs it in
+			// shards that share cores, so its wall time says nothing about the
+			// read; the plain test job keeps the bound
+			if !raceOn && elapsed > 8*time.Second {
 				t.Fatalf("24MB took %s", elapsed)
 			}
 		})
