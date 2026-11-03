@@ -558,8 +558,7 @@ body:not(.side-nav) .side-toggle .st-pane { opacity: 0; }
    the bar appear and the whole page 8px narrower in one frame, and shake
    back when it closed (the owner, on Agents). The track is transparent,
    so a page that fits shows nothing there. Usage and Routing needed it
-   first: their square-celled grids (the year heatmap, Sessions' calendar,
-   the context waffle) grow taller as they grow wider, so near the
+   first: their square-celled grids (the year heatmap, Sessions' calendar) grow taller as they grow wider, so near the
    window's height WebKit laid the page out at the full width under the
    bar and, on each redraw, 8px narrower for a few frames (@LingYi_Stu on
    X) */

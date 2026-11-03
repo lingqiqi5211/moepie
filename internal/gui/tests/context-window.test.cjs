@@ -2,8 +2,8 @@
 // Usage's Context tab: each agent's prompts as the gateway read them, a
 // score out of 100 with its grade, tags with what they are told by, and
 // its sessions' fill; a session opened draws its latest request's context
-// window — 400 cells by what the prompt holds, a cell hovered telling its
-// part and the largest things in it, the contents by part. The refresh
+// window — its parts as a bar, a part hovered telling what is largest in
+// it, a tag picking a part's contents. The refresh
 // that brings the same answer keeps the pane as it was. In every language,
 // at a desk and a phone's width.
 const assert = require("node:assert/strict");
@@ -57,9 +57,8 @@ async function wheelTo(page, l) {
     await page.mouse.wheel(0, 120);
     await page.waitForTimeout(50);
   }
-  // a wheel scroll is eased, and a window's cells scale in one after
-  // another (ctx-cell): hovered while either runs, Chromium scrolls the
-  // view to the cell, the app puts that scroll back, the cell moves out
+  // a wheel scroll is eased: hovered while it runs, Chromium scrolls the
+  // view to the part, the app puts that scroll back, the part moves out
   // from under the pointer and its tip closes again. Wait until the target
   // stops moving.
   for (let last = null, i = 0; i < 40; i++) {
@@ -71,11 +70,11 @@ async function wheelTo(page, l) {
 }
 
 const words = {
-  en: { tab: "Context", excellent: "Excellent", care: "Needs care", lean: "Lean start", heavy: "Heavy start", one: "1 session", two: "2 sessions", card: "Context window", tools: "Tools", free: "Free space" },
-  zh: { tab: "上下文", excellent: "优秀", care: "待改进", lean: "起步轻", heavy: "起步重", one: "1 个会话", two: "2 个会话", card: "上下文窗口", tools: "工具", free: "剩余空间" },
-  "zh-TW": { tab: "上下文", excellent: "優秀", care: "待改進", lean: "起步輕", heavy: "起步重", one: "1 個會話", two: "2 個會話", card: "上下文視窗", tools: "工具", free: "剩餘空間" },
-  ja: { tab: "コンテキスト", excellent: "優秀", care: "要改善", lean: "軽いスタート", heavy: "重いスタート", one: "1 件のセッション", two: "2 件のセッション", card: "コンテキストウィンドウ", tools: "ツール", free: "空き" },
-  de: { tab: "Kontext", excellent: "Ausgezeichnet", care: "Ausbaufähig", lean: "Schlanker Start", heavy: "Schwerer Start", one: "1 Sitzung", two: "2 Sitzungen", card: "Kontextfenster", tools: "Tools", free: "Frei" },
+  en: { tab: "Context", excellent: "Excellent", care: "Needs care", lean: "Lean start", heavy: "Heavy start", one: "1 session", two: "2 sessions", card: "Context window", tools: "Tools" },
+  zh: { tab: "上下文", excellent: "优秀", care: "待改进", lean: "起步轻", heavy: "起步重", one: "1 个会话", two: "2 个会话", card: "上下文窗口", tools: "工具" },
+  "zh-TW": { tab: "上下文", excellent: "優秀", care: "待改進", lean: "起步輕", heavy: "起步重", one: "1 個會話", two: "2 個會話", card: "上下文視窗", tools: "工具" },
+  ja: { tab: "コンテキスト", excellent: "優秀", care: "要改善", lean: "軽いスタート", heavy: "重いスタート", one: "1 件のセッション", two: "2 件のセッション", card: "コンテキストウィンドウ", tools: "ツール" },
+  de: { tab: "Kontext", excellent: "Ausgezeichnet", care: "Ausbaufähig", lean: "Schlanker Start", heavy: "Schwerer Start", one: "1 Sitzung", two: "2 Sitzungen", card: "Kontextfenster", tools: "Tools" },
 };
 
 function serve(lang, asked) {
@@ -118,7 +117,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const errors = [], asked = [];
         page.on("pageerror", (e) => errors.push(e.message));
         await page.route("**/*", serve(lang, asked));
-        await page.addInitScript(() => { try { if (!sessionStorage.getItem("set")) { localStorage.clear(); localStorage.setItem("magpie.usageTab", "context"); localStorage.setItem("magpie.ctxLook", "grid"); sessionStorage.setItem("set", "1"); } } catch {} });
+        await page.addInitScript(() => { try { if (!sessionStorage.getItem("set")) { localStorage.clear(); localStorage.setItem("magpie.usageTab", "context"); sessionStorage.setItem("set", "1"); } } catch {} });
         await page.goto("http://magpie.test/?view=usage");
         assert.equal(await page.locator("#usageTab button.on").innerText(), w.tab);
 
@@ -154,25 +153,24 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal(await page.evaluate(() => document.querySelector("#view-usage").scrollTop), y, "a click doesn't move the page");
         assert.equal(await row.getAttribute("aria-expanded"), "true");
         assert.match(await card.locator(".ctx-head").innerText(), new RegExp(w.card));
-        assert.equal(await card.locator(".ctx-waffle > i").count(), 400);
-        assert.match(await card.locator(".ctx-legend").innerText(), new RegExp(w.free));
+        assert.equal(await card.locator(".ctx-segbar .ctx-seg").count(), 6);
+        assert.match(await card.locator(".ctx-legend").textContent(), new RegExp(w.tools));
 
-        // a cell hovered tells its part and what is largest in it, and
-        // dims the others
-        const cell = card.locator(".ctx-waffle > i.k-tools").first();
-        await wheelTo(page, cell);
-        await cell.hover();
+        // a part hovered tells what is largest in it, and dims the others
+        const part = card.locator(".ctx-segbar .ctx-seg.k-tools");
+        await wheelTo(page, part);
+        await part.hover();
         const tip = card.locator(".ctx-tip");
         await tip.waitFor({ state: "visible" });
-        assert.match(await tip.innerText(), new RegExp(w.tools));
-        assert.match(await tip.innerText(), /multi_agent_v1/);
-        assert.equal(await card.locator(".ctx-waffle").getAttribute("data-f"), "tools");
+        assert.match(await tip.textContent(), new RegExp(w.tools));
+        assert.match(await tip.textContent(), /multi_agent_v1/);
+        assert.equal(await card.locator(".ctx-viz").getAttribute("data-over"), "tools");
 
-        // the contents by part: a file by its name, its folder beside it
+        // the contents by part, picked by its tag
         const contents = card.locator(".ctx-contents");
-        const seg = contents.locator(".segs button", { hasText: w.tools }).first();
-        await wheelTo(page, seg);
-        await seg.click();
+        const tag = card.locator('.ctx-legend .ctx-leg[data-k="tools"]');
+        await wheelTo(page, tag);
+        await tag.click();
         const names = await contents.locator(".ctx-row .ctx-name").allInnerTexts();
         assert.ok(names.some((n) => n.includes("multi_agent_v1")) && !names.some((n) => n.includes("prompt.go")), names.join(" | "));
 
@@ -202,7 +200,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       if (p === "/context.js" || p === "/api/state") order.push(p);
       await base(r);
     });
-    await page.addInitScript(() => { try { localStorage.clear(); localStorage.setItem("magpie.usageTab", "context"); localStorage.setItem("magpie.ctxLook", "grid"); } catch {} });
+    await page.addInitScript(() => { try { localStorage.clear(); localStorage.setItem("magpie.usageTab", "context"); } catch {} });
     await page.goto("http://magpie.test/?view=usage");
     await page.locator(".ctx-agent", { hasText: "Codex" }).waitFor({ timeout: 2500 });
     assert.equal(asked[0], "7");
@@ -231,7 +229,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       if (new URL(r.request().url()).pathname === "/api/state") await historyDrawn;
       await base(r);
     });
-    await page.addInitScript(() => { try { localStorage.clear(); localStorage.setItem("magpie.usageTab", "context"); localStorage.setItem("magpie.ctxLook", "grid"); } catch {} });
+    await page.addInitScript(() => { try { localStorage.clear(); localStorage.setItem("magpie.usageTab", "context"); } catch {} });
     await page.goto("http://magpie.test/?view=usage");
     await page.waitForFunction(() => document.querySelectorAll(".ctx-agent").length === 2);
     drawn();

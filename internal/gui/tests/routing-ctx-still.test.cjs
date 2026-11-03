@@ -79,7 +79,7 @@ const sizes = [["en", 420], ["en", 1100], ["zh", 420], ["zh", 1100], ["zh-TW", 9
 // the parts of the card watched on every frame
 const WATCH = {
   card: ".rt-ctx .ctx-card", model: ".rt-ctx .ctx-model", state: ".rt-ctx .ctx-state", used: ".rt-ctx .ctx-stat .ctx-big b",
-  cache: ".rt-ctx .ctx-cache", figure: ".rt-ctx .ctx-cache .ctx-big b", bar: ".rt-ctx .ctx-cache .ctx-bar", grid: ".rt-ctx .ctx-waffle",
+  cache: ".rt-ctx .ctx-cache", figure: ".rt-ctx .ctx-cache .ctx-big b", bar: ".rt-ctx .ctx-cache .ctx-bar", parts: ".rt-ctx .ctx-segbar",
   legend: ".rt-ctx .ctx-legend", foot: ".rt-ctx .ctx-foot",
 };
 
@@ -91,8 +91,6 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await t.test(`${lang} ${width}px`, async () => {
         const context = await browser.newContext({ viewport: { width, height: 900 } });
         const page = await context.newPage();
-        // the block grid, the look these cells are drawn in (the map is the default)
-        await page.addInitScript(() => { try { localStorage.setItem("magpie.ctxLook", "grid"); } catch {} });
         page.setDefaultTimeout(5000);
         page.setDefaultNavigationTimeout(60000);
         const errors = [];
@@ -102,7 +100,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await page.goto("http://magpie.test/?view=routing");
         await page.locator(".rt-req").nth(first.length - 1).waitFor();
         await page.locator(".rt-ctx .ctx-cache").waitFor();
-        await page.waitForTimeout(1500); // the cells come in, the first play ends
+        await page.waitForTimeout(1500); // the bars grow in, the first play ends
         // the width changes a little after the card is drawn, as when the
         // list below takes a scrollbar's width off the page: the story's
         // height is measured again then, not at the next live request

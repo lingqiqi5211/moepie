@@ -1,12 +1,12 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
 // An entrance animation lets go of its element once it has played (#1481,
 // hoffman24: the macOS app's WebKit process held over 1GB, 866MB of it
-// graphics buffers for ~1,600 layers). The context window's 400 cells each
-// played ctx-cell with fill "both", so all 400 stayed in effect for good,
-// each one a compositing layer: 412 animations and 421 layers on Routing
-// with one card. Played "backwards" (their keyframes give only where they
-// start), nothing is held once they end and the card looks the same: each
-// cell at full opacity and size, the cache bar grown. Chromium and WebKit,
+// graphics buffers for ~1,600 layers). The context window's 400 cells once
+// each played ctx-cell with fill "both", so all 400 stayed in effect for
+// good, each one a compositing layer: 412 animations and 421 layers on
+// Routing with one card. Played "backwards" (their keyframes give only
+// where they start), nothing is held once they end and the card looks the
+// same: each part of the bar whole, the bars grown. Chromium and WebKit,
 // a phone's width and a desk's.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -60,18 +60,14 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
       t.after(() => browser.close());
       const page = await (await browser.newContext({ viewport: { width, height: 900 } })).newPage();
-      // the block grid, the look these cells are drawn in (the map is the default)
-      await page.addInitScript(() => { try { localStorage.setItem("magpie.ctxLook", "grid"); } catch {} });
       page.setDefaultTimeout(5000);
       page.setDefaultNavigationTimeout(60000);
       const errors = [];
       page.on("pageerror", (e) => errors.push(e.message));
       await page.route("**/*", serve);
       await page.goto("http://magpie.test/?view=routing");
-      await page.locator(".rt-ctx .ctx-waffle > i").first().waitFor();
-      assert.equal(await page.locator(".rt-ctx .ctx-waffle > i").count(), 400);
-      // the cells come in, staggered: the last has begun within 1.5s
-      await page.waitForFunction(() => !document.getAnimations().some((a) => a.animationName === "ctx-cell" && a.playState === "running"), null, { timeout: 4000 });
+      await page.locator(".rt-ctx .ctx-segbar .ctx-seg").first().waitFor();
+      await page.waitForFunction(() => !document.getAnimations().some((a) => a.playState === "running" && a.effect?.target?.closest?.(".rt-ctx")), null, { timeout: 4000 });
       const held = await page.evaluate(() => {
         const by = {};
         for (const a of document.getAnimations()) {
@@ -82,17 +78,17 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         return by;
       });
       assert.deepEqual(held, {}, "animations still in effect after they played");
-      // and it looks as it did: every cell whole, the cache bar grown
+      // and it looks as it did: every part whole, the bars grown
       const look = await page.evaluate(() => {
-        const cells = [...document.querySelectorAll(".rt-ctx .ctx-waffle > i")].map(getComputedStyle);
-        const bar = document.querySelector(".rt-ctx .ctx-cache .ctx-bar i");
+        const parts = [...document.querySelectorAll(".rt-ctx .ctx-segbar .ctx-seg")].map(getComputedStyle);
+        const bars = [...document.querySelectorAll(".rt-ctx .ctx-bar i")].map(getComputedStyle);
         return {
-          faded: cells.filter((s) => s.opacity !== "1").length,
-          scaled: cells.filter((s) => s.transform !== "none").length,
-          bar: bar ? getComputedStyle(bar).transform : "none",
+          faded: parts.filter((s) => s.opacity !== "1").length,
+          scaled: parts.filter((s) => s.transform !== "none").length,
+          bars: bars.filter((s) => s.transform !== "none").length,
         };
       });
-      assert.deepEqual(look, { faded: 0, scaled: 0, bar: "none" });
+      assert.deepEqual(look, { faded: 0, scaled: 0, bars: 0 });
       assert.deepEqual(errors, []);
     });
   }

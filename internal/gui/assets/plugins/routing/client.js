@@ -2968,7 +2968,7 @@ function routingPage(part) {
     const card = ctxBox.firstElementChild;
     const draw = card?.ctxUpdate && (still || !pinned) ? card.ctxUpdate : (r, o) => ctxBox.replaceChildren(window.ctxCard(r, o));
     draw(r, {
-      still, series, tab: ctxTab, place: "routing", foldable: true,
+      series, tab: ctxTab, place: "routing", foldable: true,
       open: ctxFor === r.id, onFold: () => { ctxFor = 0; },
       onTab: (id) => { ctxTab = id; },
       crumbs: [agentName(r.agent), sess && (sess.length > cut ? sess.slice(0, cut - 2) + "…" : sess), "#" + r.id],

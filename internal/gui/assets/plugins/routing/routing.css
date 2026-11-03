@@ -153,6 +153,21 @@
 .rt-log { margin-top: 16px; }
 .rt-log[hidden], .rt-cap[hidden], .rt-badge[hidden] { display: none; }
 .rt-detail-panel { padding: 16px 20px; border: 1px solid var(--line); border-radius: 13px; background: var(--card); }
+/* Context belongs to the same reading column. Its three figures are a
+   compact strip, rather than three large cards nested inside another. */
+.rt-ctx .ctx-card { padding: 16px 20px; gap: 14px; border-radius: 13px; }
+.rt-ctx .ctx-top { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; }
+.rt-ctx .ctx-stat { display: flex; padding: 0 12px; border: 0; border-radius: 0; background: none; gap: 4px; }
+.rt-ctx .ctx-stat:first-child { padding-left: 0; }
+.rt-ctx .ctx-stat:last-child { padding-right: 0; }
+.rt-ctx .ctx-stat + .ctx-stat { border-left: 1px solid var(--line); }
+.rt-ctx .ctx-big b { font-size: 22px; }
+.rt-ctx .ctx-sub { margin-top: 0; min-height: 0; }
+.rt-ctx .ctx-card.max520 { padding: 12px 14px; gap: 12px; }
+.rt-ctx .ctx-card.max520 .ctx-top { grid-template-columns: minmax(0, 1fr); }
+.rt-ctx .ctx-card.max520 .ctx-stat { display: grid; padding: 8px 0; }
+.rt-ctx .ctx-card.max520 .ctx-stat:first-child { padding-top: 0; }
+.rt-ctx .ctx-card.max520 .ctx-stat + .ctx-stat { border-left: 0; border-top: 1px solid var(--line); }
 .rt-log-heading { margin: 0; font-size: 13px; font-weight: 550; }
 .rt-log-head button.text { font-size: 11px; }
 .rt-log-head button.text:disabled { opacity: .45; cursor: default; }

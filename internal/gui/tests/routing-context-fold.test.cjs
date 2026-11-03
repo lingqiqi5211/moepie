@@ -74,8 +74,6 @@ function serve(lang) {
 async function open(browser, lang, width, height) {
   const context = await browser.newContext({ viewport: { width, height } });
   const page = await context.newPage();
-  // the block grid, the look these cells are drawn in (the map is the default)
-  await page.addInitScript(() => { try { localStorage.setItem("magpie.ctxLook", "grid"); } catch {} });
   // folded is the reader's own choice, kept in magpie.ctxShut; set once, so a reload keeps what the page stores
   await page.addInitScript(() => { try { if (!sessionStorage.getItem("seeded")) { sessionStorage.setItem("seeded", "1"); localStorage.setItem("magpie.ctxShut", "1"); } } catch {} });
   page.setDefaultTimeout(5000);
@@ -90,19 +88,23 @@ async function open(browser, lang, width, height) {
   return { context, page, errors };
 }
 // the reader scrolls to what they click with the wheel (as routing-ctx-fold
-// does): a card opened afresh can sit under the window's bottom
-async function click(page, b) {
+// does): a card opened afresh can sit under the window's bottom. Over the
+// page's own gutter: over the stage's window, the wheel scrolls the stage
+async function wheelTo(page, b) {
   const h = page.viewportSize().height;
   // the page starts under the window's header, which takes a click over it:
   // a button scrolled to just under the window's top edge is still hidden
-  const top = (await page.locator("#view-routing").boundingBox()).y;
+  const view = await page.locator("#view-routing").boundingBox(), top = view.y;
   for (let i = 0; i < 20; i++) {
     const r = await b.boundingBox();
     if (r && r.y >= top && r.y + r.height <= h) break;
-    await page.mouse.move(page.viewportSize().width / 2, h / 2);
+    await page.mouse.move(view.x + 3, h / 2);
     await page.mouse.wheel(0, r && r.y < top ? -200 : 200);
     await page.waitForTimeout(100);
   }
+}
+async function click(page, b) {
+  await wheelTo(page, b);
   await b.click();
   await page.waitForTimeout(300);
 }
@@ -131,11 +133,11 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           const at = await page.evaluate(() => {
             const r = (s) => document.querySelector(s).getBoundingClientRect();
             const card = r(".rt-ctx .ctx-card"), head = r(".rt-ctx .ctx-head"), bar = r(".rt-ctx .ctx-stack"), c = document.querySelector(".rt-ctx .ctx-card");
-            return { vh: innerHeight, stage: r(".rt-stage").bottom, head: r(".rt-req-head").top + 24, row: r(".rt-req").bottom, cardH: card.height, headH: head.height,
+            return { vh: innerHeight, stage: r(".rt-canvas").bottom, head: r(".rt-req-head").top + 24, row: r(".rt-req").bottom, cardH: card.height, headH: head.height,
               bar: bar.width, barIn: bar.right <= head.right + 0.5, over: c.scrollWidth - c.clientWidth, wide: document.documentElement.scrollWidth <= innerWidth };
           });
           assert.equal(await scrollTop(page), 0);
-          assert(at.stage <= at.vh, `the magpies' stage is in view: ${JSON.stringify(at)}`);
+          assert(at.stage <= at.vh, `the magpies' stage's window is in view: ${JSON.stringify(at)}`);
           if (width >= 1440) {
             assert(at.head <= at.vh, `the request list's heading is in view: ${JSON.stringify(at)}`);
             assert(at.row <= at.vh, `the first request is in view: ${JSON.stringify(at)}`);
@@ -151,8 +153,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
 
     await t.test("unfolded by its title without moving the page", async () => {
       const { context, page, errors } = await open(browser, "en", 1440, 900);
-      // the reader scrolls down a little first, so a click that moved the page would show
-      await page.mouse.move(700, 500);
+      // the reader scrolls down a little first, so a click that moved the page
+      // would show: over the page's gutter, not the stage's window
+      const view = await page.locator("#view-routing").boundingBox();
+      await page.mouse.move(view.x + 3, 500);
       await page.mouse.wheel(0, 120);
       await page.waitForTimeout(400);
       const y = await scrollTop(page);
@@ -160,8 +164,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const fold = page.locator(".rt-ctx .ctx-fold");
       const foldTop = await fold.evaluate((e) => e.getBoundingClientRect().top);
       await fold.click();
-      await page.locator(".rt-ctx .ctx-card:not(.shut) .ctx-waffle").waitFor();
-      assert.equal(await page.locator(".rt-ctx .ctx-waffle > i").count(), 400);
+      await page.locator(".rt-ctx .ctx-card:not(.shut) .ctx-segbar").waitFor();
+      assert.equal(await page.locator(".rt-ctx .ctx-segbar .ctx-seg").count(), 5);
       assert.equal(await fold.getAttribute("aria-expanded"), "true");
       assert.equal(await page.locator(".rt-ctx .ctx-stack").evaluate((e) => e.getClientRects().length), 0, "open, the bar is the card's own legend");
       await page.waitForTimeout(800);
@@ -177,6 +181,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const { context, page, errors } = await open(browser, "en", 1440, 900);
       const shut = () => page.locator(".rt-ctx .ctx-card").evaluate((c) => c.classList.contains("shut"));
       const crumb = () => page.locator(".rt-ctx .ctx-crumbs").evaluate((c) => c.textContent.split(" › ").pop());
+      // the requests wheeled into sight, under the stage's window
+      await wheelTo(page, page.locator(".rt-req").nth(5));
       const y = await scrollTop(page);
       await page.locator(".rt-req").nth(3).click();
       await page.waitForTimeout(300);
@@ -186,7 +192,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
 
       // the Usage page's Context tab's Latest request, or a point of its line
       await page.evaluate((r) => window.openRoute(r.id, r.time, { context: true }), routes[2]);
-      await page.locator(".rt-ctx .ctx-card:not(.shut) .ctx-waffle").waitFor();
+      await page.locator(".rt-ctx .ctx-card:not(.shut) .ctx-segbar").waitFor();
       assert.equal(await crumb(), "#103");
       assert.equal(await page.locator(".rt-ctx .ctx-fold").getAttribute("aria-expanded"), "true");
       assert.equal(await stored(page), "1", "the reader's own choice is untouched");

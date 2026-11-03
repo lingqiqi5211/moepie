@@ -1,8 +1,8 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
 // masaka on Discord: a part of the context window card clicked opens what
-// the request sent there. A part of the legend opens its items, each
-// opened to its text; a row or a cell opens its item alone, the part's
-// other items a click away; a long text comes a stretch at a time; a
+// the request sent there. A part picked by its tag opens its items, each
+// opened to its text; a row or a block's item opens its item alone, the
+// part's other items a click away; a long text comes a stretch at a time; a
 // request whose text is no longer kept says so. Nothing moves the page,
 // the keyboard opens it too, in every language, at a desk and a phone's
 // width.
@@ -109,9 +109,8 @@ async function wheelTo(page, l) {
     await page.mouse.wheel(0, 120);
     await page.waitForTimeout(50);
   }
-  // a wheel scroll is eased, and a window's cells scale in one after
-  // another (ctx-cell): hovered while either runs, Chromium scrolls the
-  // view to the cell, the app puts that scroll back, the cell moves out
+  // a wheel scroll is eased: hovered while it runs, Chromium scrolls the
+  // view to the part, the app puts that scroll back, the part moves out
   // from under the pointer and its tip closes again. Wait until the target
   // stops moving.
   // Under load an eased scroll can pause for a frame and go on, so the
@@ -145,7 +144,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const errors = [], asked = [];
         page.on("pageerror", (e) => errors.push(e.message));
         await page.route("**/*", serve(lang, asked));
-        await page.addInitScript(() => { try { if (!sessionStorage.getItem("set")) { localStorage.clear(); localStorage.setItem("magpie.usageTab", "context"); localStorage.setItem("magpie.ctxLook", "grid"); sessionStorage.setItem("set", "1"); } } catch {} });
+        await page.addInitScript(() => { try { if (!sessionStorage.getItem("set")) { localStorage.clear(); localStorage.setItem("magpie.usageTab", "context"); sessionStorage.setItem("set", "1"); } } catch {} });
         await page.goto("http://magpie.test/?view=usage");
         const row = page.locator(".ctx-sess-row", { hasText: "Port the parser" });
         await row.waitFor();
@@ -161,11 +160,16 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           await modal.waitFor({ state: "hidden" });
         };
 
-        // a part of the legend: its items, each opened to its text
-        const leg = card.locator(".ctx-leg", { has: page.locator(".k-tools") });
+        // a part picked by its tag: its items, each opened to its text
+        const leg = card.locator('.ctx-leg[data-k="tools"]');
         await wheelTo(page, leg);
         let y = await top();
         await leg.click();
+        assert.equal(await top(), y, "a click doesn't move the page");
+        const whole = card.locator(".ctx-contents-head .ctx-open");
+        await wheelTo(page, whole);
+        y = await top();
+        await whole.click();
         await view.locator(".ctx-vi-head").first().waitFor();
         assert.equal(await top(), y, "a click doesn't move the page");
         assert.match(await view.locator(".ehead b").innerText(), new RegExp(w.tools));
@@ -179,7 +183,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await close();
 
         // a row of the contents: its item alone, the rest a click away
-        const seg = card.locator(".ctx-contents .segs button", { hasText: w.files }).first();
+        const seg = card.locator('.ctx-leg[data-k="files"]');
         await wheelTo(page, seg);
         await seg.click();
         const fileRow = card.locator(".ctx-row", { hasText: "prompt.go" });
@@ -193,8 +197,11 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal(await view.locator(".ctx-vi").count(), 2);
         await close();
 
-        // a cell: the system prompt, 300,000 characters a stretch at a time
-        const cell = card.locator(".ctx-waffle > i.k-system").first();
+        // a block's item: the system prompt, 300,000 characters a stretch
+        // at a time
+        await wheelTo(page, card.locator(".ctx-sec"));
+        await card.locator(".ctx-sec .segs .opt").last().click();
+        const cell = card.locator(".ctx-block.k-system .ctx-block-r").first();
         await wheelTo(page, cell);
         y = await top();
         await cell.click();
@@ -207,10 +214,12 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal(await pre.evaluate((e) => e.textContent.length), 40000);
         await close();
 
-        // the keyboard: a part of the legend, Enter; a turn's pieces by
-        // whose they are, an image and sealed reasoning named
-        const chat = card.locator(".ctx-leg", { has: page.locator(".k-chat") });
+        // the keyboard: a part's tag, Enter, then its text; a turn's
+        // pieces by whose they are, an image and sealed reasoning named
+        const chat = card.locator('.ctx-leg[data-k="chat"]');
         await chat.focus();
+        await page.keyboard.press("Enter");
+        await card.locator(".ctx-contents-head .ctx-open").focus();
         await page.keyboard.press("Enter");
         await view.waitFor();
         await view.locator(".ctx-vi-head").first().click();

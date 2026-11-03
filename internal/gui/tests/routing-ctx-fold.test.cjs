@@ -68,9 +68,9 @@ const look = (page) => page.evaluate(() => {
     expanded: fold.getAttribute("aria-expanded"),
     height: card.offsetHeight,
     short: shown(short) ? short.textContent : null,
-    grid: shown(card.querySelector(".ctx-waffle")),
+    bar: shown(card.querySelector(".ctx-segbar")),
     contents: shown(card.querySelector(".ctx-contents")),
-    cells: card.querySelectorAll(".ctx-waffle > i").length,
+    parts: card.querySelectorAll(".ctx-segbar .ctx-seg").length,
     crumbs: card.querySelector(".ctx-crumbs").textContent,
     overflow: card.scrollWidth - card.clientWidth + (document.documentElement.scrollWidth - document.documentElement.clientWidth),
     after: card.getBoundingClientRect().bottom,
@@ -104,28 +104,26 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await t.test(`${width}x${height}`, async () => {
         const context = await browser.newContext({ viewport: { width, height } });
         const page = await context.newPage();
-        // the block grid, the look these cells are drawn in (the map is the default)
-        await page.addInitScript(() => { try { localStorage.setItem("magpie.ctxLook", "grid"); } catch {} });
         page.setDefaultTimeout(5000);
         page.setDefaultNavigationTimeout(60000);
         const errors = [];
         page.on("pageerror", (e) => errors.push(e.message));
         await page.route("**/*", serve());
         await page.goto("http://magpie.test/?view=routing");
-        await page.locator(".rt-ctx .ctx-waffle").waitFor();
+        await page.locator(".rt-ctx .ctx-segbar .ctx-seg").first().waitFor();
         await page.waitForTimeout(800);
 
         const open = await look(page);
         assert.equal(open.shut, false, "it starts open");
         assert.equal(open.expanded, "true");
-        assert(open.grid && open.contents, "open, the grid and contents are there");
+        assert(open.bar && open.contents, "open, the bar and contents are there");
         assert.equal(open.short, null, "open, the short figure isn't shown");
 
         await fold(page);
         const shut = await look(page);
         assert.equal(shut.shut, true, "a click folds it");
         assert.equal(shut.expanded, "false");
-        assert(!shut.grid && !shut.contents, "folded, the grid and contents are gone");
+        assert(!shut.bar && !shut.contents, "folded, the bar and contents are gone");
         assert.equal(shut.short, "114K / 272K · 42%", "folded, how full it is is beside the title");
         assert(shut.height < 60, `folded, it is one line: ${shut.height}px`);
         assert.equal(shut.gaps[0], shut.gaps[1], `folded, the space under its head is the space over it: ${shut.gaps}`);
@@ -158,8 +156,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const again = await look(page);
         assert.equal(again.shut, false);
         assert.equal(again.expanded, "true");
-        assert(again.grid && again.contents, "opened, the grid and contents are back");
-        assert.equal(again.cells, 400);
+        assert(again.bar && again.contents, "opened, the bar and contents are back");
+        assert.equal(again.parts, 5);
         assert.equal(again.height, open.height, "and it is as tall as it was");
         assert.deepEqual(errors, []);
         await context.close();
