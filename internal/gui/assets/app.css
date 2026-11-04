@@ -1023,6 +1023,22 @@ body.window .field.solo { grid-column: auto; }
 .quota.low .quota-track i { background: var(--red); }
 .quota-eta { margin-top: 3px; font-size: 10px; color: var(--amber); }
 .quota-windows.brief .quota-eta { display: none; }
+/* a provider's accounts together (CryptoSarom on X): a quiet inset under
+   the card's head, each window's figure over a thin bar, side by side
+   while they fit, the accounts as they were below it */
+.quota-all { --muted: var(--ctl-fg); display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 10px; padding: 8px 10px 9px; border-radius: 8px; background: color-mix(in srgb, var(--fg) 4%, transparent); font-size: 10.5px; color: var(--muted); }
+.quota-all-head { flex-basis: 100%; color: var(--muted); font-weight: 600; cursor: help; }
+.quota-all-w { flex: 1 1 130px; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 6px; min-width: 0; cursor: help; }
+/* the name cut short and the figure kept on its line, so every window's
+   bar sits at one height however long its name */
+.quota-all-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quota-all-n { flex: none; color: var(--fg-2); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.quota-all-bar { flex-basis: 100%; height: 3px; margin-top: 2px; border-radius: 2px; background: var(--pill); overflow: hidden; }
+.quota-all-bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.quota-all-bar.full i { background: var(--amber); }
+.quota-all-unknown { flex-basis: 100%; color: var(--muted); cursor: help; }
+/* in the panel, between the vendor's head and its accounts' cards */
+.quota-all.pq-all { margin: 0; padding: 7px 12px 8px; border-radius: 10px; font-size: 11px; }
 .subscription-error { font-size: 11px; color: var(--faint); }
 /* the way to the provider's settings, on a plan card that needs its access key (#1821) */
 .subscription-error .quota-fix { font: inherit; color: var(--accent); padding: 0; background: none; border: 0; cursor: pointer; }

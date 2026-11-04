@@ -117,7 +117,7 @@ const fits = (page) => page.evaluate(() => ({ page: document.documentElement.scr
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
   for (const lang of ["en", "zh"]) {
     const w = words[lang];
-    test(`${engine} ${lang}: the allowances in columns or wide cards, in summary or by account, kept`, async (t) => {
+    test(`${engine} ${lang}: the allowances in columns or wide cards, kept`, async (t) => {
       const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
       t.after(() => browser.close());
       const page = await (await browser.newContext({ viewport: { width: 900, height: 900 }, reducedMotion: "reduce" })).newPage();
@@ -128,36 +128,27 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await page.goto("http://magpie.test/?view=usage");
       const list = page.locator("#subscriptionUsage"), codex = page.locator('.subscription-card[data-key="codex"]');
       await codex.locator(".quota-curve").first().waitFor();
-      const layout = page.locator("#quotaHead #quotaLayout"), stat = page.locator("#quotaHead #quotaStat");
+      const layout = page.locator("#quotaHead #quotaLayout");
+      assert.equal(await page.locator("#quotaHead #quotaStat").count(), 0, "no summary switch: upstream's accounts");
       assert.deepEqual(await layout.locator(".opt").allTextContents(), [w.wide, w.multi]);
-      assert.deepEqual(await stat.locator(".opt").allTextContents(), [w.sum, w.acct]);
-      // columns and a summary by default
+      // columns by default
       assert.equal(await layout.locator(".opt.on").textContent(), w.multi);
-      assert.equal(await stat.locator(".opt.on").textContent(), w.sum);
       assert.equal(await layout.locator(".opt.on").getAttribute("aria-pressed"), "true");
       assert.ok(await list.evaluate((l) => l.classList.contains("multi") && !l.classList.contains("wide")));
-      // one account in full, the other's tightest window at the card's foot
+      // one account in full, the other in brief where it is in the list,
+      // every window of it kept: opening it grows it in place
       assert.equal(await codex.locator(".q-body").count(), 1);
-      const order = await codex.evaluate((c) => [...c.children].map((e) => e.className.split(" ")[0] + (e.classList.contains("brief") ? ".brief" : "")));
-      assert.deepEqual(order.slice(1), ["subscription-account", "q-body", "subscription-account.brief", "quota-windows.brief"]);
-      const foot = codex.locator(".quota-windows.brief");
-      assert.equal(await foot.locator(".quota").count(), 1, "its tightest window alone");
-      assert.match(await foot.locator(".quota-name").textContent(), new RegExp(w.week));
-      assert.equal(await foot.locator(".quota").getAttribute("data-used"), "85");
+      const order = await codex.evaluate((c) => [...c.children].map((e) => e.className.split(" ")[0] + (e.classList.contains("brief") ? ".brief" : ""))
+        .filter((n) => /^(subscription-account|q-body|quota-windows)/.test(n)));
+      assert.deepEqual(order, ["subscription-account", "q-body", "subscription-account.brief", "quota-windows.brief"]);
+      const brief = codex.locator(".quota-windows.brief");
+      assert.ok(await brief.locator(".quota").count() >= 2, "its windows all kept");
       assert.match(await codex.locator(".subscription-account.brief").textContent(), /b@x\.com/);
       // in columns, the charts under the meters
       const main = await codex.locator(".q-main").boundingBox(), viz = await codex.locator(".q-viz").boundingBox();
       assert.ok(viz.y >= main.y + main.height - 1, "under the meters");
       // a click on one keeps the page where it was
       const y = await page.locator("#view-usage").evaluate((v) => v.scrollTop);
-
-      // By account: every account in full, no fold or button for the rest
-      await stat.locator(".opt", { hasText: w.acct }).click();
-      await page.waitForFunction(() => document.querySelectorAll('.subscription-card[data-key="codex"] .q-body').length === 2);
-      assert.equal(await codex.locator(".brief").count(), 0);
-      assert.equal(await codex.locator(".quota-more, .quota-acct-fold").count(), 0);
-      assert.equal(await codex.locator(".quota-curve").count(), 2);
-      assert.equal(await page.evaluate(() => localStorage.getItem("magpie.quotaStat")), "acct");
 
       // wide cards: a card a row, the charts beside the meters
       await page.setViewportSize({ width: 1280, height: 900 });
@@ -178,20 +169,18 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await page.waitForFunction(() => { const c = document.querySelector('.subscription-card[data-key="codex"]'); const m = c.querySelector(".q-main").getBoundingClientRect(), v = c.querySelector(".q-viz").getBoundingClientRect(); return v.y >= m.bottom - 1; });
       assert.deepEqual(await fits(page), { page: false, cards: [] });
 
-      // both kept across a reload
+      // kept across a reload
       await page.reload();
       await codex.locator(".quota-curve").first().waitFor();
       assert.equal(await layout.locator(".opt.on").textContent(), w.wide);
-      assert.equal(await stat.locator(".opt.on").textContent(), w.acct);
-      // back to columns and a summary
+      // back to columns
       await layout.locator(".opt", { hasText: w.multi }).click();
-      await stat.locator(".opt", { hasText: w.sum }).click();
-      await page.waitForFunction(() => document.querySelectorAll('.subscription-card[data-key="codex"] .q-body').length === 1);
-      assert.deepEqual(await page.evaluate(() => [localStorage.getItem("magpie.quotaLayout"), localStorage.getItem("magpie.quotaStat")]), ["multi", "sum"]);
+      await page.waitForFunction(() => document.querySelector("#subscriptionUsage").classList.contains("multi"));
+      assert.equal(await page.evaluate(() => localStorage.getItem("magpie.quotaLayout")), "multi");
       assert.deepEqual(errors, []);
     });
 
-    test(`${engine} ${lang}: wide cards show every account in full until a summary is picked`, async (t) => {
+    test(`${engine} ${lang}: wide cards fold accounts as columns do`, async (t) => {
       const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
       t.after(() => browser.close());
       const page = await (await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" })).newPage();
@@ -202,16 +191,16 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await page.goto("http://magpie.test/?view=usage");
       const codex = page.locator('.subscription-card[data-key="codex"]');
       await codex.locator(".quota-curve").first().waitFor();
-      assert.equal(await page.locator("#quotaStat .opt.on").textContent(), w.acct);
-      assert.equal(await codex.locator(".q-body").count(), 2);
-      // a card with one account has no Summary to pick
+      assert.equal(await codex.locator(".q-body").count(), 1);
+      assert.equal(await codex.locator(".subscription-account.brief").count(), 1);
+      // a card with one account: nothing folded, the layout pick still there
       const single = fixtures(Date.now());
       single.quotas = single.quotas.filter((q) => q.user !== "b@x.com");
       const one = await (await browser.newContext({ viewport: { width: 900, height: 900 }, reducedMotion: "reduce" })).newPage();
       await one.route("**/*", serve(lang, "light", single));
       await one.goto("http://magpie.test/?view=usage");
       await one.locator(".quota-curve").first().waitFor();
-      assert.equal(await one.locator("#quotaStat").isHidden(), true);
+      assert.equal(await one.locator(".brief").count(), 0);
       assert.equal(await one.locator("#quotaLayout").isHidden(), false);
       assert.deepEqual(errors, []);
     });
@@ -407,15 +396,12 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     assert.equal(await tip.count(), 0);
 
     // asked for from the menu bar: the account in brief opened in full, in
-    // view; By account leaves the Summary's choice alone
+    // view
     page = await open({ viewport: { width: 900, height: 500 } }, null, "http://magpie.test/?view=usage&card=" + encodeURIComponent("codex|b@x.com"));
     await page.locator('.subscription-account[data-card="codex|b@x.com"]:not(.brief)').waitFor();
     await page.waitForFunction(() => !quotaFocus);
     assert.equal(await page.locator('.subscription-card[data-key="codex"] .q-body').count(), 2);
     assert.ok(await page.locator('.subscription-account[data-card="codex|b@x.com"]').evaluate((e) => { const r = e.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }), "scrolled to");
-    page = await open({ viewport: { width: 900, height: 500 } }, { "magpie.quotaStat": "acct" }, "http://magpie.test/?view=usage&card=" + encodeURIComponent("codex|b@x.com"));
-    await page.waitForFunction(() => !quotaFocus);
-    assert.equal(await page.evaluate(() => localStorage.getItem("magpie.usageAccounts")), null);
     assert.deepEqual(errors, []);
   });
 

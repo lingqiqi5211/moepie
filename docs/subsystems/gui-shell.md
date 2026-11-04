@@ -299,6 +299,39 @@ under its id (`render`, #1835). The row itself keeps one line: the
 fullest window while idle, what it is doing while it answers. See
 `routing-seat-windows.test.cjs`.
 
+### A provider's accounts together
+
+A Usage card of several accounts (not a card of keys, which has its sum)
+has "All N accounts" under its head, and the tray panel's group of
+several the same strip above its cards (`quotaAll`, CryptoSarom on
+X). A routing group's row has a line for each provider among its
+members: what is left of that provider's accounts together
+(`groupQuota` in `plugins/routing/client.js`, drawn again when
+`quotas` is new). `quotaAll` and `mergeQuotas` are in `quotaall.js`, which app.js imports
+once a provider has two accounts (`quotaAllJS`) and the Routing page
+once a group's member has readings, so they weigh nothing on the core;
+each place is drawn again once it is in. All three come from
+`mergeQuotas`, which puts together only what reads alike:
+
+- a counted window (`limit`) of one name and unit adds its amounts and
+  limits, its share the share of the sum; a wallet (`balance`) adds its
+  balances in one unit;
+- a window said only as a share is the mean of the accounts on one
+  plan, the same allowance each; two plans are never averaged, and a
+  window more than one plan has is named with its plan;
+- a share is never added to a count; `text` windows are left out;
+  unlimited only where every account read says so;
+- an account whose reading failed is unknown, not 0, and is counted
+  ("1 couldn't be read"); a window an `asOf` reading stands in for,
+  whose reset has passed, is left out and counted in its tooltip;
+- only what two or more accounts have goes together; family and pool
+  stay, so `familyWindows` folds the result as an account's.
+
+No account is named in it, and each account stays below it as it was.
+There is no switch: it is additive, and the figure follows used or left
+with the rest. See `usage-merge.test.cjs` (the merge) and
+`usage-all-accounts.test.cjs` (the three places).
+
 ### The Sessions page's folders
 
 The Sessions page lists an agent's project folders as one list, newest

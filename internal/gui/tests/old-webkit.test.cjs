@@ -150,8 +150,8 @@ test("compat.js is the first of the page's own scripts", async () => {
   // the pointer comes over the sidebar, whatsnew.js when release notes open,
   // resetask.js when a Codex reset's Use is pressed, ctxtext.js when a
   // context window part is opened, claudemode.js when a Claude provider's
-  // editor opens; the checks above still read them
-  for (const f of await scripts()) if (!["webfonts.js", "cfgblocked.js", "signsheets.js", "ruleedit.js", "ratewindows.js", "traywindows.js", "autoresetown.js", "registry.js", "navlamp.js", "whatsnew.js", "resetask.js", "ctxtext.js", "claudemode.js"].includes(f)) assert(all.includes(f), f + " is not loaded by index.html");
+  // editor opens, quotaall.js when a provider has two accounts; the checks above still read them
+  for (const f of await scripts()) if (!["webfonts.js", "cfgblocked.js", "signsheets.js", "ruleedit.js", "ratewindows.js", "traywindows.js", "autoresetown.js", "registry.js", "navlamp.js", "whatsnew.js", "resetask.js", "ctxtext.js", "claudemode.js", "quotaall.js"].includes(f)) assert(all.includes(f), f + " is not loaded by index.html");
 });
 
 test("the styles hold up in Safari 15.0", async () => {

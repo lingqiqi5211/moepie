@@ -452,22 +452,18 @@ function quotaWho(q) {
 function ownCalls(n) {
   return t("{n} by magpie itself", { n: fmtN(n) });
 }
-// The allowances' arrangement and statistics, picked in their head and
-// kept: wide cards, a provider a row with its charts beside the meters, or
-// columns; every account in full, or a summary, one account in full and
-// the others' tightest window at the card's foot. Columns sum by default.
-let quotaLayout = "multi", quotaStat = "";
+// The allowances' arrangement, picked in their head and kept: wide cards,
+// a provider a row with its charts beside the meters, or columns. A card's
+// accounts are upstream's: "All N accounts" under its head (quotaall.js),
+// one in full and the others in brief where they are in the list.
+let quotaLayout = "multi";
 try {
   if (localStorage.getItem("magpie.quotaLayout") === "wide") quotaLayout = "wide";
-  const s = localStorage.getItem("magpie.quotaStat");
-  if (s === "sum" || s === "acct") quotaStat = s;
 } catch {}
-const quotaByAccount = () => (quotaStat || (quotaLayout === "wide" ? "acct" : "sum")) === "acct";
 function renderQuotaLook() {
   const list = $("#subscriptionUsage");
   list.classList.toggle("wide", quotaLayout === "wide");
   list.classList.toggle("multi", quotaLayout !== "wide");
-  const users = (quotas || []).filter((q) => q.user);
   const segs = (id, shown, opts, cur, set) => {
     const box = $("#" + id);
     box.hidden = !shown;
@@ -485,16 +481,6 @@ function renderQuotaLook() {
   const pick = (key, v) => { try { localStorage.setItem("magpie." + key, v); } catch {} renderQuotas(); };
   segs("quotaLayout", !!quotas?.length, [["wide", "Wide cards", "A card a row, its charts beside the meters"], ["multi", "Columns", "Cards in columns, the charts under the meters"]],
     quotaLayout, (v) => { quotaLayout = v; pick("quotaLayout", v); });
-  // only where some card has several accounts to sum
-  segs("quotaStat", users.some((q) => users.some((x) => x !== q && x.provider === q.provider)),
-    [["sum", "Summary", "One account of a card in full, the others' tightest window at its foot"], ["acct", "By account", "Every account in full"]],
-    quotaByAccount() ? "acct" : "sum", (v) => { quotaStat = v; pick("quotaStat", v); });
-}
-// quotaTightest: brief meters cut to the window with least left
-function quotaTightest(meters) {
-  const qs = [...meters.querySelectorAll(":scope > .quota[data-used]")];
-  const top = qs.reduce((a, b) => (+b.dataset.used > +a.dataset.used ? b : a), qs[0]);
-  if (top) for (const q of meters.querySelectorAll(":scope > .quota")) if (q !== top) q.remove();
 }
 
 // The allowances' charts, a 360×116 box each: the plot from y 10 to 96,

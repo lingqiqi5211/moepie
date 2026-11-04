@@ -5064,7 +5064,7 @@ function routingPage(part) {
   let second = 0;
   function countdown() {
     if (!shown()) { clearInterval(second); second = 0; return; }
-    second ||= setInterval(() => { if (!shown()) return countdown(); if (!pinned && loaded && cur) sync(); render(); renderActs(listed()); tickSteps(); }, 1000);
+    second ||= setInterval(() => { if (!shown()) return countdown(); if (!pinned && loaded && cur) sync(); render(); renderActs(listed()); tickSteps(); groupsReadAgain(); }, 1000);
   }
   countdown();
 
@@ -5634,7 +5634,43 @@ function routingPage(part) {
       return row;
     }
   }
+  // the groups' rows say what is left of their accounts (groupQuota):
+  // drawn again when the Usage page's readings are new, unless a group is
+  // under the reader's hands
+  let groupsQuotas;
+  function groupsReadAgain() {
+    if (groups && typeof quotas !== "undefined" && quotas !== groupsQuotas && !gEdit && !gsec.contains(document.activeElement)) renderGroups();
+  }
+  // groupQuota: a line a provider of the group's members, what is left of
+  // the accounts the group can send it through, together (CryptoSarom on
+  // X): "WorkBuddy AI, 3 accounts: Credits 1,145 / 1,500 credits · 76%
+  // left". From the Usage page's readings (mergeQuotas), nothing read
+  // for it; a member that is a group, or whose provider is off, has none.
+  // Each account's own is on the Usage page.
+  function groupQuota(g) {
+    if (!Array.isArray(quotas)) return [];
+    const shown = shownMembers(g), seen = new Set(), lines = [];
+    for (const i of g.memberInfo || []) {
+      if (!shown.includes(i.id) || i.group || i.providerOff || !i.provider || seen.has(i.provider)) continue;
+      seen.add(i.provider);
+      const subs = quotas.filter((q) => !q.from && q.provider === i.provider && (q.error || q.windows?.length));
+      if (!subs.length) continue;
+      // mergeQuotas is quotaall.js's: once it is in, the groups are drawn again
+      if (!window.mergeQuotas) { quotaAllJS().then(() => { groupsQuotas = null; }); return []; }
+      const all = mergeQuotas(subs);
+      const ws = (familyWindows(all.windows) || []).slice(0, 3);
+      if (!ws.length) continue;
+      const figs = ws.map((w) => t(w.name) + (w.plan ? " · " + w.plan : "") + " " + quotaText(w)).join(" · ");
+      const text = t("{name}, {n} accounts: {windows}", { name: i.name || i.provider, n: subs.length, windows: figs });
+      const line = el("div", "mem rt-gquota", all.unknown ? text + " · " + t("{n} couldn't be read", { n: all.unknown }) : text);
+      line.dataset.provider = i.provider;
+      line.title = t("What is left of this provider's accounts the group can use, together: amounts of one unit added up, a share the mean of the accounts on one plan. Each account is on the Usage page.");
+      lines.push(line);
+    }
+    return lines;
+  }
   function drawGroups() {
+    groupsQuotas = typeof quotas === "undefined" ? undefined : quotas;
     const all = groups.groups.filter((g) => !g.hidden), hidden = groups.groups.filter((g) => g.hidden);
     const words = gQ.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
     // the group being changed stays, whatever the filter
@@ -6126,6 +6162,7 @@ function routingPage(part) {
     const sep = g.routing === "order" ? " → " : " · ";
     const mem = manual ? pickRow(g) : el("div", "mem", shownMembers(g).map((id) => memberLabel(g, id) + (g.off?.includes(id) ? ` (${t("off")})` : "")).join(sep));
     main.append(nm, mem);
+    if (!g.decides) main.append(...groupQuota(g));
     for (const p of g.patterns || []) {
       const line = el("div", "mem pat" + (p.models ? "" : " none"));
       line.append(el("code", "", p.pattern), document.createTextNode(" · " + patternWords(p.models)));

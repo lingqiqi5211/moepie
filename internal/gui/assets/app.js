@@ -5956,7 +5956,7 @@ async function loadProvidersNow() {
     magpie.call(view, "render", was);
     backAfterLoad($("#view-" + view));
   // under Routing: drawn when opened (#4652)
-  } else if (view === "routing") { providersBehind = true; markNewPartners(); }
+  } else if (view === "routing") providersBehind = true;
   else renderProviders();
   renderArchive();
   providersWhileFetching();
@@ -14075,6 +14075,11 @@ function ringName(w) {
   return w.window ? poolWord(w.pool) + " " + shortWindow(w.window) : shortWindow(w.name);
 }
 
+// quotaall.js: accounts together, loaded once asked for
+function quotaAllJS() {
+  return (quotaAllJS.p ||= import("./quotaall.js").then(() => renderQuotas(), () => {}));
+}
+const quotaAllOf = (...a) => window.quotaAll ? quotaAll(...a) : void quotaAllJS();
 // tiersText: a family's windows, one a line, for its tooltip.
 function tiersText(w) {
   return (w.tiers || []).map((x) => t(x.name) + " " + quotaText(x)
@@ -15523,8 +15528,7 @@ function ownLine(sub) {
   return line;
 }
 
-// lazy: drawn only if something the panel shows changed (a load's answer,
-// the window coming back), not each time it is asked (#3192)
+// lazy: drawn only if what the panel shows changed (#3192)
 function renderQuotas(lazy) {
   renderPanelQuota(lazy);
   // the tray panel never shows the Usage page: its cards and curves are
@@ -15602,18 +15606,17 @@ function renderQuotas(lazy) {
       s.title = keysSumTip(subs);
       head.append(s);
     }
+    const all = !keys && several && quotaAllOf(subs);
+    if (all) card.append(all);
     // many accounts (Linx on X: twenty-odd on one plugin, 顶成擎天柱):
     // the same, each still a row of its own
     const accts = !keys && several && subs.length > ACCTS_FOLD;
     const folded = keys ? keysFolded(subs) : accts ? acctsFolded(subs) : new Set();
-    // By account: each in full. Summary: one in full, the others at the
-    // card's foot, the window nearest its end alone
-    const all = quotaByAccount(), briefs = [];
     for (const sub of subs) {
       if (folded.has(sub)) continue;
       // "Every model" by the account, or the card's name: where the click
       // was, whichever way the meters under it grow or shrink
-      const brief = several && !all && !usageAcctOpen(sub, subs);
+      const brief = several && !usageAcctOpen(sub, subs);
       const history = !brief && quotaHistoryView(sub);
       const shownSub = history ? quotaHistoryCard(sub, history) : sub;
       const [meters, every] = history ? [quotaWindows(shownSub), null] : familyQuota(sub);
@@ -15627,8 +15630,8 @@ function renderQuotas(lazy) {
         if (auto) who.append(auto);
         if (sub.plan || sub.until) who.append(planSpan(sub));
         if (every) who.append(every);
-        if (several && !all) who.append(usageAcctFold(sub, !brief));
-        if (brief) briefs.push(who); else card.append(who);
+        if (several) who.append(usageAcctFold(sub, !brief));
+        card.append(who);
       } else if (every) head.append(every);
       // WorkBuddy's, Trae CN's or MiniMax Code's daily check-in, how this account's went,
       // and the switch for it, on the card rather than only in Settings
@@ -15636,10 +15639,12 @@ function renderQuotas(lazy) {
       const checkin = sub.checkins && !history && checkinRow(sub, sub === subs.find((x) => x.checkins && (x.checkinBy || "") === (sub.checkinBy || "")), subs);
       // what is left besides the windows, under them
       const bal = !history && sub.balance && sub.windows?.length && !sub.error && balanceRow(sub, "What is left on the account besides its windows", false);
+      // in brief, where it is in the list: each window's name, figure and
+      // bar, when it resets in its tooltip; the charts and the rest only in
+      // full (upstream's), so opening one grows it in place
       if (brief) {
         meters.classList.add("brief");
-        quotaTightest(meters);
-        briefs.push(meters, ...[checkin, bal].filter(Boolean));
+        card.append(meters, ...[checkin, bal].filter(Boolean));
         continue;
       }
       // the meters and what goes with them on the left, the charts on the
@@ -15695,10 +15700,9 @@ function renderQuotas(lazy) {
       if (viz.childElementCount) body.append(viz);
       card.append(body);
     }
-    card.append(...briefs);
-    // in the card's head, beside its name: no line of its own
-    // (of the keys in sight: the ones folded away are the foot's button's)
-    if (several && !all) head.append(usageMore(folded.size ? subs.filter((q) => !folded.has(q)) : subs, "text quota-more"));
+    // in the card's head, beside its name, of the keys in sight (the
+    // folded ones are the foot's button's)
+    if (several) head.append(usageMore(folded.size ? subs.filter((q) => !folded.has(q)) : subs, "text quota-more"));
     if (keys && (folded.size || usageKeysAll.has(first.provider))) card.append(keysMore(first.provider, folded.size));
     if (accts && (folded.size || usageAcctsAll.has(first.provider))) card.append(acctsMore(first.provider, folded.size));
     subscriptions.append(card);
@@ -16535,9 +16539,7 @@ function focusQuotaCard() {
   // The panel omits accounts in brief; the main window draws them short.
   // The one asked for is opened in full.
   const quota = quotas?.find((q) => trayCardID(q) === quotaFocus);
-  // By account has every one in full already: nothing to open, and the
-  // Summary's choice is left as it was
-  if (quota?.user && (mode === "panel" || !quotaByAccount()) && !usageAcctOpen(quota, quotas.filter((q) => q.user && q.provider === quota.provider))) {
+  if (quota?.user && !usageAcctOpen(quota, quotas.filter((q) => q.user && q.provider === quota.provider))) {
     setUsageAccts([quota], true);
     return; // the redraw queues focus once the account is visible
   }
@@ -16793,16 +16795,10 @@ function renderPanelUse() {
   fit();
 }
 
-// The Usage tab: accounts under their vendor, each window a ring with its
-// share in it, when the plan ends and the windows start again under the
-// account; balances as figures. All in the Usage page's order, a balance
-// where it was put there, not after the plans (#1510, JokerQyou); balances
-// side by side share one grid.
-//
-// lazy: kept as it is when nothing it draws from has changed, so the
-// window's focus and visibility coming back neither rebuild the cards nor
-// start the skeleton's shimmer again (#3192). The minute is in it, for
-// the deadlines it words by the clock.
+// The Usage tab: accounts under their vendor, a ring a window, balances as
+// figures in one grid, in the Usage page's order (#1510).
+// lazy: kept while nothing it draws from changed (#3192); the minute is in
+// it, for the deadlines it words by the clock.
 function renderPanelQuota(lazy) {
   const box = $("#panelQuota");
   if (mode !== "panel" || !box) return;
@@ -16889,6 +16885,8 @@ function renderPanelQuota(lazy) {
       head.append(m);
     }
     g.append(head);
+    const all = qs.length > 1 && quotaAllOf(qs, "pq-all", 3);
+    if (all) g.append(all);
     // the accounts in full; none of them, the one in sight
     const full = qs.length > 1 ? qs.filter((q) => usageAcctOpen(q, qs)) : qs;
     for (const q of full.length ? full : [usageShown(qs)]) g.append(panelQuotaCard(q));

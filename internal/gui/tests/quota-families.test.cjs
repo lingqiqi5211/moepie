@@ -92,9 +92,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         page.setDefaultNavigationTimeout(60000);
         page.on("pageerror", (e) => errors.push(e.message));
         await page.route("**/*", serve(lang, url.includes("mode=panel")));
-        // every account in full, each its own meters (Summary cuts the
-        // others to their tightest window)
-        await page.addInitScript(() => { try { localStorage.setItem("magpie.quotaStat", "acct"); } catch {} });
+        // every account in full, each its own meters: the cards' accounts
+        // opened as upstream keeps them (magpie.usageOpen)
+        await page.addInitScript(() => { try { localStorage.setItem("magpie.usageOpen", JSON.stringify(["antigravity", "claude"])); } catch {} });
         await page.goto(url);
         return page;
       };
