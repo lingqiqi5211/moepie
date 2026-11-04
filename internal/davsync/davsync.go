@@ -43,6 +43,7 @@ import (
 	"github.com/yetone/magpie/internal/lastgood"
 	"github.com/yetone/magpie/internal/library"
 	"github.com/yetone/magpie/internal/plugin"
+	"github.com/yetone/magpie/internal/pluginrt"
 	"github.com/yetone/magpie/internal/profile"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/settings"
@@ -823,6 +824,13 @@ func hashes(b backup.Bundle) map[string]string {
 	if b.GatewayKeys != nil { // a missing store keeps older bundles' hash
 		settingsHash = h([]any{s, *b.GatewayKeys})
 	}
+	if b.BuiltinPlugins != nil { // plugins.yml, with the settings it belongs to
+		sp := []any{s}
+		if b.GatewayKeys != nil {
+			sp = append(sp, *b.GatewayKeys)
+		}
+		settingsHash = h(append(sp, b.BuiltinPlugins))
+	}
 	ps := slices.Clone(b.Providers)
 	for i := range ps { // this computer's own: kept by Mirror, never synced
 		ps[i].KeepLogin, ps[i].KeepLoginAs, ps[i].SwitchOnly = false, "", false
@@ -937,6 +945,9 @@ func take(to *backup.Bundle, from backup.Bundle, part string) {
 		if keys && from.GatewayKeys != nil {
 			to.GatewayKeys = from.GatewayKeys // an explicit empty store clears it
 		}
+		if from.BuiltinPlugins != nil {
+			to.BuiltinPlugins = from.BuiltinPlugins
+		}
 		to.SettingsKeys = backup.Flag(keys || (to.SettingsKeys != nil && *to.SettingsKeys))
 	case "profiles":
 		to.Profiles = from.Profiles
@@ -972,6 +983,9 @@ func changed(part string, keys bool) time.Time {
 		return mtime(provider.Path())
 	case "settings":
 		m := mtime(settings.Path())
+		if k := mtime(pluginrt.Path()); k.After(m) {
+			m = k
+		}
 		if k := mtime(access.Path()); keys && k.After(m) {
 			m = k
 		}

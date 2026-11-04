@@ -49,12 +49,12 @@ const (
 
 // File is plugins.yml as written.
 type File struct {
-	Preset string `yaml:"preset,omitempty"`
+	Preset string `yaml:"preset,omitempty" json:"preset,omitempty"`
 	// Settled is the defaults the file was last settled to (settled):
 	// below it, Settle brings the file up to them once. Every write the
 	// user makes sets it, so a preset they pick afterwards is theirs.
-	Settled int   `yaml:"settled,omitempty"`
-	Plugins []Row `yaml:"plugins,omitempty"`
+	Settled int   `yaml:"settled,omitempty" json:"settled,omitempty"`
+	Plugins []Row `yaml:"plugins,omitempty" json:"plugins,omitempty"`
 }
 
 // settled is the defaults plugins.yml is settled to now. 1: All, where
@@ -65,9 +65,9 @@ const settled = 1
 
 // Row is the user's own say about one plugin: only what they set.
 type Row struct {
-	ID      string         `yaml:"id"`
-	Enabled *bool          `yaml:"enabled,omitempty"`
-	Config  map[string]any `yaml:"config,omitempty"`
+	ID      string         `yaml:"id" json:"id"`
+	Enabled *bool          `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	Config  map[string]any `yaml:"config,omitempty" json:"config,omitempty"`
 }
 
 // Path is plugins.yml, in magpie's folder.
@@ -266,6 +266,24 @@ func SetPreset(preset string) error {
 		return fmt.Errorf("no preset %q (essentials or all)", preset)
 	}
 	return update(func(f *File) { f.Preset = preset })
+}
+
+// Put replaces plugins.yml with f whole, as a backup or a sync puts one
+// back: the file is written through the same locks and atomic write as
+// Set, and the file it replaces kept as plugins.yml.bak. A preset it
+// doesn't know is refused, and nothing is written.
+func Put(f File) error {
+	switch f.Preset {
+	case "", PresetAll, PresetEssentials:
+	default:
+		return fmt.Errorf("no preset %q (essentials or all)", f.Preset)
+	}
+	inProcess.Lock()
+	defer inProcess.Unlock()
+	fileLock.Lock()
+	defer fileLock.Unlock()
+	f.Settled = settled
+	return write(f)
 }
 
 func update(change func(*File)) error {
