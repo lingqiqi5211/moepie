@@ -18,6 +18,7 @@ import (
 	"github.com/yetone/magpie/internal/browsermcp"
 	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/claudebridge"
+	"github.com/yetone/magpie/internal/claudetui"
 	"github.com/yetone/magpie/internal/codexrelay"
 	"github.com/yetone/magpie/internal/davsync"
 	"github.com/yetone/magpie/internal/gateway"
@@ -98,7 +99,7 @@ const usage = `magpie — one place to pick every agent's model
   magpie accounts import <codex|claude|antigravity|factory> <file>... [--yes]   bring in accounts from other tools' files (Codex's auth.json, Cockpit Tools, CLIProxyAPI, Sub2API, claude-swap); the tool a ChatGPT or Claude file came from is signed out of it
   magpie accounts switch <agent> <email|name>   sign the agent in to another of them by email or alias
   magpie accounts switch <claude|codex> next   the next account with room, or the one with the most left
-  magpie accounts refresh         renew the saved ChatGPT sign-ins now (the gateway does it daily)
+  magpie accounts refresh         renew the saved ChatGPT and Claude sign-ins now (the gateway does it every 8 days)
   magpie accounts checkin         WorkBuddy's daily check-in (签到) for each WorkBuddy account, now (Settings can do it daily)
   magpie accounts project <gemini|antigravity> <email> <project>   the Google Cloud project a Google account's requests go to
   magpie accounts alias <agent> <email> [<name>|--clear]   a name of your own for an account, shown on its card, in the menu bar and in magpie quota
@@ -350,6 +351,12 @@ func run(args []string) error {
 			return imagemcp.Run(args[1:])
 		case "claude-mcp-helper": // internal: stdio MCP subprocess spawned by Claude Code
 			return claudebridge.RunMCP(args[1:])
+		case claudetui.Command: // internal: Claude Code's interactive mode for the bridge
+			// it ends its Claude Code and removes its files on SIGINT,
+			// SIGTERM and SIGHUP itself: magpie dying of the signal first
+			// left them behind
+			leaveSignals()
+			return claudetui.Run(args[1:])
 		case "statusline":
 			return statuslineCmd(args)
 		case "tools":

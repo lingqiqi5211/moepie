@@ -58,6 +58,9 @@ type Login struct {
 	// Returns is the account magpie signed the agent out of when it was
 	// spent, and signs it back in to once it has room again (#408).
 	Returns bool `json:"returns,omitempty"`
+	// Token is a Claude account added by a setup-token: magpie's
+	// requests use it, Claude Code itself can't be signed in to it.
+	Token bool `json:"token,omitempty"`
 
 	// first is the saved Claude account served in the place of Claude
 	// Code's own while it is signed out (claudeStandIn).
@@ -99,8 +102,10 @@ type savedLogin struct {
 	// Project is the Google Cloud project a Gemini CLI or Antigravity
 	// account's requests go to, when the user named one (google.go).
 	Project string `json:"project,omitempty"`
-	// Renewed is when magpie last refreshed a saved account's sign-in, and
-	// Lapsed why the vendor last refused to (logins_on.go, keepalive.go).
+	// Renewed is when magpie last refreshed a saved account's sign-in (a
+	// Claude one: when Claude Code last refreshed it, or ran on it for the
+	// keep-alive), and Lapsed why the vendor last refused to (logins_on.go,
+	// keepalive.go).
 	Renewed time.Time `json:"renewed,omitzero"`
 	Lapsed  string    `json:"lapsed,omitempty"`
 	// Refused is the Claude credential Anthropic refused (its version, in
@@ -1044,6 +1049,7 @@ func loginsNow(agent string) []Login {
 		}
 		if l.Agent == "claude" {
 			lg.Lapsed = claudeSignedOut(l)
+			lg.Token = claudeSetupToken(l.Auth) != ""
 		} else {
 			// the one in use too, its sign-in revoked (#1793)
 			lg.Lapsed = revokedLapse(l)
@@ -1249,6 +1255,9 @@ func switchSavedLogin(agent, user string) (from string, _ error) {
 		// whichever refreshed first would sign the other out
 		return "", fmt.Errorf("%s is signed in to Codex in %s: run Codex there (CODEX_HOME=%s codex) to use it, or turn it on for magpie's requests", target.User, home, home)
 	}
+	if agent == "claude" && claudeSetupToken(target.Auth) != "" {
+		return "", fmt.Errorf(errClaudeTokenSwitch, target.User)
+	}
 	if agent == "claude" {
 		// as Claude Code keeps it, if it has run on the account beside the
 		// one it is signed in to; never one that can't be used, which
@@ -1328,6 +1337,9 @@ func switchSavedLogin(agent, user string) (from string, _ error) {
 // putClaudeLogin signs Claude Code in to l. The caller holds Claude Code's
 // refresh locks (claudeRefreshLocks).
 func putClaudeLogin(l savedLogin) error {
+	if claudeSetupToken(l.Auth) != "" {
+		return fmt.Errorf(errClaudeTokenSwitch, l.User)
+	}
 	c, ok := parseClaudeCredentials(l.Auth)
 	if !ok {
 		return errors.New("the saved Claude Code sign-in is unreadable")
@@ -1598,10 +1610,14 @@ func claudeHolders(ls []savedLogin, l savedLogin) (same bool, others []savedLogi
 		return false, nil
 	}
 	c, ok := parseClaudeCredentials(l.Auth)
-	if !ok {
+	tok := claudeSetupToken(l.Auth)
+	if !ok && tok == "" {
 		return false, nil
 	}
 	holds := func(x savedLogin) bool {
+		if tok != "" {
+			return claudeSetupToken(x.Auth) == tok
+		}
 		o, ok := parseClaudeCredentials(x.Auth)
 		return ok && (c.OAuth.AccessToken != "" && o.OAuth.AccessToken == c.OAuth.AccessToken ||
 			c.OAuth.RefreshToken != "" && o.OAuth.RefreshToken == c.OAuth.RefreshToken)

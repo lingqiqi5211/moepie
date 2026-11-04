@@ -9093,6 +9093,7 @@ function drawEditor(p, presetID) {
     const a = p.account;
     if (subOf(a.agent)) {
       // no Claude Code on Windows: the gateway runs the one in WSL
+      if (a.agent === "claude" && !p.switchOnly) ed.append(claudeModeRow());
       const via = a.wsl ? t("Runs through WSL · {distro}: Claude Code there signs in and answers; Windows has none of its own.", { distro: a.wsl }) + " " : "";
       ed.append(...field(t("Accounts"), renderAccounts(a, p), via + (p.routing ? t("Tick every account to use; Routing says how requests spread over them.") : subOf(a.agent).single ? t("{agent} keeps one account; the gateway runs it for every request. Signing in to another replaces it.", { agent: a.agentName }) : subOf(a.agent).own && (a.logins || []).some((l) => l.own) ? t("The gateway uses the first. Tick more and it moves on to the next when the one before it is out of quota. {agent} itself stays signed in as it is.", { agent: a.agentName && a.agentName !== a.agent ? a.agentName : p.name }) : subOf(a.agent).own || subOf(a.agent).plugin ? t("The gateway uses the first. Tick more and it moves on to the next when the one before it is out of quota.") : t("{agent} signs in to the first. Tick more and magpie moves on to the next when the one before it is out of quota. Sessions already running keep theirs until restarted.", { agent: a.agentName }))));
       if ((a.logins || []).filter((l) => l.active || l.on).length > 1) ed.append(...renderRouting(p));
@@ -12161,6 +12162,7 @@ async function signedIn(st) {
   if (!p) status(t("{user} signed in, but magpie can't list it — please report this", { user: who }), "err");
   // an account listed already is said to be, not added (#413)
   else if (st.again) status(t("{user} is already listed — its sign-in was renewed", { user: who }), "ok");
+  else if (st.token) status(t("{user} added; requests through magpie use it beside your other accounts", { user: who }), "ok");
   else status(st.using ? t("Signed in as {user}", { user: who }) : t("{user} added — switch to it any time", { user: who }), "ok");
   state = await api("state");
   renderAgents();
@@ -12494,50 +12496,20 @@ function copilotHostSwitch(sub) {
   b.title = site ? t("Signing in on {host}", { host: site }) : t("An account of an enterprise on GitHub Enterprise Cloud with data residency signs in at its <name>.ghe.com");
   b.onclick = () => {
     if (site) return startSignIn("copilot", true); // which ends this one
-    stopSignIn();
-    signing = { agent: "copilot", state: "ghe" };
-    renderProviders();
+    signAsk({ agent: "copilot", state: "ghe" });
   };
   return b;
 }
 
-// renderCopilotGHE: the enterprise's host asked before its sign-in starts.
-function renderCopilotGHE(sub) {
-  const box = el("div", "signing copilot-ghe");
-  const tt = el("span", "tt");
-  box.append(tt);
-  const flow = signing;
-  const label = t("Your enterprise on GHE.com");
-  tt.append(el("span", "n", label),
-    el("span", "s", t("The address you sign in to GitHub at, like acme.ghe.com. An account on github.com doesn't need it.")));
-  const form = el("form", "callback-form");
-  const inp = input(flow.host || "", "acme.ghe.com");
-  inp.setAttribute("aria-label", label);
-  const go = el("button", "text primary", t("Sign in"));
-  go.type = "submit";
-  go.disabled = !GHE_HOST.test(inp.value.trim());
-  const why = el("span", "s why", "");
-  inp.oninput = () => { flow.host = inp.value; go.disabled = !GHE_HOST.test(inp.value.trim()); why.textContent = ""; };
-  const submit = (e) => {
-    e.preventDefault();
-    if (signing !== flow) return;
-    const host = inp.value.trim().replace(/^https?:\/\//i, "").replace(/\/$/, "").toLowerCase();
-    if (!GHE_HOST.test(host)) { why.textContent = t("Type your enterprise's <name>.ghe.com"); return; }
-    startSignIn("copilot", true, host);
-  };
-  form.onsubmit = submit;
-  go.onclick = submit;
-  form.append(inp, go);
-  tt.append(form, why);
-  const close = el("button", "text", t("Cancel"));
-  close.onclick = cancelSignIn;
-  const back = el("button", "text", "github.com");
-  back.title = t("Sign in on github.com instead");
-  back.onclick = () => startSignIn("copilot", true);
-  box.append(close, back);
-  setTimeout(() => { if (inp.isConnected) inp.focus(NO_SCROLL); });
-  return box;
+// signAsk: a sign-in that asks one value first (Copilot's GHE.com host, a
+// Claude setup-token); its sheet is in signsheets.js, loaded when asked for
+async function signAsk(flow) {
+  try { await import("./signsheets.js"); } catch (err) { return status(err.message, "err"); }
+  stopSignIn();
+  signing = flow;
+  renderProviders();
 }
+const startClaudeToken = () => signAsk({ agent: "claude", state: "token", token: "" });
 
 // dropSigningIn: the editor of provider id closing (Cancel, Save, Remove)
 // leaves no sign-in of its account waiting behind it, to come back with the
@@ -12613,7 +12585,8 @@ function renderSigning(sub) {
     }
     return box;
   }
-  if (signing.state === "ghe") return renderCopilotGHE(sub);
+  if (signing.state === "ghe") return window.copilotGHESheet();
+  if (signing.state === "token") return window.claudeTokenSheet();
   if (signing.state === "import" || signing.state === "importing" || signing.state === "imported") return renderLoginImport(sub);
   if (signing.state === "method" || signing.state === "prompt" || signing.state === "key") return renderPluginAsk(sub);
   if (signing.state === "failed") {
@@ -12787,6 +12760,12 @@ function renderSigning(sub) {
     imp.onclick = () => startImport(sub.agent);
     const acts = tt.querySelector(".acts") || tt.appendChild(el("span", "acts"));
     acts.append(imp);
+  }
+  if (sub.agent === "claude") {
+    const tok = el("button", "link", t("Use a setup-token instead…"));
+    tok.onclick = () => startClaudeToken();
+    const acts = tt.querySelector(".acts") || tt.appendChild(el("span", "acts"));
+    acts.append(tok);
   }
   // the one way to put it away (#526): a Close beside Open again did what
   // this does, two buttons for one thing
@@ -12991,7 +12970,7 @@ function renderAccounts(a, p) {
       row.classList.add("signed-out");
       line.append(el("span", "using", t("Sign-in required")));
       const again = el("button", "text", t("Sign in again"));
-      again.onclick = () => startSignIn(a.agent, false, undefined, { user: l.user });
+      again.onclick = () => l.token ? startClaudeToken() : startSignIn(a.agent, false, undefined, { user: l.user });
       line.append(again);
       // the one Claude Code is signed in to can't be forgotten (ForgetLogin)
       if (!l.active) {
@@ -13040,6 +13019,10 @@ function renderAccounts(a, p) {
         line.append(forget);
         if (l.user === firstUser) line.append(el("span", "using", t("First")));
         else if (on) line.append(makeFirst(l));
+      } else if (l.token) {
+        const only = el("span", "using", t("magpie only"));
+        only.title = t("Added by a setup-token: requests through magpie use it; Claude Code itself can't be signed in to it");
+        line.append(forget, only);
       } else {
         const use = el("button", "text", on ? t("Make first") : t("Use"));
         use.title = sub?.own ? t("The gateway uses this account first") : t("Sign {agent} in to this account", { agent: a.agentName });
@@ -13145,9 +13128,25 @@ function renderAccounts(a, p) {
       imp.title = importSay(a.agent).from;
       list.append(imp);
     }
+    if (a.agent === "claude") list.append(addRow(t("Add an account by setup-token…"), startClaudeToken));
   }
   arrangeAccountRows(list, p);
   return list;
+}
+
+// claudeModeRow: TUI or claude -p, and why; /api/claude/mode kept 30s, the
+// row drawn by claudemode.js, loaded with its first read
+let claudeMode = null, claudeModeAt = 0, claudeModeRead = null;
+function claudeModeRow() {
+  const box = el("div", "claude-mode");
+  const draw = () => window.claudeModeDraw(box, claudeMode);
+  if (claudeMode && Date.now() - claudeModeAt < 30000) draw();
+  else {
+    claudeModeRead ||= Promise.all([api("claude/mode"), import("./claudemode.js")]).then(([m]) => { claudeMode = m; claudeModeAt = Date.now(); })
+      .finally(() => { claudeModeRead = null; });
+    claudeModeRead.then(draw, () => box.remove());
+  }
+  return box;
 }
 
 // renderCodexDaemon: Codex's background app-server, on the account before a
@@ -21217,15 +21216,19 @@ function renderImageGen(s, keep, box) {
     [5, 10, 15, 30, 60], s.imageTimeout > 0 ? s.imageTimeout : 5, "{n} min", (n) => savePrefs({ ...keep, imageTimeout: n })));
 }
 
-// waitRow: a Settings row of how long something is given, ns (in unit)
-// offered, and cur too when set by hand in settings.json
-function waitRow(id, name, sub, ns, cur, unit, pick) {
+// segRow: a Settings row, its name and sub, and segs of items at cur
+function segRow(id, name, sub, items, cur, pick, cls = "sub wraps") {
   const r = el("div", "row pref"), who = el("div", "who"), val = el("div", "val");
   r.id = id;
-  who.append(el("div", "name", name), el("div", "sub wraps", sub));
-  val.append(segs([...new Set([...ns, cur])].map((n) => [String(n), t(unit, { n })]), String(cur), (v) => pick(Number(v))));
+  who.append(el("div", "name", name), el("div", cls, sub));
+  val.append(segs(items, cur, pick));
   r.append(who, val);
   return r;
+}
+// waitRow: a segRow of how long something is given, ns (in unit) offered,
+// and cur too when set by hand in settings.json
+function waitRow(id, name, sub, ns, cur, unit, pick) {
+  return segRow(id, name, sub, [...new Set([...ns, cur])].map((n) => [String(n), t(unit, { n })]), String(cur), (v) => pick(Number(v)));
 }
 
 // mcpAddress: where one of the gateway's own MCP servers is, at path. A
@@ -21264,56 +21267,39 @@ function sideEffortChip(val, levels, saved, now, cls, dflt, save) {
 function renderReplies(s, keep) {
   const box = $("#replyList");
   box.replaceChildren();
-  const r = el("div", "row pref");
-  r.id = "memberModelRow";
-  const who = el("div", "who");
-  who.append(el("div", "name", t("Name the member in replies")),
-    el("div", "sub", t("A reply's model says magpie's provider/model that answered (workbuddy/glm-5.3-flash), not the vendor's own name, for agents that count usage by it. Claude Code, Claude Desktop and Codex keep the vendor's; the X-Magpie-Model header says it to every agent")));
-  const val = el("div", "val");
-  val.append(segs([["off", t("Off")], ["on", t("On")]], s.memberModel ? "on" : "off",
-    (v) => savePrefs({ ...keep, memberModel: v === "on" })));
-  r.append(who, val);
+  const onOff = [["off", t("Off")], ["on", t("On")]];
+  const r = segRow("memberModelRow", t("Name the member in replies"),
+    t("A reply's model says magpie's provider/model that answered (workbuddy/glm-5.3-flash), not the vendor's own name, for agents that count usage by it. Claude Code, Claude Desktop and Codex keep the vendor's; the X-Magpie-Model header says it to every agent"),
+    onOff, s.memberModel ? "on" : "off", (v) => savePrefs({ ...keep, memberModel: v === "on" }), "sub");
   // a reply stuck in a loop is ended with an error the agent can act on,
   // not let run to its output limit (#1359): on unless turned off
-  const l = el("div", "row pref");
-  l.id = "loopGuardRow";
-  const lwho = el("div", "who");
-  lwho.append(el("div", "name", t("Stop looping replies")),
-    el("div", "sub wraps", t("A reply whose reasoning or text goes round the same few lines is ended with an error the agent can retry, not left to run to its output limit")));
-  const lval = el("div", "val");
-  lval.append(segs([["off", t("Off")], ["on", t("On")]], s.noLoopGuard ? "off" : "on",
-    (v) => savePrefs({ ...keep, noLoopGuard: v === "off" })));
-  l.append(lwho, lval);
+  const l = segRow("loopGuardRow", t("Stop looping replies"),
+    t("A reply whose reasoning or text goes round the same few lines is ended with an error the agent can retry, not left to run to its output limit"),
+    onOff, s.noLoopGuard ? "off" : "on", (v) => savePrefs({ ...keep, noLoopGuard: v === "off" }));
   // how many more accounts or members a request the vendor's safety filter
   // refused is asked of (#248): every one left unless set. Never hands the
   // refusal back, which Claude Code answers with its own fallback model (DD
   // on Discord)
-  const f = el("div", "row pref");
-  f.id = "refusalRetriesRow";
-  const fwho = el("div", "who");
-  fwho.append(el("div", "name", t("Ask again after a refusal")),
-    el("div", "sub wraps", t("When a vendor's safety filter refuses a request before anything is said, how many more accounts or routing group members are asked. Never ask again hands the refusal straight back: Claude Code then switches to its own fallback model, as it does on Anthropic's API")));
-  const fval = el("div", "val");
   const counts = [["0", t("Never ask again")], ["1", "1"], ["2", "2"], ["3", "3"]];
   const n = s.refusalRetries == null || s.refusalRetries < 0 ? "" : String(s.refusalRetries);
   if (n && !counts.some(([id]) => id === n)) counts.push([n, n]); // set by hand in settings.json
-  fval.append(segs([...counts, ["", t("All")]], n,
-    (v) => savePrefs({ ...keep, refusalRetries: v === "" ? null : Number(v) })));
-  f.append(fwho, fval);
+  const f = segRow("refusalRetriesRow", t("Ask again after a refusal"),
+    t("When a vendor's safety filter refuses a request before anything is said, how many more accounts or routing group members are asked. Never ask again hands the refusal straight back: Claude Code then switches to its own fallback model, as it does on Anthropic's API"),
+    [...counts, ["", t("All")]], n, (v) => savePrefs({ ...keep, refusalRetries: v === "" ? null : Number(v) }));
   // how long a routing group's classifier is given: 8 seconds unless set (#2934)
   const k = waitRow("classifyTimeoutRow", t("Intent classifier timeout"), t("How long a routing group's classifier is given to say which intent a turn is. The turn waits for it before it goes anywhere, and past it goes on without its answer. A slow classifier may need longer"),
     [8, 15, 30, 60], s.classifyTimeout > 0 ? s.classifyTimeout : 8, "{n} s", (n) => savePrefs({ ...keep, classifyTimeout: n }));
   // the agent's instructions as a Claude run's system prompt (off unless on)
-  const c = el("div", "row pref");
-  c.id = "claudeLeanRow";
-  const cwho = el("div", "who");
-  cwho.append(el("div", "name", t("Short Claude system prompt")),
-    el("div", "sub wraps", t("A Claude subscription answers with the agent's own instructions as its system prompt, in place of Claude Code's, about 1K fewer tokens each request. Still the real Claude Code, but its requests look less like Claude Code's own, which can put the account more at risk")));
-  const cval = el("div", "val");
-  cval.append(segs([["off", t("Off")], ["on", t("On")]], s.claudeLeanPrompt ? "on" : "off",
-    (v) => savePrefs({ ...keep, claudeLeanPrompt: v === "on" })));
-  c.append(cwho, cval);
-  box.append(r, l, f, k, c);
+  const c = segRow("claudeLeanRow", t("Short Claude system prompt"),
+    t("A Claude subscription answers with the agent's own instructions as its system prompt, in place of Claude Code's, about 1K fewer tokens each request. Still the real Claude Code, but its requests look less like Claude Code's own, which can put the account more at risk"),
+    onOff, s.claudeLeanPrompt ? "on" : "off", (v) => savePrefs({ ...keep, claudeLeanPrompt: v === "on" }));
+  // a Claude run as Claude Code's interactive mode, -p when off (the plan
+  // counts a -p request at about twice); only: never -p, failing instead
+  const u = segRow("claudeTuiRow", t("Claude Code's interactive mode"),
+    t("A Claude subscription runs Claude Code as a person does, in its interactive mode, where the plan counts a request at about half of what -p uses. Off runs it as claude -p. Interactive only never sends a model request as -p: one the interactive mode can't take fails, saying why (reading the plan's allowance asks no model and stays -p)"),
+    [...onOff, ["only", t("Interactive only")]], s.claudePrintMode ? "off" : s.claudeTUIOnly ? "only" : "on",
+    (v) => { claudeMode = null; savePrefs({ ...keep, claudePrintMode: v === "off", claudeTUIOnly: v === "only" }); });
+  box.append(r, l, f, k, c, u);
 }
 
 // The default vendor list belongs with model discovery, not reply behavior.
@@ -22139,7 +22125,7 @@ function prefsKeep(s) {
     redact: !!s.redact, redactPersonal: !!s.redactPersonal, redactKinds: s.redactKinds || {}, redactWords: s.redactWords || [], redactWordsAnyCase: !!s.redactWordsAnyCase, redactWordsWhole: !!s.redactWordsWhole, redactShape: !!s.redactShape, codexWarmup: s.codexWarmup || "",
     claudeWarmup: s.claudeWarmup || "", codexWarmAt: s.codexWarmAt || "", claudeWarmAt: s.claudeWarmAt || "",
     codexWarmAts: warmTimes(s.codexWarmAts, s.codexWarmAt), claudeWarmAts: warmTimes(s.claudeWarmAts, s.claudeWarmAt), workbuddyCheckin: !!s.workbuddyCheckin, traeCheckin: !!s.traeCheckin, minimaxCheckin: !!s.minimaxCheckin, qoderCheckin: !!s.qoderCheckin, noStats: !!s.noStats, noUsageStats: !!s.noUsageStats, signInLinkOnly: !!s.signInLinkOnly,
-    memberModel: !!s.memberModel, noLoopGuard: !!s.noLoopGuard, claudeLeanPrompt: !!s.claudeLeanPrompt, refusalRetries: s.refusalRetries ?? null, defaultModelLimit: s.defaultModelLimit ?? null,
+    memberModel: !!s.memberModel, noLoopGuard: !!s.noLoopGuard, claudeLeanPrompt: !!s.claudeLeanPrompt, claudePrintMode: !!s.claudePrintMode, claudeTUIOnly: !!s.claudeTUIOnly, refusalRetries: s.refusalRetries ?? null, defaultModelLimit: s.defaultModelLimit ?? null,
     noUpdatePill: !!s.noUpdatePill, noAutoUpdate: !!s.noAutoUpdate, updateEvery: s.updateEvery || 360, autoRestart: !!s.autoRestart, noAutoDownload: !!s.noAutoDownload, updateChannel: s.updateChannel || "",
     trayUsage: s.trayUsage || "", trayUsageEvery: s.trayUsageEvery || 3, trayNoLogos: !!s.trayNoLogos, trayNoBird: !!s.trayNoBird, trayPace: !!s.trayPace, trayNoCost: !!s.trayNoCost, trayWindows: s.trayWindows || {}, vision: s.vision || "", visionEffort: s.visionEffort || "", searcherEffort: s.searcherEffort || "", imageGen: s.imageGen || "", imageTimeout: s.imageTimeout || 0, classifyTimeout: s.classifyTimeout || 0, searcher: s.searcher || "", searchFirst: s.searchFirst || "", currency: s.currency || "usd",
     chineseUnits: !!s.chineseUnits, usageAlert: s.usageAlert || 0, balanceAlert: s.balanceAlert || 0, resetReminder: s.resetReminder || 0,
@@ -22640,6 +22626,7 @@ for (const v of document.querySelectorAll(".view")) {
   }, { passive: true });
 }
 
+let settingsLoad = Promise.resolve(); // show()'s read of Settings, for openSettingsAt
 async function show(v) {
   // a built-in page a plugin's page replaces (magpie.page.replaces) opens that
   v = magpie.replacing?.(v) || v;
@@ -22700,7 +22687,7 @@ async function show(v) {
   // Routing's accounts show their windows as the Usage page read them
   // (#1833): what is kept, read in an ordinary way, never an asked read
   if (v === "routing" && (!quotas || Date.now() - quotasAt > 60e3)) loadQuotas();
-  if (v === "settings") loadSettings().then(back, statusErr);
+  if (v === "settings") (settingsLoad = loadSettings()).then(back, statusErr);
   if (v === "plugins") window.loadPlugins?.()?.then(back);
   syncTitle();
   syncURL();
@@ -22947,6 +22934,8 @@ async function openSettingsAt(e, tab, row) {
   if (!await show("settings")) return;
   if (setQuery) { $("#setQ").value = ""; searchSettings(""); }
   setSetTab(tab, true);
+  // a selector: the row as drawn from the page's read
+  if (typeof row == "string") row = await settingsLoad.then(() => $(row), () => null);
   if (!row) return;
   if (go) { row.scrollIntoView({ block: "center" }); arrived($("#view-settings")); }
   row.classList.remove("flash");

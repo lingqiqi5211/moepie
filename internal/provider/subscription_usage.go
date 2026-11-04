@@ -794,7 +794,8 @@ func AskUsage() {
 // Code was used since, or when Claude Code was refused for its limit
 // since. A saved
 // account is read only when its card is refreshed (savedRefresh), or when
-// the switch off a spent account has no reading of it (spareRead), by
+// the switch off a spent account has no reading of it (spareRead), or
+// when the keep-alive runs Claude Code on it (keepingAlive), by
 // Claude Code run in the account's own config directory
 // (readSavedClaudeUsage), Claude Code's own sign-in left as it is (#1630).
 // Any other time it is what was kept.
@@ -818,7 +819,13 @@ func claudeWindows(ctx context.Context, user string, active bool) ([]QuotaWindow
 	// keeps failing, never every look
 	spare := !active && spareRead(ctx) && e.ws == nil && (e.tried.IsZero() || now.Sub(e.tried) >= e.wait)
 	// nor, with allowances read only when asked, one nobody asked for
-	read := ((active || savedRefresh(ctx, user)) && due || spare) && now.Sub(e.tried) >= claudeAskFloor && !holding(ctx)
+	// and the keep-alive's run on a saved account (renewClaude), an hour
+	// apart at the most, whose run is the renewal: not put off by the floor
+	alive := keepAliveOf(ctx, user)
+	if active {
+		alive = nil
+	}
+	read := ((active || savedRefresh(ctx, user)) && due || spare || alive != nil) && (now.Sub(e.tried) >= claudeAskFloor || alive != nil) && !holding(ctx)
 	c.Lock()
 	// one reading an ask or a wait, its first caller's; the others keep
 	// to it
@@ -843,6 +850,9 @@ func claudeWindows(ctx context.Context, user string, active bool) ([]QuotaWindow
 			return e.windows(now), nil
 		case active:
 			return []QuotaWindow{}, errClaudeNotAsked
+		case claudeTokenAccount(user):
+			// a refresh wouldn't read it either (readSavedClaudeUsage)
+			return []QuotaWindow{}, errClaudeSetupToken
 		default:
 			return []QuotaWindow{}, errClaudeSaved
 		}
@@ -866,6 +876,9 @@ func claudeWindows(ctx context.Context, user string, active bool) ([]QuotaWindow
 		ws, err = readClaudeUsage(ctx, "")
 	} else {
 		ws, err = readSavedClaudeUsage(ctx, user)
+		if alive != nil {
+			alive.done(err)
+		}
 	}
 	if active && ClaudeCodeMovedOff(user) {
 		return kept()

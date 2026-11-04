@@ -47,6 +47,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -61,6 +62,7 @@ import (
 
 	"github.com/yetone/magpie/internal/appdir"
 	"github.com/yetone/magpie/internal/claudecode"
+	"github.com/yetone/magpie/internal/claudetui"
 	"github.com/yetone/magpie/internal/netproxy"
 	"github.com/yetone/magpie/internal/proc"
 	"github.com/yetone/magpie/internal/provider"
@@ -174,6 +176,7 @@ type subscriptionRun struct {
 	safeguardBeta string
 	clientMarks   bool
 	lean          bool // started with leanSystem as its system prompt
+	tui           bool // Claude Code's interactive mode (claudeTUI)
 	cacheTail     string
 	cachePrefix   cachePrefix
 	timer         *time.Timer
@@ -246,9 +249,9 @@ type subscriptionRun struct {
 	told     string
 	toldRuns []heardRun
 
-	// An agent whose stream does not carry its tool calls in full (Cursor)
-	// learns of them here, as the MCP helper hands each one over, and opens
-	// each answer with a message start of its own.
+	// A run whose output may not carry a call before it is made (Claude
+	// Code's interactive mode, readOutput) learns of it here, as the MCP
+	// helper hands each one over. Set and read under mu.
 	onCall func(id, name string, args json.RawMessage)
 
 	// search answers magpie's web search tool, searchName, which the
@@ -635,6 +638,9 @@ func (c claudeCLI) env(env []string, configDir string) []string {
 	if configDir != "" {
 		names = append(slices.Clone(names), "CLAUDE_CONFIG_DIR/p")
 	}
+	if slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, "CLAUDE_CODE_OAUTH_TOKEN=") }) {
+		names = append(slices.Clone(names), "CLAUDE_CODE_OAUTH_TOKEN")
+	}
 	if c.wsl.Root {
 		// asRoot's, for a distro whose user is root
 		names = append(slices.Clone(names), "IS_SANDBOX")
@@ -657,6 +663,38 @@ func (c claudeCLI) file(path string) string {
 		return c.wsl.Linux(path)
 	}
 	return path
+}
+
+// tuiWSL is how the interactive mode's helper runs this Claude Code, one
+// in WSL, in config directory configDir (claudetui.WSL), as JSON: its
+// transcripts read from Windows, through \\wsl$ for the distro's own
+// folder.
+func (c claudeCLI) tuiWSL(configDir string) string {
+	projects := filepath.Join(configDir, "projects")
+	if configDir == "" {
+		projects = c.wsl.Windows(path.Join(c.wsl.Home, ".claude", "projects"))
+	}
+	b, _ := json.Marshal(claudetui.WSL{Args: c.wsl.Args(), Mount: c.wsl.Mount, Projects: projects})
+	return string(b)
+}
+
+// wslStat is os.Stat; a var for tests.
+var wslStat = os.Stat
+
+// tuiWSLUnread is the folder of this Claude Code in WSL that Windows can't
+// read, where its transcripts are in config directory configDir: the
+// distro user's home through \\wsl$ for its own folder, which a session
+// with no 9P redirector (one over ssh) has none of. "" when it is read,
+// or is the account's, a Windows folder.
+func (c claudeCLI) tuiWSLUnread(configDir string) string {
+	if configDir != "" {
+		return ""
+	}
+	home := c.wsl.Windows(c.wsl.Home)
+	if _, err := wslStat(home); err != nil {
+		return home
+	}
+	return ""
 }
 
 // exe is magpie's own executable, as this Claude Code starts it.
@@ -692,6 +730,16 @@ const claudeMCPPath = "/_magpie/claude-mcp/"
 // (FrierenF on Discord).
 func (b *subscriptionBridge) start(ctx context.Context, req *Request, model, configDir, owner string, from *savedSession) (*subscriptionRun, <-chan Event, error) {
 	run, events, err := b.startRun(ctx, req, model, configDir, owner, from)
+	var noStart *tuiNoStart
+	if errors.As(err, &noStart) && claudeTUIOnly() {
+		return nil, nil, claudeOnlyErr("Claude Code's interactive mode didn't start: " + err.Error())
+	}
+	if errors.As(err, &noStart) && ctx.Err() == nil {
+		// marked broken, the next run is -p (claudePrintWhy); from was let
+		// go with the run
+		log.Printf("claude: Claude Code's interactive mode did not start (%v); the turn goes to -p", err)
+		return b.startRun(ctx, req, model, configDir, owner, nil)
+	}
 	var full *claudeFull
 	var refused *cliSchemaRefused
 	if err != nil && from != nil && !errors.As(err, &full) && !errors.As(err, &refused) && ctx.Err() == nil {
@@ -849,7 +897,33 @@ func (b *subscriptionBridge) startRun(ctx context.Context, req *Request, model, 
 			prefix = promptCachePrefix(prompt)
 		}
 	}
-	cmd := binary.command(context.Background(), args...)
+	// Claude Code's interactive mode, where a run allows it (claudeTUI):
+	// the shim (claudetui) is handed the -p arguments, and becomes that -p
+	// run when the interactive one doesn't start
+	tui, code := claudeTUI(req, binary, prompt)
+	if tui && binary.wsl != nil {
+		// the helper would wait for a transcript it can't see
+		if dir := binary.tuiWSLUnread(configDir); dir != "" {
+			log.Printf("claude: this run is -p: Windows can't read %s, where Claude Code in WSL writes its transcripts", dir)
+			tui, code = false, "wslread"
+		}
+	}
+	// a request refused under Interactive only never ran: it isn't the
+	// last run
+	if !tui && claudeTUIOnly() {
+		cleanup()
+		return nil, nil, claudeOnlyErr(claudeNotTUIWhy(req, binary, prompt, configDir))
+	}
+	noteClaudeRun(code)
+	var cmd *exec.Cmd
+	if tui {
+		if cmd, err = binary.tuiCommand(context.Background(), args...); err != nil {
+			cleanup()
+			return nil, nil, err
+		}
+	} else {
+		cmd = binary.command(context.Background(), args...)
+	}
 	cmd.Dir = work
 	env, err := binary.proxied(ctx, cleanClaudeEnv(os.Environ()))
 	if err != nil {
@@ -862,7 +936,17 @@ func (b *subscriptionBridge) startRun(ctx context.Context, req *Request, model, 
 	if len(req.Safeguards) > 0 {
 		env = append(env, "ANTHROPIC_BETAS="+req.SafeguardBeta)
 	}
+	if tui && (!client || configDir != "") {
+		// a folder of magpie's, or an account folder of magpie's whose
+		// Claude Code no one else runs: asked whether to trust it, the
+		// shim says yes; in the user's own account a caller's folder is
+		// theirs to answer for, and the run is -p
+		env = append(env, claudetui.TrustEnv+"=1")
+	}
 	cmd.Env = binary.env(binary.asRoot(env), configDir)
+	if tui {
+		cmd.Env = binary.tuiEnv(cmd.Env, configDir)
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cleanup()
@@ -891,6 +975,7 @@ func (b *subscriptionBridge) startRun(ctx context.Context, req *Request, model, 
 	run.safeguardBeta = req.SafeguardBeta
 	run.clientMarks = req.clientCache != nil
 	run.lean = req.leanPrompt
+	run.tui = tui
 	run.cachePrefix = prefix
 	if user, _ := ownerAccount(owner); user != "" {
 		run.loginVersion = provider.ClaudeLoginVersion(user)
@@ -926,15 +1011,31 @@ func (b *subscriptionBridge) startRun(ctx context.Context, req *Request, model, 
 		run.readOutput(stdout)
 	}()
 
-	if len(req.Safeguards) > 0 || from != nil || run.clientMarks {
+	if len(req.Safeguards) > 0 || from != nil || run.clientMarks || tui {
 		// Initialize the SDK before applying settings. Send the potentially
 		// large context over stdin rather than an environment entry. A
 		// Claude Code resumed from a saved session answers it only once
 		// it has loaded the session, and one that can't exits instead
 		// (start tells a new one the whole conversation): told the turn
 		// first, it ended with no reply.
-		if err := run.cliControl(map[string]any{"subtype": "initialize"}); err != nil {
+		// The interactive mode's helper answers it once Claude Code shows
+		// its prompt, or, when it doesn't in claudetui.ReadyWait, once
+		// the helper has become -p: the wait is that long and -p's after
+		// it. 10s ended the helper as it waited, before it became -p, and
+		// every try of the turn was answered 502 (#4504).
+		wait := controlWait
+		if tui {
+			wait = tuiInitWait
+		}
+		if err := run.cliControlWithin(ctx, map[string]any{"subtype": "initialize"}, wait); err != nil {
 			run.abort()
+			var unanswered *controlUnanswered
+			if tui && errors.As(err, &unanswered) {
+				// the helper hung: runs here are -p for a while, this
+				// turn's next try too (start)
+				claudetui.MarkBroken()
+				return nil, nil, &tuiNoStart{err}
+			}
 			return nil, nil, err
 		}
 	}
@@ -957,6 +1058,175 @@ func (b *subscriptionBridge) startRun(ctx context.Context, req *Request, model, 
 		return nil, nil, err
 	}
 	return run, segment, nil
+}
+
+// claudeTUIHelper, when set, is run as the interactive mode's helper in
+// place of magpie's executable: a test's stand-in.
+var claudeTUIHelper string
+
+// controlWait is how long Claude Code may take to answer a control
+// request; tuiInitWait the interactive mode's helper its initialize: as
+// long as Claude Code may take to show its prompt, and then -p's
+// controlWait with room, for the helper become -p to answer it.
+var (
+	controlWait = 10 * time.Second
+	tuiInitWait = claudetui.ReadyWait + 2*controlWait
+)
+
+// controlUnanswered is a control request Claude Code took and didn't
+// answer in time.
+type controlUnanswered struct{ what string }
+
+func (e *controlUnanswered) Error() string { return "Claude Code has not " + e.what }
+
+// tuiNoStart is a run whose interactive mode's helper never answered its
+// initialize request: start tries the turn again as -p, unless the user
+// has model requests never be (ClaudeTUIOnly).
+type tuiNoStart struct{ err error }
+
+func (e *tuiNoStart) Error() string { return e.err.Error() }
+func (e *tuiNoStart) Unwrap() error { return e.err }
+
+// claudeTUIRuns is false where magpie's executable has no shim to run:
+// the gateway's tests, whose fake Claude Codes are -p ones.
+var claudeTUIRuns = true
+
+// tuiPromptMost is the longest first message a run in Claude Code's
+// interactive mode is pasted, its words without its images (each pasted
+// as its file's path); a longer one is a -p run's.
+const tuiPromptMost = 400 << 10
+
+// claudeTUI says whether a run is Claude Code's interactive mode, as a
+// person runs it (claudetui), rather than -p: the plan counts a -p
+// request, its entrypoint sdk-cli, at about twice the interactive mode's
+// (anthropics/claude-code#97074). On unless the user turned it off
+// (ClaudePrintMode), on macOS, Linux and Windows, Claude Code in WSL too (its home
+// known, so its transcripts are found); not for what only -p takes: safeguards and a client's
+// cache marks (control requests and an extra body), a JSON schema, and
+// images. prompt is the run's first message. The code is claudePrint's,
+// for the provider editor's last run (ClaudeMode.Last).
+func claudeTUI(req *Request, binary claudeCLI, prompt []map[string]any) (bool, string) {
+	code, why := claudePrint(req, binary, prompt)
+	if why != "" && claudeTUIRuns {
+		log.Printf("claude: this run is -p: %s", why)
+	}
+	return why == "", code
+}
+
+// claudePrintWhy is why a run is -p, "" when it is the interactive mode.
+func claudePrintWhy(req *Request, binary claudeCLI, prompt []map[string]any) string {
+	_, why := claudePrint(req, binary, prompt)
+	return why
+}
+
+// claudePrint is claudePrintWhy with a code the GUI names it by.
+func claudePrint(req *Request, binary claudeCLI, prompt []map[string]any) (code, why string) {
+	var words []map[string]any
+	for _, bl := range prompt {
+		if bl["type"] != "image" {
+			words = append(words, bl)
+		}
+	}
+	b, _ := json.Marshal(words)
+	if code, why := claudeMachineWhy(binary); why != "" {
+		return code, why
+	}
+	for _, c := range []struct {
+		is        bool
+		code, why string
+	}{
+		{len(req.Safeguards) > 0, "safeguards", "safeguards"},
+		{req.clientCache != nil, "cache", "the client's cache marks"},
+		{len(req.Format.schema()) > 0, "schema", "a JSON schema"},
+		{urlImages(req.Messages) > 0, "image", "an image known by its URL"},
+		{len(b) > tuiPromptMost, "big", "a first message over 400KB"},
+	} {
+		if c.is {
+			return c.code, c.why
+		}
+	}
+	return "", ""
+}
+
+// claudeMachineWhy is why every run on this machine is -p, whatever it
+// asks: a code for the provider page (ClaudeModeNow) and the log's words,
+// "" "" when runs can be the interactive mode.
+func claudeMachineWhy(binary claudeCLI) (code, why string) {
+	for _, c := range []struct {
+		is        bool
+		code, why string
+	}{
+		{!claudeTUIRuns, "no-shim", "no shim"},
+		{runtime.GOOS != "darwin" && runtime.GOOS != "linux" && runtime.GOOS != "windows", "os", runtime.GOOS},
+		{binary.wsl != nil && binary.wsl.Home == "", "wsl-home", "Claude Code in WSL, its home unknown"},
+		{binary.wsl == nil && binary.path == "", "missing", "no Claude Code path"},
+		{settings.Load().ClaudePrintMode, "off", "the interactive mode is turned off"},
+		// the user's "Interactive only" tries it again each run
+		{!claudeTUIOnly() && tuiBroken(), "broken", "the interactive mode failed to start lately"},
+	} {
+		if c.is {
+			return c.code, c.why
+		}
+	}
+	return "", ""
+}
+
+// ClaudeMode is how a Claude subscription's runs are made on this
+// machine, for the Claude Code provider page: TUI when Claude Code's
+// interactive mode, else -p, Why the code of claudeMachineWhy. A run can
+// still be -p for what only it asks (safeguards, a client's cache marks,
+// a JSON schema, an image known by its URL, a first message over 400KB).
+type ClaudeMode struct {
+	TUI    bool      `json:"tui"`
+	Why    string    `json:"why,omitempty"`
+	Broken time.Time `json:"broken,omitzero"` // since when, for "broken"
+	WSL    bool      `json:"wsl,omitempty"`   // Claude Code in WSL
+	// how the last run since magpie started went (noteClaudeRun)
+	Last *ClaudeLastRun `json:"last,omitempty"`
+	// Only: the user has model requests never be -p (ClaudeTUIOnly)
+	Only bool `json:"only,omitempty"`
+}
+
+// ClaudeLastRun is how one run went: Why is claudePrint's code when it was
+// -p, wslread when Windows couldn't read Claude Code in WSL's transcripts,
+// start when the interactive mode didn't start and the helper became -p.
+type ClaudeLastRun struct {
+	TUI bool      `json:"tui"`
+	Why string    `json:"why,omitempty"`
+	At  time.Time `json:"at"`
+}
+
+// claudeLast is the last run's, since magpie started
+var claudeLast struct {
+	sync.Mutex
+	run ClaudeLastRun
+}
+
+// noteClaudeRun records a run's mode: "" is the interactive mode, else
+// why it is -p.
+func noteClaudeRun(why string) {
+	claudeLast.Lock()
+	claudeLast.run = ClaudeLastRun{TUI: why == "", Why: why, At: time.Now()}
+	claudeLast.Unlock()
+}
+
+// ClaudeModeNow is ClaudeMode as of now.
+func ClaudeModeNow() ClaudeMode {
+	m := ClaudeMode{Why: "missing", Only: claudeTUIOnly()}
+	if binary, err := claudeBinary(); err == nil {
+		code, _ := claudeMachineWhy(binary)
+		m = ClaudeMode{TUI: code == "", Why: code, WSL: binary.wsl != nil, Only: m.Only}
+		if code == "broken" {
+			m.Broken, _ = claudetui.BrokenSince()
+		}
+	}
+	claudeLast.Lock()
+	if !claudeLast.run.At.IsZero() {
+		r := claudeLast.run
+		m.Last = &r
+	}
+	claudeLast.Unlock()
+	return m
 }
 
 // safeguardBody is the safety-only form of the run's extra body.
@@ -1005,9 +1275,82 @@ func (r *subscriptionRun) setSafeguards(req *Request) error {
 	return err
 }
 
+// tuiCommand is the interactive mode's helper (claudetui) running this
+// Claude Code with the -p arguments args; tuiEnv adds to its environment.
+func (c claudeCLI) tuiCommand(ctx context.Context, args ...string) (*exec.Cmd, error) {
+	// the helper runs here, on Windows for Claude Code in WSL too: magpie
+	// itself, not exe, which is magpie as the distro starts it (/mnt/c/…)
+	helper, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	if claudeTUIHelper != "" {
+		helper = claudeTUIHelper
+	}
+	// Claude Code in WSL is run through wsl.exe, its arguments in
+	// claudetui.WSLEnv
+	claude := c.path
+	if c.wsl != nil {
+		claude = "wsl.exe"
+	}
+	return proc.CommandContext(ctx, helper, append([]string{claudetui.Command, claude}, args...)...), nil
+}
+
+// tuiEnv is env with what the helper is told: how to run Claude Code in
+// WSL, and to never become -p where the user has it so (ClaudeTUIOnly).
+func (c claudeCLI) tuiEnv(env []string, configDir string) []string {
+	if c.wsl != nil {
+		env = append(env, claudetui.WSLEnv+"="+c.tuiWSL(configDir))
+	}
+	if claudeTUIOnly() {
+		env = append(env, claudetui.OnlyEnv+"=1")
+	}
+	return env
+}
+
+// claudeTUIOnly is whether the user has a Claude subscription's model
+// requests never run as -p (settings.ClaudeTUIOnly), the interactive
+// mode not turned off.
+func claudeTUIOnly() bool {
+	st := settings.Load()
+	return st.ClaudeTUIOnly && !st.ClaudePrintMode
+}
+
+// claudeNotTUIWhy is why a run isn't the interactive mode.
+func claudeNotTUIWhy(req *Request, binary claudeCLI, prompt []map[string]any, configDir string) string {
+	if why := claudePrintWhy(req, binary, prompt); why != "" {
+		return why
+	}
+	if binary.wsl != nil {
+		if dir := binary.tuiWSLUnread(configDir); dir != "" {
+			return "Windows can't read " + dir + ", where Claude Code in WSL writes its transcripts"
+		}
+	}
+	return "the interactive mode can't run here"
+}
+
+// claudeOnlyErr is the error a request gets that would be -p, where the
+// user has model requests never be (ClaudeTUIOnly).
+func claudeOnlyErr(why string) error {
+	return fmt.Errorf("this request would run as claude -p (%s), and magpie is set to use only Claude Code's interactive mode; set Claude Code's interactive mode in Settings to On to let it run as -p", why)
+}
+
+// tuiBroken is whether the interactive mode failed to start on this
+// machine lately (claudetui.BrokenSince): a run is -p at once, rather
+// than its helper's finding so after it starts.
+func tuiBroken() bool {
+	_, ok := claudetui.BrokenSince()
+	return ok
+}
+
 // cliControl shares the SDK reply dispatcher with rewind, so unrelated or
 // late control responses cannot acknowledge a safety-context update.
 func (r *subscriptionRun) cliControl(request map[string]any) error {
+	return r.cliControlWithin(context.Background(), request, controlWait)
+}
+
+// cliControlWithin is cliControl, answered within wait, while ctx lasts.
+func (r *subscriptionRun) cliControlWithin(ctx context.Context, request map[string]any, wait time.Duration) error {
 	id := randomToken()
 	ch := make(chan controlReply, 1)
 	// one that ended says how, and the last it wrote to stderr: "Claude
@@ -1032,7 +1375,7 @@ func (r *subscriptionRun) cliControl(request map[string]any) error {
 	if err := r.tell(line); err != nil {
 		return err
 	}
-	t := time.NewTimer(10 * time.Second)
+	t := time.NewTimer(wait)
 	defer t.Stop()
 	select {
 	case reply, ok := <-ch:
@@ -1043,8 +1386,10 @@ func (r *subscriptionRun) cliControl(request map[string]any) error {
 			return fmt.Errorf("Claude settings: %s", reply.Error)
 		}
 		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	case <-t.C:
-		return fmt.Errorf("Claude Code has not %s in 10s", what)
+		return &controlUnanswered{fmt.Sprintf("%s in %s", what, wait)}
 	}
 }
 
@@ -1099,6 +1444,12 @@ func (b *subscriptionBridge) resume(req *Request, owner string) (*subscriptionRu
 		return nil, nil
 	}
 	req.clientCache.selected(false)
+	if run.tui && (back != "" || urlImages(since) > 0) {
+		// the interactive mode can't be taken back, nor pasted an image
+		// it has no bytes of
+		run.abortFor("the interactive Claude Code can't go on with this turn")
+		return nil, nil
+	}
 	if back != "" {
 		if err := run.rewind(back); err != nil {
 			log.Printf("claude: a run that went on with a side question could not be taken back to the conversation's turn, let go: %v", err)
@@ -1150,6 +1501,12 @@ func (b *subscriptionBridge) resume(req *Request, owner string) (*subscriptionRu
 	// untouched, where a run started anew is told it in one message, a
 	// prefix the cache has never seen
 	if req.Effort != run.effort {
+		if run.tui {
+			// the interactive mode takes its effort at its start only:
+			// the run is let go, and one at the new effort started
+			run.abortFor("its effort is set at its start, and the next turn asks another")
+			return nil, nil
+		}
 		if err := run.setEffort(req.Effort); err != nil {
 			run.abortFor("it could not be told the next turn's effort: " + err.Error())
 			return nil, nil
@@ -1927,7 +2284,8 @@ type controlReply struct {
 func (r *subscriptionRun) letGo() {
 	r.mu.Lock()
 	turn, back := r.turnUUID, r.backKey
-	can := !r.closed && r.stdin != nil && r.bridge != nil && r.timer != nil &&
+	// the interactive mode (claudeTUI) can't be taken back
+	can := !r.closed && !r.tui && r.stdin != nil && r.bridge != nil && r.timer != nil &&
 		turn != "" && back != "" && len(r.pending) == 0 && r.rewinding == nil
 	done := make(chan struct{})
 	if can {
@@ -2235,15 +2593,22 @@ func inClaudeDir(env []string, configDir string) []string {
 	if configDir == "" {
 		return env
 	}
-	out := make([]string, 0, len(env)+1)
+	out := make([]string, 0, len(env)+2)
 	for _, e := range env {
 		switch k, _, _ := strings.Cut(e, "="); k {
-		case "CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR":
+		case "CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN":
 			continue
 		}
 		out = append(out, e)
 	}
-	return append(out, "CLAUDE_CONFIG_DIR="+configDir)
+	out = append(out, "CLAUDE_CONFIG_DIR="+configDir)
+	// an account added by a setup-token: Claude Code takes the token as
+	// `claude setup-token` says to, in its environment, for this account's
+	// directory alone; never on the command line, nor logged
+	if tok := provider.ClaudeDirToken(configDir); tok != "" {
+		out = append(out, "CLAUDE_CODE_OAUTH_TOKEN="+tok)
+	}
+	return out
 }
 
 func cleanClaudeEnv(env []string) []string {
@@ -2279,6 +2644,18 @@ func cleanClaudeEnv(env []string) []string {
 type lockedWriter struct{ run *subscriptionRun }
 
 func (w *lockedWriter) Write(p []byte) (int, error) {
+	// the interactive mode's helper says on its own line why it became -p
+	// (claudetui.Run), which no error carries
+	if bytes.Contains(p, []byte("claude-tui: ")) {
+		for _, l := range strings.Split(string(p), "\n") {
+			if why, ok := strings.CutPrefix(l, "claude-tui: "); ok {
+				log.Printf("claude: %s", why)
+				if strings.HasSuffix(why, "this run is -p") {
+					noteClaudeRun("start")
+				}
+			}
+		}
+	}
 	w.run.mu.Lock()
 	defer w.run.mu.Unlock()
 	if w.run.stderr.Len() < 1<<20 {
@@ -2366,6 +2743,7 @@ func (r *subscriptionRun) readOutput(rd io.Reader) {
 	// what the messages before cost, as each message's usage counts only
 	// itself and the client keeps the last it is told
 	var before, this Usage
+	var lateUsage cliUsage    // a message left out as told by its call (onCall)
 	var reqID, errKind string // the last request's id, and how it failed
 	usage := func(u cliUsage) Usage {
 		v := u.gateway()
@@ -2384,7 +2762,10 @@ func (r *subscriptionRun) readOutput(rd io.Reader) {
 	stopped := false // this message's message_delta said why it stopped
 	cut := false     // an attempt was cut short, and Claude Code asks again
 	shown := false   // this message has shown the client words or a call
-	streamed := ""   // the message whose stream the events are
+	// the messages streamed: their whole messages come too, after their
+	// stream has begun, in Claude Code's interactive mode (claudetui's
+	// tap) as late as during the next message's stream
+	streamed := map[string]bool{}
 	// a message told in whole messages: its id, its stop, and its blocks
 	// so far; it is whole when anything else comes, or nothing does for
 	// unstreamedQuiet, as when Claude Code goes on to call the client's
@@ -2480,12 +2861,65 @@ func (r *subscriptionRun) readOutput(rd io.Reader) {
 			r.emit(Event{Kind: KUsage, Usage: usage(u)})
 			return
 		}
-		before, this = Usage{}, Usage{}
+		before, this = lateUsage.gateway(), Usage{}
+		lateUsage = cliUsage{}
 		calls, retold = textCalls{}, false
 		r.mu.Lock()
 		r.asked = nil
 		r.mu.Unlock()
 		r.emit(Event{Kind: KStart, MsgID: id, Model: model, Usage: usage(u)})
+	}
+	// A run in Claude Code's interactive mode tells its messages from the
+	// session's transcript (claudetui), where a message is written whole
+	// once it ends, and not always before its call of a client's tool is
+	// answered: Claude Code may hold the message back until the result is
+	// in, which only the client gives. The call, as the MCP helper hands it
+	// over, then tells the client: not in the transcript within callFirst,
+	// it is the reply, a message calling that one tool (Claude Code makes
+	// its MCP calls one at a time), and the message written later is left
+	// out, its usage told with the next reply's. That message is the first
+	// written after such a call: Claude Code writes no other before it.
+	told := map[string]bool{}    // the client's calls it was shown
+	awaited := map[string]bool{} // calls told by themselves, their message not written yet
+	written := map[string]bool{} // calls in a message left out, not made yet
+	lateID := ""                 // the message left out
+	over := false                // the output has ended
+	if r.tui {
+		r.mu.Lock()
+		r.onCall = func(id, name string, args json.RawMessage) {
+			time.AfterFunc(callFirst, func() {
+				pmu.Lock()
+				defer pmu.Unlock()
+				if over || told[id] {
+					return
+				}
+				settle()
+				r.mu.Lock()
+				waits := r.segment != nil && r.pending[id] != nil
+				r.mu.Unlock()
+				if !waits {
+					return
+				}
+				begin("msg_"+strings.ReplaceAll(newUUID(), "-", ""), r.model, cliUsage{})
+				name, _ = toolStart(0, "mcp__magpie__"+name)
+				told[id] = true
+				if written[id] {
+					delete(written, id)
+				} else {
+					awaited[id] = true
+				}
+				log.Printf("claude: Claude Code called %s before writing its message; the call is the reply", name)
+				r.emit(Event{Kind: KToolStart, ID: id, Name: name})
+				if len(args) > 0 {
+					r.emit(Event{Kind: KToolArgs, Text: string(args)})
+				}
+				end("tool_use")
+				if !inside {
+					r.endSegment()
+				}
+			})
+		}
+		r.mu.Unlock()
 	}
 	// failed ends the reply with an error where it was cut short with
 	// nothing to go on in
@@ -2589,7 +3023,7 @@ func (r *subscriptionRun) readOutput(rd io.Reader) {
 		// whole messages come after its stream's events, under its id;
 		// Claude Code's own (an error it tells as a message) is
 		// <synthetic>
-		next := envelope.Type == "assistant" && whole.ID != "" && whole.ID != streamed && whole.Model != "<synthetic>"
+		next := envelope.Type == "assistant" && whole.ID != "" && !streamed[whole.ID] && whole.Model != "<synthetic>"
 		if unstreamed != "" && !(next && whole.ID == unstreamed) {
 			settle()
 		}
@@ -2685,6 +3119,30 @@ func (r *subscriptionRun) readOutput(rd io.Reader) {
 			if !next {
 				return
 			}
+			if whole.ID != lateID && whole.ID != unstreamed {
+				if lateID != "" && len(awaited) > 0 {
+					log.Printf("claude: %d calls told by themselves were not in the message written after them", len(awaited))
+					clear(awaited)
+				}
+				lateID = ""
+				if len(awaited) > 0 {
+					lateID = whole.ID
+				}
+			}
+			if whole.ID == lateID {
+				lateUsage = whole.Usage
+				for _, c := range whole.Content {
+					if c.Type != "tool_use" {
+						continue
+					}
+					if awaited[c.ID] {
+						delete(awaited, c.ID)
+					} else if !told[c.ID] {
+						written[c.ID] = true // told when it is made
+					}
+				}
+				return
+			}
 			// asked again without a stream, after attempts cut short:
 			// the answer is told here only
 			if whole.ID != unstreamed {
@@ -2722,6 +3180,7 @@ func (r *subscriptionRun) readOutput(rd io.Reader) {
 					if !theirs {
 						continue
 					}
+					told[c.ID] = true
 					r.emit(Event{Kind: KToolStart, ID: c.ID, Name: name})
 					if len(c.Input) > 0 {
 						r.emit(Event{Kind: KToolArgs, Text: string(c.Input)})
@@ -2762,12 +3221,14 @@ func (r *subscriptionRun) readOutput(rd io.Reader) {
 		e := envelope.Event
 		switch e.Type {
 		case "message_start":
-			streamed = e.Message.ID
+			streamed[e.Message.ID] = true
 			begin(e.Message.ID, e.Message.Model, e.Message.Usage)
 		case "content_block_start":
 			switch e.ContentBlock.Type {
 			case "tool_use":
 				if name, theirs := toolStart(e.Index, e.ContentBlock.Name); theirs {
+					// shown, its call doesn't tell it again (onCall)
+					told[e.ContentBlock.ID] = true
 					r.emit(Event{Kind: KToolStart, ID: e.ContentBlock.ID, Name: name})
 				}
 			case "text":
@@ -2826,6 +3287,7 @@ func (r *subscriptionRun) readOutput(rd io.Reader) {
 	}
 	pmu.Lock()
 	defer pmu.Unlock()
+	over = true
 	settle()
 	if err := s.Err(); err != nil && !errors.Is(err, os.ErrClosed) {
 		r.emit(Event{Kind: KError, Text: err.Error()})
@@ -2838,6 +3300,11 @@ func (r *subscriptionRun) readOutput(rd io.Reader) {
 // as whole once none of its blocks come: Claude Code writes them all at
 // once.
 var unstreamedQuiet = 300 * time.Millisecond
+
+// callFirst is how long a call of a client's tool in Claude Code's
+// interactive mode waits for its message in the transcript before the call
+// tells the client itself (readOutput).
+var callFirst = time.Second
 
 type cliUsage struct {
 	Input         int             `json:"input_tokens"`
@@ -3169,6 +3636,25 @@ func countImages(msgs []Message) int {
 				n++
 			}
 			n += len(p.Images)
+		}
+	}
+	return n
+}
+
+// urlImages counts msgs' images known by their URL alone, which Claude
+// Code's interactive mode can't be pasted: it takes an image as a file.
+func urlImages(msgs []Message) int {
+	n := 0
+	for _, m := range msgs {
+		for _, p := range m.Parts {
+			if p.Kind == Image && p.Data == "" {
+				n++
+			}
+			for _, im := range p.Images {
+				if im.Data == "" {
+					n++
+				}
+			}
 		}
 	}
 	return n
@@ -4008,12 +4494,13 @@ func (b *subscriptionBridge) mcpCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run.pending[call.ToolCallID] = waiter
+	onCall := run.onCall
 	run.mu.Unlock()
 	b.mu.Lock()
 	b.calls[call.ToolCallID] = run
 	b.mu.Unlock()
-	if run.onCall != nil {
-		run.onCall(call.ToolCallID, call.Name, call.Arguments)
+	if onCall != nil {
+		onCall(call.ToolCallID, call.Name, call.Arguments)
 	}
 	var expire <-chan time.Time
 	if run.patience > 0 {

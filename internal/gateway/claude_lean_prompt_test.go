@@ -88,14 +88,14 @@ func TestClaudeLeanPromptIsTheRunsSystemPrompt(t *testing.T) {
 	h, runs := newLeanHarness(t)
 	h.from = "127.0.0.1:51000" // a caller elsewhere is told where its tools run
 	leanSetting(t, true)
-	h.post(`{"model":"claude-sonnet-5","max_tokens":100,"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.301.eca; cc_entrypoint=cli; cch=00000;"},{"type":"text","text":"You are Aria, a notes assistant."}],"messages":[{"role":"user","content":"one"}]}`)
-	h.post(`{"model":"claude-sonnet-5","max_tokens":100,"system":"Rules.","tools":[{"name":"look","input_schema":{"type":"object"}}],"tool_choice":{"type":"any"},"messages":[{"role":"user","content":"two"}]}`)
+	h.post(`{"model":"claude-sonnet-5","max_tokens":100,"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.301.eca; cc_entrypoint=cli; cch=00000;"},{"type":"text","text":"You are Aria, a notes assistant."}],"messages":[{"role":"user","content":"turn-one"}]}`)
+	h.post(`{"model":"claude-sonnet-5","max_tokens":100,"system":"Rules.","tools":[{"name":"look","input_schema":{"type":"object"}}],"tool_choice":{"type":"any"},"messages":[{"role":"user","content":"turn-two"}]}`)
 
-	one := told(t, runs(), "one")
+	one := told(t, runs(), "turn-one")
 	if !one.hasSys || one.system != "You are Aria, a notes assistant." {
 		t.Fatalf("the run's system prompt (given %t): %q\n%s", one.hasSys, one.system, one.log)
 	}
-	two := told(t, runs(), "two")
+	two := told(t, runs(), "turn-two")
 	if two.system != "Rules.\nYou must call at least one available tool before answering." {
 		t.Fatalf("the tool choice is not in the system prompt: %q", two.system)
 	}
@@ -107,8 +107,8 @@ func TestClaudeLeanPromptIsTheRunsSystemPrompt(t *testing.T) {
 	}
 
 	leanSetting(t, false)
-	h.post(`{"model":"claude-sonnet-5","max_tokens":100,"system":"You are Aria, a notes assistant.","messages":[{"role":"user","content":"three"}]}`)
-	if off := told(t, runs(), "three"); off.hasSys || strings.Contains(off.log, "--system-prompt-file") || !strings.Contains(off.log, "external_system_instructions") {
+	h.post(`{"model":"claude-sonnet-5","max_tokens":100,"system":"You are Aria, a notes assistant.","messages":[{"role":"user","content":"turn-three"}]}`)
+	if off := told(t, runs(), "turn-three"); off.hasSys || strings.Contains(off.log, "--system-prompt-file") || !strings.Contains(off.log, "external_system_instructions") {
 		t.Fatalf("with the setting off, the run was given a system prompt (%t) or not told the instructions:\n%s", off.hasSys, off.log)
 	}
 }
@@ -119,9 +119,9 @@ func TestClaudeLeanPromptIsTheRunsSystemPrompt(t *testing.T) {
 func TestClaudeLeanPromptNotWithClientCacheMarks(t *testing.T) {
 	h, runs := newLeanHarness(t)
 	leanSetting(t, true)
-	h.post(`{"model":"claude-sonnet-5","max_tokens":100,"system":[{"type":"text","text":"Rules.","cache_control":{"type":"ephemeral"}}],"messages":[{"role":"user","content":"one"}]}`,
+	h.post(`{"model":"claude-sonnet-5","max_tokens":100,"system":[{"type":"text","text":"Rules.","cache_control":{"type":"ephemeral"}}],"messages":[{"role":"user","content":"turn-one"}]}`,
 		"X-Magpie-Cache-Marks", "client")
-	if r := told(t, runs(), "one"); r.hasSys || !strings.Contains(r.log, "external_system_instructions") {
+	if r := told(t, runs(), "turn-one"); r.hasSys || !strings.Contains(r.log, "external_system_instructions") {
 		t.Fatalf("a client cache marks request was given a system prompt (%t):\n%s", r.hasSys, r.log)
 	}
 }
@@ -133,18 +133,18 @@ func TestClaudeLeanPromptNotWithClientCacheMarks(t *testing.T) {
 func TestClaudeLeanPromptRunNotResumedAcrossTheSetting(t *testing.T) {
 	h, runs := newLeanHarness(t)
 	leanSetting(t, true)
-	h.ask("Rules.", "one")
-	h.ask("Rules.", "one", "two")
+	h.ask("Rules.", "turn-one")
+	h.ask("Rules.", "turn-one", "turn-two")
 	if got := runs(); len(got) != 1 {
 		t.Fatalf("the next turn with the setting unchanged started %d runs, want it to go on in the first", len(got))
 	}
 	leanSetting(t, false)
-	h.ask("Rules.", "one", "two", "three")
+	h.ask("Rules.", "turn-one", "turn-two", "turn-three")
 	got := runs()
 	if len(got) != 2 {
 		t.Fatalf("the turn after the setting went off went on in the lean run: %d runs", len(got))
 	}
-	if r := told(t, got, "three"); r.hasSys {
+	if r := told(t, got, "turn-three"); r.hasSys {
 		t.Fatalf("the turn after the setting went off was told a lean run:\n%s", r.log)
 	}
 }
@@ -170,18 +170,18 @@ func TestClaudeLeanPromptSaysWhereToolsRun(t *testing.T) {
 	h, runs := newLeanHarness(t)
 	leanSetting(t, true)
 	h.from = "192.0.2.7:51000"
-	h.post(`{"model":"claude-sonnet-5","max_tokens":100,"system":"Rules.","messages":[{"role":"user","content":"one"}]}`)
-	h.post(`{"model":"claude-sonnet-5","max_tokens":100,"system":"Rules.\n - Primary working directory: /no/such/folder/here","messages":[{"role":"user","content":"two"}]}`)
+	h.post(`{"model":"claude-sonnet-5","max_tokens":100,"system":"Rules.","messages":[{"role":"user","content":"turn-one"}]}`)
+	h.post(`{"model":"claude-sonnet-5","max_tokens":100,"system":"Rules.\n - Primary working directory: /no/such/folder/here","messages":[{"role":"user","content":"turn-two"}]}`)
 	h.from = "127.0.0.1:51000"
-	h.post(`{"model":"claude-sonnet-5","max_tokens":100,"system":"Rules.","messages":[{"role":"user","content":"three"}]}`)
+	h.post(`{"model":"claude-sonnet-5","max_tokens":100,"system":"Rules.","messages":[{"role":"user","content":"turn-three"}]}`)
 
-	if one := told(t, runs(), "one"); one.system != "Rules."+envUnknownNote {
+	if one := told(t, runs(), "turn-one"); one.system != "Rules."+envUnknownNote {
 		t.Fatalf("a caller elsewhere naming no folder: %q", one.system)
 	}
-	if two := told(t, runs(), "two"); !strings.HasSuffix(two.system, envElsewhereLeanNote) {
+	if two := told(t, runs(), "turn-two"); !strings.HasSuffix(two.system, envElsewhereLeanNote) {
 		t.Fatalf("a caller naming a folder elsewhere: %q", two.system)
 	}
-	if three := told(t, runs(), "three"); three.system != "Rules." {
+	if three := told(t, runs(), "turn-three"); three.system != "Rules." {
 		t.Fatalf("a caller on this computer: %q", three.system)
 	}
 }

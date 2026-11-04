@@ -2360,6 +2360,12 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 		writeJSON(rw, st)
 		keepProviders(st) // as a provider action's: the panel's switch draws it
 	})
+	// whether a Claude subscription's runs are Claude Code's interactive
+	// mode or -p, and why -p, for the Claude Code provider page; read when
+	// the page opens, not in /api/providers' polls
+	mux.HandleFunc("GET /api/claude/mode", func(rw http.ResponseWriter, r *http.Request) {
+		writeJSON(rw, gateway.ClaudeModeNow())
+	})
 	// Codex's background app-server, left on the account before a switch
 	// or on the model list before a change (the Agents row's Restart):
 	// restarting it (Codex 0.162's sessions on it reconnect, after a turn
@@ -2522,6 +2528,22 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 			return
 		}
 		rw.WriteHeader(http.StatusNoContent)
+	})
+	// A Claude account from a setup-token (`claude setup-token`), which
+	// Claude Code takes in CLAUDE_CODE_OAUTH_TOKEN: nothing is asked of
+	// Anthropic, and the token is never echoed back.
+	mux.HandleFunc("POST /api/signin/claude-token", func(rw http.ResponseWriter, r *http.Request) {
+		var in struct{ Token string }
+		if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&in); err != nil {
+			fail(rw, err)
+			return
+		}
+		user, err := provider.AddClaudeSetupToken(in.Token)
+		if err != nil {
+			fail(rw, err)
+			return
+		}
+		writeJSON(rw, map[string]string{"user": user})
 	})
 	// Accounts brought in from another tool's export (Antigravity's, from
 	// Antigravity Cockpit, Antigravity Manager, CLIProxyAPI; ChatGPT's and

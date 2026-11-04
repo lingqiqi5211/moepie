@@ -300,7 +300,9 @@ func NextLogin(ctx context.Context, agent string) (from, to string, back, ok boo
 			first = &ls[i]
 		}
 		// never one Codex keeps signed in in another folder (switchSavedLogin)
-		if !l.Active && l.On && l.Lapsed == "" && l.home == "" {
+		// nor one added by a setup-token, which Claude Code can't be
+		// signed in to
+		if !l.Active && l.On && l.Lapsed == "" && l.home == "" && !l.Token {
 			spares = append(spares, l)
 		}
 	}

@@ -365,6 +365,19 @@ type Settings struct {
 	// real Claude Code, its billing line and identity line kept; off, as by
 	// default, the run is the shape every Claude Code run has.
 	ClaudeLeanPrompt bool `json:"claudeLeanPrompt,omitempty"`
+	// ClaudePrintMode runs a Claude subscription's Claude Code as `claude
+	// -p` always. Off, as by default, a run is Claude Code's interactive
+	// mode, as a person runs it, where it can be (macOS and Linux, no
+	// images, safeguards or client cache marks): the plan counts a -p
+	// request at about twice an interactive one.
+	ClaudePrintMode bool `json:"claudePrintMode,omitempty"`
+	// ClaudeTUIOnly has a Claude subscription's model requests never run
+	// as `claude -p`: one the interactive mode can't take (safeguards, a
+	// JSON schema, …), or whose interactive mode doesn't come up, fails,
+	// saying why, where it would otherwise be -p. Reading the plan's
+	// allowance (/usage, no model request) is still -p. ClaudePrintMode,
+	// when set too, wins.
+	ClaudeTUIOnly bool `json:"claudeTUIOnly,omitempty"`
 	// ClaudeRunsMost is how many Claude Code processes a Claude
 	// subscription may have running at once: conversations' runs, those
 	// waiting for a next turn or on tool results, and one-off tests and

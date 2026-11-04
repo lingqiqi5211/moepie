@@ -378,6 +378,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
                 await current.locator("#claudeLeanRow").evaluate((r) => r.remove());
                 await current.waitForTimeout(350);
               }
+              // Replies' Claude Code's interactive mode row is new: until
+              // BASE_REF has it, the page is compared with the row taken
+              // out; claude-tui-setting.test.cjs covers the row.
+              if (view === "settings" && !baselineFile("app.js").includes("claudeTuiRow")) {
+                await current.locator("#claudeTuiRow").evaluate((r) => r.remove());
+                await current.waitForTimeout(350);
+              }
               // A setting row's line wraps whole (arculongus on Discord):
               // until BASE_REF has that, the page is compared with the lines
               // held to one line as they were; settings-lines-wrap.test.cjs

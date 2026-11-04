@@ -704,9 +704,11 @@ func openURLInBrowser(url string) {
 }
 
 // refreshAccounts: `magpie accounts refresh` renews the sign-in of every
-// saved Claude and ChatGPT account the agent isn't signed in to now — what
-// the gateway does once a day, for a magpie that isn't left running (cron,
-// launchd). A sign-in the vendor refuses is marked as needing a new one.
+// saved ChatGPT account, and every saved Claude account, on or off (Claude
+// Code's /usage run in its own directory), the agent isn't signed in to
+// now — what the gateway does every eight days, for a magpie that isn't
+// left running (cron, launchd). A sign-in the vendor refuses is marked as
+// needing a new one.
 func refreshAccounts(asJSON bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

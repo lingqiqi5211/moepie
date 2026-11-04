@@ -903,6 +903,11 @@ func addLogin(l savedLogin) (using bool, err error) {
 	ls := readLogins()
 	l.User = codexName(ls, l)
 	using = !signedIn || sameLogin(live, l)
+	if l.Agent == "claude" && claudeSetupToken(l.Auth) != "" {
+		// Claude Code itself can't be signed in to a setup-token: the
+		// account is magpie's alone, its own sign-in left as it is
+		using = false
+	}
 	if first := claudeStandIn(ls); !signedIn && l.Agent == "claude" && first != "" {
 		// logged out of Claude Code with accounts in magpie: it stays so,
 		// as the user left it (a claude.ai sign-in beside magpie's token

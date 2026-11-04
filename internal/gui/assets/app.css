@@ -2739,6 +2739,25 @@ body.window .ag-sk-icon { width: 22px; height: 22px; border-radius: 6px; }
 .accts > :is(.keep-login, .switch-only, .pool-ends) + .acc { border-top: 1px solid var(--line-2); }
 .editor .accts .keep-login, .editor .accts .switch-only, .editor .accts .pool-ends { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 34px; padding: 6px 11px; font-size: 12px; border-top: 1px solid var(--line-2); }
 .editor .accts .keep-login .keep-as { max-width: 240px; }
+/* Claude Code's interactive mode or -p, with why (claudeModeRow) */
+.claude-mode { display: contents; }
+.cc-run { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-height: 26px; }
+.cc-pill { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px 0 9px; border-radius: 7px; border: 1px solid var(--line); background: var(--card); font-size: 12px; color: var(--fg); cursor: default; }
+.cc-pill:hover { border-color: var(--muted); }
+.cc-pill:focus-visible { border-color: var(--muted); }
+.cc-pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.cc-pill.tui i { background: var(--green); }
+.cc-said { font-size: 12px; color: var(--muted); }
+.cc-tip { position: fixed; z-index: 1000; width: min(400px, calc(100vw - 16px)); padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--card); box-shadow: 0 12px 32px rgba(0, 0, 0, .18); font-size: 12px; line-height: 1.5; color: var(--fg); pointer-events: none; animation: mask-tip .16s var(--ease); }
+.cc-m + .cc-m { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--line-2); }
+.cc-m .h { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+.cc-m .now { padding: 0 6px; border-radius: 5px; background: var(--green-soft); color: var(--green); font-size: 11px; line-height: 17px; }
+.cc-m p { margin: 2px 0 0; color: var(--muted); }
+.cc-m p.good, .cc-m p.bad { padding-left: 14px; text-indent: -14px; color: var(--fg-2); }
+.cc-m p.good::before, .cc-m p.bad::before { display: inline-block; width: 14px; text-indent: 0; content: "+"; color: var(--green); font-weight: 600; }
+.cc-m p.bad::before { content: "−"; color: var(--muted); }
+.cc-tip .foot { margin-top: 9px; padding-top: 7px; border-top: 1px solid var(--line-2); font-size: 11px; color: var(--faint); }
+@media (prefers-reduced-motion: reduce) { .cc-tip { animation: none; } }
 .editor .accts .pool-ends .note { flex-basis: 100%; color: var(--fg-2); }
 .acc .n { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acc .plan { color: var(--muted); font-size: 11px; padding: 1px 6px; border-radius: 5px; background: var(--pill); white-space: nowrap; }
