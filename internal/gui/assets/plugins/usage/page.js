@@ -3132,33 +3132,33 @@ function ledOnlyGroup(by, g) {
 }
 
 // the toolbar's grouping, the mismatches' switch and a session or model
-// picked. A route's one request is never grouped: none is shown on, and
-// the grouping waits till the route is let go.
+// picked. The grouping is one more of the filter row's menus, beside the
+// agent's and the model's: "Group by · Agents", or "No grouping" as its
+// first line, the way a filter's "All agents" is. A route's one request is
+// never grouped: the menu waits till the route is let go.
 function ledGroupTools(l) {
-  const seg = $("#ledGroup"), cur = ledGrouping();
-  $("#ledGroupBy").textContent = t("Group by");
-  seg.setAttribute("aria-label", t("Group by"));
-  seg.replaceChildren();
-  for (const [by, name] of LED_GROUPS) {
-    const b = el("button", "opt" + (by === cur ? " on" : ""), t(name));
-    b.type = "button";
-    b.disabled = !!ledRoute;
-    b.setAttribute("aria-pressed", by === cur ? "true" : "false");
-    b.onclick = () => {
+  const btn = $("#ledGroup"), cur = ledGrouping();
+  const opts = LED_GROUPS.filter(([by]) => by).map(([v, name]) => ({ v, name: t(name), note: "" }));
+  const label = (v) => v ? t("Group by") + " · " + (opts.find((o) => o.v === v)?.name || v) : t("No grouping");
+  btn.hidden = false;
+  btn.disabled = !!ledRoute;
+  btn.classList.toggle("set", !!cur);
+  btn.setAttribute("aria-haspopup", "menu");
+  btn.setAttribute("aria-label", t("Group by"));
+  btn.replaceChildren(el("span", "", label(cur)), svg(CHEV, 11, 1.6));
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    if (btn.classList.contains("open")) return closeProtoMenu();
+    openSessCombo(btn, "No grouping", opts, cur, (by) => {
       if (by === ledGroup) return;
-      for (const x of seg.querySelectorAll(".opt")) {
-        x.classList.toggle("on", x === b);
-        x.setAttribute("aria-pressed", x === b ? "true" : "false");
-      }
-      slide(seg, "ledGroup");
+      btn.classList.toggle("set", !!by);
+      btn.firstChild.textContent = label(by);
       ledGroup = by;
       try { localStorage.setItem("magpie.ledGroup", by); } catch {}
       ledOffset = 0;
       loadLedger().catch((e) => status(e.message, "err"));
-    };
-    seg.append(b);
-  }
-  slide(seg, "ledGroup");
+    }, "Group by");
+  };
   const mis = $("#ledMis"), n = l.swaps || 0;
   mis.hidden = false;
   mis.classList.toggle("on", ledMis);

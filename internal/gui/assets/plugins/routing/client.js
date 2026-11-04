@@ -3176,12 +3176,15 @@ function routingPage(part) {
     }
     // the request's recorded time by owner; each phase unfolds below
     const timing = el("section", "rt-timing"), total = parts.reduce((n, p) => n + p.v, 0) || 1;
-    timing.append(secHead(t("Where the time went"), r.done && r.ms ? took(r.ms) : ""));
+    // while it runs, the attempt and its clock in the head, in the head's
+    // own size: no row of its own
+    const head = secHead(t("Where the time went"), r.done && r.ms ? took(r.ms) : "");
+    timing.append(head);
     let fine = null;
     if (!r.done) {
-      const running = el("div", "rt-live-time");
+      const running = el("span", "rt-live-time");
       running.append(el("span", "rt-live-label"), el("b", "rt-live-elapsed"));
-      timing.append(running);
+      head.append(running);
       if (parts.length) timing.append(el("p", "rt-time-note", t("Recorded completed attempts")));
     }
     if (!parts.length && r.done) timing.append(el("p", "rt-timing-empty", t("No timing breakdown recorded")));
@@ -3235,7 +3238,8 @@ function routingPage(part) {
       : active ? t("Retry wait") : t("Routing");
     const ms = active ? active.ms : since(now(), at(r.time));
     setText(running.firstChild, label);
-    setText(running.lastChild, took(Math.round(ms || 0)) + "…");
+    // the dot before the label says it still runs: the clock is bare
+    setText(running.lastChild, took(Math.round(ms || 0)));
   }
 
   function renderSteps(r) {

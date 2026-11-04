@@ -158,13 +158,18 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         // would: reach goes further down than click's own 1,600px, which an
         // opened group's 100 rows outrun
         const press = async (loc) => { await reader.reach(p, loc); await reader.click(p, loc); };
+        // the grouping is a menu of the filter row: its i-th line picked
+        const pickGroup = async (i) => { await press(p.locator("#ledGroup")); await p.locator(".sess-menu .pm-item").nth(i).click(); };
         const rows = p.locator("#ledWrap .led tbody tr.led-row");
 
         // the toolbar: the grouping, the mismatches' switch, and the sum's count
-        const segs = await p.locator("#ledGroup .opt").allTextContents();
-        assert.deepEqual(segs, w.groups);
-        assert.equal(await p.locator("#ledGroup .opt.on").count(), 1);
-        assert.equal(await p.locator("#ledGroup .opt").first().getAttribute("aria-pressed"), "true", "not grouped to begin with");
+        await p.locator("#ledGroup").click();
+        const menu = p.locator(".sess-menu");
+        assert.deepEqual(await menu.locator(".pm-name").allTextContents(), w.groups);
+        assert.equal(await menu.locator(".pm-item.on").count(), 1);
+        assert.equal(await menu.locator(".pm-item").first().getAttribute("aria-checked"), "true", "not grouped to begin with");
+        await p.keyboard.press("Escape");
+        await menu.waitFor({ state: "hidden" });
         assert.equal((await p.locator("#ledSum .mis").textContent()).trim(), w.sum);
         assert.equal((await p.locator("#ledMis").textContent()).trim(), w.mis);
         assert.equal(await p.locator("#ledMis").isEnabled(), true);
@@ -229,7 +234,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await p.waitForFunction(() => document.querySelectorAll("#ledWrap .led tbody tr.led-row").length === 100);
 
         // by agent: a header each, the whole period's sums, the most requests first
-        await press(p.locator("#ledGroup .opt").nth(1));
+        await pickGroup(1);
         await last((q) => q.get("group") === "agent" && q.get("limit") === "1");
         await p.locator(".led-gh").first().waitFor();
         assert.deepEqual(await p.locator(".led-legend span").allTextContents(), w.legend);
@@ -294,7 +299,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await last((q) => !q.has("mismatch"));
 
         // by model: the one asked for, a group's rows read by it
-        await press(p.locator("#ledGroup .opt").nth(2));
+        await pickGroup(2);
         await last((q) => q.get("group") === "model");
         await p.waitForFunction(() => document.querySelectorAll(".led-gh").length === 5);
         assert.equal((await p.locator(".led-gh").first().locator(".led-gn b").textContent()).trim(), "sol");
@@ -303,7 +308,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await press(p.locator(".led-gh").first());
 
         // by session: the calls with none are a group of their own
-        await press(p.locator("#ledGroup .opt").nth(3));
+        await pickGroup(3);
         await last((q) => q.get("group") === "session");
         await p.waitForFunction(() => [...document.querySelectorAll(".led-gh")].length === 3);
         const none = p.locator(".led-gh").filter({ hasText: w.noSess });
@@ -320,7 +325,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await p.waitForFunction(() => document.querySelectorAll("#ledWrap .led tbody tr.led-row").length === 4);
         assert(await p.locator("#ledSess").isVisible());
         assert.equal((await p.locator("#ledSessLabel").textContent()).trim(), w.noSess);
-        assert.equal(await p.locator("#ledGroup .opt").first().getAttribute("aria-pressed"), "true", "listed ungrouped");
+        assert.equal((await p.locator("#ledGroup").textContent()).trim(), w.groups[0], "listed ungrouped");
         await press(p.locator("#ledSessClear"));
         await last((q) => !q.has("session") && !q.has("group"));
         assert(await p.locator("#ledSess").isHidden());
@@ -338,21 +343,21 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ['chromium',
     await p.route('**/*',server('en',asked));await p.goto('http://magpie.test/');
     await p.locator('[data-view="usage"]').first().click();await p.locator(':is(#usageTab .opt, .nav-s):visible').nth(1).click();
     await p.locator('.led-grp').first().waitFor();
-    assert.equal(await p.locator('#ledGroup .opt.on').textContent(),'Agents');
+    assert.equal((await p.locator('#ledGroup').textContent()).trim(),'Group by · Agents');
     assert(asked.some(q=>q.get('group')==='agent'),'fresh request page asks for whole-period Agent groups');
-    const primary=await p.evaluate(()=>{const pane=document.querySelector('#ledgerPane'),tabs=pane.querySelector('.led-explorer'),rows=pane.querySelector('.led-table'),trend=pane.querySelector('#ledDash'),heat=pane.querySelector('#ledHeat');return {beforeRows:tabs.nextElementSibling===rows,trendBefore:!!(trend.compareDocumentPosition(tabs)&Node.DOCUMENT_POSITION_FOLLOWING),heatBefore:!!(heat.compareDocumentPosition(tabs)&Node.DOCUMENT_POSITION_FOLLOWING)}});
-    assert(primary.beforeRows&&primary.trendBefore&&primary.heatBefore,'charts stay above, category controls sit immediately before request groups');
-    await p.locator('#ledGroup .opt').filter({hasText:/^Sessions$/}).click();
+    const primary=await p.evaluate(()=>{const pane=document.querySelector('#ledgerPane'),tools=pane.querySelector('.sess-tools');return {inTools:!!tools.querySelector('#ledGroup'),noRow:!pane.querySelector('.led-explorer')}});
+    assert(primary.inTools&&primary.noRow,'Group by sits in the filter row, no row of its own');
+    await p.locator('#ledGroup').click();await p.locator('.sess-menu .pm-item').filter({hasText:/^Sessions$/}).click();
     await p.waitForFunction(()=>document.querySelector('.led-groups')?.dataset.by==='session');
     assert(await p.locator('.led-gh',{hasText:'Without a session ID'}).isVisible());
     await p.setViewportSize({width:420,height:900});await p.waitForTimeout(150);
     assert(await p.locator('#ledGroup').isVisible());
     assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth>document.documentElement.clientWidth),false);
-    await p.locator('#ledGroup .opt').filter({hasText:/^No grouping$/}).click();
+    await p.locator('#ledGroup').click();await p.locator('.sess-menu .pm-item').filter({hasText:/^No grouping$/}).click();
     await p.locator('#ledWrap .led-row').first().waitFor();
     assert.equal(await p.evaluate(()=>localStorage.getItem('magpie.ledGroup')),'');
-    await p.reload();await p.locator('#ledGroup .opt.on').waitFor();
-    assert.equal(await p.locator('#ledGroup .opt.on').textContent(),'No grouping','explicit flat preference survives reload');
+    await p.reload();await p.locator('#ledWrap .led-row').first().waitFor();
+    assert.equal((await p.locator('#ledGroup').textContent()).trim(),'No grouping','explicit flat preference survives reload');
     assert.deepEqual(errors,[]);
   });
 }

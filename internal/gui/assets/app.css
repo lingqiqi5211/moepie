@@ -523,6 +523,12 @@ body:not(.side-nav) .side-toggle .st-pane { opacity: 0; }
    in the first frame, and a dropped one there (WebView2's, most) read as a
    jerk, then crept for a quarter second more (wangye1644294 on X) */
 :root { --morph-t: .32s; --morph-ease: cubic-bezier(.42, 0, .58, 1); }
+/* the hand to drag with: dark lines on a white halo, so it reads on a
+   light card and a dark one alike (the system's is all but white) */
+:root {
+  --cur-grab: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='-1 -1 26 26' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='%23fff' stroke-width='4.5'%3E%3Cpath d='M18 11V6a2 2 0 0 0-4 0M14 10V4a2 2 0 0 0-4 0v2M10 10.5V6a2 2 0 0 0-4 0v8M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-6-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15'/%3E%3C/g%3E%3Cg stroke='%2317171b' stroke-width='2'%3E%3Cpath d='M18 11V6a2 2 0 0 0-4 0M14 10V4a2 2 0 0 0-4 0v2M10 10.5V6a2 2 0 0 0-4 0v8M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-6-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15'/%3E%3C/g%3E%3C/svg%3E") 12 12, grab;
+  --cur-grabbing: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='-1 -1 26 26' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='%23fff' stroke-width='4.5'%3E%3Cpath d='M18 11.5V9a2 2 0 0 0-4 0v1.4M14 10V8a2 2 0 0 0-4 0v2M10 9.9V9a2 2 0 0 0-4 0v5M6 14a2 2 0 0 0-4 0M18 11a2 2 0 1 1 4 0v3a8 8 0 0 1-8 8h-4a8 8 0 0 1-8-8'/%3E%3C/g%3E%3Cg stroke='%2317171b' stroke-width='2'%3E%3Cpath d='M18 11.5V9a2 2 0 0 0-4 0v1.4M14 10V8a2 2 0 0 0-4 0v2M10 9.9V9a2 2 0 0 0-4 0v5M6 14a2 2 0 0 0-4 0M18 11a2 2 0 1 1 4 0v3a8 8 0 0 1-8 8h-4a8 8 0 0 1-8-8'/%3E%3C/g%3E%3C/svg%3E") 12 12, grabbing;
+}
 .nav-morph #side { view-transition-name: side; }
 .nav-morph .brand { view-transition-name: brand; }
 .nav-morph #sideToggle { view-transition-name: side-toggle; }
@@ -651,7 +657,7 @@ body.window .row .ic { width: 22px; height: 22px; }
 /* the logo is the row's handle: drag it to move the row, and a click opens
    the row's menu (Move up, Move down, Hide). It stays the logo under the
    pointer; the grip that says the row can be taken hold of is in its margin. */
-.ag-handle { display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; margin: -3px; padding: 0; border: 0; border-radius: 6px; background: none; color: inherit; cursor: grab; touch-action: none; transition: background-color .15s; }
+.ag-handle { display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; margin: -3px; padding: 0; border: 0; border-radius: 6px; background: none; color: inherit; cursor: var(--cur-grab); touch-action: none; transition: background-color .15s; }
 body.window .ag-handle { width: 28px; height: 28px; }
 .ag-handle > .ic { grid-area: 1 / 1; transition: opacity .15s; }
 .ag-handle:hover, .ag-handle.open { background: var(--pill); }
@@ -812,7 +818,7 @@ body.window .agent-fold-cap { padding: 10px 14px 3px; }
 /* while a row is dragged the others slide out of its way */
 #agents.sorting { user-select: none; -webkit-user-select: none; }
 #agents.sorting > .row { transition: transform .22s cubic-bezier(.22, 1, .36, 1); }
-#agents.sorting .ag-handle { cursor: grabbing; }
+#agents.sorting .ag-handle { cursor: var(--cur-grabbing); }
 #agents > .row.dragging { position: relative; z-index: 2; background: var(--card); box-shadow: 0 6px 18px rgba(20, 22, 30, .12), 0 0 0 1px var(--line); border-radius: 8px; }
 #agents > .row.dragging { transition: none; }
 /* a provider on is moved as an agent is (#499): its logo is the handle,
@@ -824,7 +830,7 @@ body.window .agent-fold-cap { padding: 10px 14px 3px; }
 #providers > .row .pv-handle:focus-visible::before { opacity: 1; }
 #providers.sorting { user-select: none; -webkit-user-select: none; }
 #providers.sorting > .row { transition: transform .22s cubic-bezier(.22, 1, .36, 1); }
-#providers.sorting .pv-handle { cursor: grabbing; }
+#providers.sorting .pv-handle { cursor: var(--cur-grabbing); }
 #providers > .row.dragging { position: relative; z-index: 2; background: var(--card); box-shadow: 0 6px 18px rgba(20, 22, 30, .12), 0 0 0 1px var(--line); border-radius: 8px; transition: none; }
 
 .pop.row-menu { width: auto; min-width: 176px; max-height: none; overflow-y: auto; overscroll-behavior: contain; padding: 4px; border: 1px solid var(--line); display: grid; gap: 1px; }
@@ -1050,8 +1056,9 @@ body.window .field.solo { grid-column: auto; }
 .credit-days .cd-note { margin-top: 4px; font-size: 10px; color: var(--faint); }
 /* what was left over time (#651); the range (or Off) is picked once, in
    the allowances' head */
-.quota-head { flex-wrap: wrap; row-gap: 6px; }
-.quota-head .quota-trend { margin-right: 8px; }
+/* the head's switches and buttons one even step apart */
+.quota-head { flex-wrap: wrap; gap: 6px 8px; }
+.quota-head .quota-trend { margin-right: 0; }
 .quota-curve { margin-top: 10px; }
 .quota-curve .qc-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font-size: 10.5px; color: var(--muted); }
 .quota-curve .qc-title { color: var(--fg-2); font-weight: 600; min-width: 0; }
@@ -1576,11 +1583,6 @@ body.masked :hover > .acct-eye, body.masked .pq-card:hover .acct-eye, body.maske
 .led-pop p.rule { margin: 6px 0 0; color: var(--muted); font-size: 11px; }
 .led-pop p.rule + p.rule { margin-top: 2px; }
 /* the rows by group: a header each, its rows under it once opened */
-/* Requests are browsed by category; the controls sit below the charts. */
-.led-explorer { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; padding: 10px 0 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line); background: var(--bg); }
-.led-explorer .led-groupby { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
-.led-explorer .led-by { font-size: 13px; font-weight: 600; color: var(--fg); }
-.led-explorer .segs .opt { min-height: 30px; padding-left: 16px; padding-right: 16px; font-size: 12px; }
 .led-wrap:has(> .led-groups) { border: 0; background: none; }
 .led-groups { display: flex; flex-direction: column; gap: 10px; }
 .led-grp { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); }
@@ -2061,7 +2063,7 @@ body.panel .profiles #save { height: 25px; } /* the field's: the line keeps its 
 .pq-arow.put-away .pq-ahandle > .ic, .pq-arow.put-away .pq-aname { opacity: .5; }
 .pq-alist.sorting { user-select: none; -webkit-user-select: none; }
 .pq-alist.sorting > .pq-arow { transition: transform .22s cubic-bezier(.22, 1, .36, 1); }
-.pq-alist.sorting .pq-ahandle { cursor: grabbing; }
+.pq-alist.sorting .pq-ahandle { cursor: var(--cur-grabbing); }
 .pq-alist > .pq-arow.dragging { position: relative; z-index: 2; box-shadow: 0 8px 22px rgba(20, 22, 30, .14), 0 0 0 1px var(--line); transition: none; }
 .pq-mode:hover { background: color-mix(in srgb, var(--fg) 12%, transparent); color: var(--fg); }
 .pq-gnote + .pq-mode { margin-left: 0; }
@@ -2519,7 +2521,7 @@ body.window .ag-sk-icon { width: 22px; height: 22px; border-radius: 6px; }
    a row anywhere off its buttons, as the search APIs are; the grip in the
    row's margin shows only on the row under the pointer */
 .gw-keys > .acc { position: relative; }
-.gw-keys.reorderable > .acc { cursor: grab; touch-action: pan-y; }
+.gw-keys.reorderable > .acc { cursor: var(--cur-grab); touch-action: pan-y; }
 .gw-keys.reorderable > .acc:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .gw-keys > .acc > .grip { position: absolute; left: 3px; top: 19px; translate: 0 -50%; width: 6px; height: 11px; background: radial-gradient(circle, var(--muted) .9px, transparent 1.2px) 0 0 / 3px 3.75px; opacity: 0; transition: opacity .15s; pointer-events: none; }
 .gw-keys > .acc:is(:hover, .dragging) > .grip { opacity: 1; }
@@ -2527,7 +2529,7 @@ body.window .ag-sk-icon { width: 22px; height: 22px; border-radius: 6px; }
 .gw-keys > .acc:focus-visible > .grip { opacity: 1; }
 @media (hover: none) { .gw-keys > .acc > .grip { opacity: 1; } }
 .gw-keys.sorting { user-select: none; -webkit-user-select: none; }
-.gw-keys.sorting > .acc { transition: transform .16s cubic-bezier(.22, 1, .36, 1); cursor: grabbing; }
+.gw-keys.sorting > .acc { transition: transform .16s cubic-bezier(.22, 1, .36, 1); cursor: var(--cur-grabbing); }
 .gw-keys.sorting > .acc.dragging { z-index: 2; background: var(--card-2); box-shadow: 0 0 0 1px var(--line); transition: none; will-change: transform; }
 .gw-keys .gw-key-more { flex: none; color: var(--muted); }
 .gw-keys .gw-key-more:is(:hover, .open) { color: var(--fg); }
@@ -3293,7 +3295,7 @@ body.window .ag-sk-icon { width: 22px; height: 22px; border-radius: 6px; }
 .stepplan .state { flex: 1; min-width: 0; font-size: 12px; color: var(--muted); line-height: 1.4; }
 .stepplan .steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: var(--muted); line-height: 1.5; }
 .stepplan .steps .pair { margin-top: 2px; }
-.stepplan .bookmarklet { display: inline-block; padding: 1px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--fg); background: var(--pill); text-decoration: none; cursor: grab; white-space: nowrap; }
+.stepplan .bookmarklet { display: inline-block; padding: 1px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--fg); background: var(--pill); text-decoration: none; cursor: var(--cur-grab); white-space: nowrap; }
 .editor input[type="text"], .editor input[type="password"], .editor input[type="url"], .editor input[type="number"], .acc .kf input, .acc input.rename-in {
   height: 27px; padding: 0 9px; border-radius: 7px;
   border: 1px solid var(--line); background: var(--card);
@@ -3856,7 +3858,7 @@ input.words.search-key, input.words.search-url { flex: 1 1 120px; width: auto; m
    asked in (#2286); its grip shows only under the pointer, and one
    switched off is dimmed but for its switch */
 .row + .search-unit, .search-unit + .search-unit, .search-unit + .row { border-top: 1px solid var(--line-2); }
-.search-unit { position: relative; background: var(--card); cursor: grab; }
+.search-unit { position: relative; background: var(--card); cursor: var(--cur-grab); }
 .search-unit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .search-unit > .grip { position: absolute; left: 4px; top: 50%; translate: 0 -50%; width: 6px; height: 11px; background: radial-gradient(circle, var(--muted) .9px, transparent 1.2px) 0 0 / 3px 3.75px; opacity: 0; transition: opacity .15s; pointer-events: none; }
 .search-unit.with-keys > .grip { top: 24px; translate: none; }
@@ -3865,7 +3867,7 @@ input.words.search-key, input.words.search-url { flex: 1 1 120px; width: auto; m
 @media (hover: none) { .search-unit > .grip { opacity: 1; } }
 .search-unit .row .sub.revealed, .search-unit code { cursor: text; }
 .search-unit .row .val button { cursor: pointer; }
-#searchList.sorting .search-unit { transition: transform .22s cubic-bezier(.22, 1, .36, 1); cursor: grabbing; }
+#searchList.sorting .search-unit { transition: transform .22s cubic-bezier(.22, 1, .36, 1); cursor: var(--cur-grabbing); }
 #searchList .search-unit.dragging { z-index: 2; transition: none; box-shadow: 0 6px 18px rgba(20, 22, 30, .12), 0 0 0 1px var(--line); }
 .search-unit.off .row .who, .search-unit.off .search-keys .val { opacity: .5; }
 /* its buttons and switch: the whole row's width when it needs it, and
@@ -4290,10 +4292,10 @@ body.panel .modal { padding: 16px 12px; }
 
 /* Account rows use the existing pointer sorter, without a visible handle. */
 .accts > [data-account-id] { user-select: text; -webkit-user-select: text; }
-.accts.reorderable > [data-account-id] { cursor: grab; touch-action: pan-y; }
+.accts.reorderable > [data-account-id] { cursor: var(--cur-grab); touch-action: pan-y; }
 .accts.reorderable > [data-account-id]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .accts.sorting > [data-account-id] { animation: none; transition: transform .16s cubic-bezier(.22, 1, .36, 1); }
-.accts.sorting > .dragging { position: relative; z-index: 2; background: var(--card-2); box-shadow: 0 0 0 1px var(--line); cursor: grabbing; transition: none; will-change: transform; }
+.accts.sorting > .dragging { position: relative; z-index: 2; background: var(--card-2); box-shadow: 0 0 0 1px var(--line); cursor: var(--cur-grabbing); transition: none; will-change: transform; }
 .accts[aria-busy=true] > [data-account-id] { cursor: progress; }
 /* the Usage page's cards, dragged by their logos: a grip by the logo on hover.
    A grip's box holds both its columns of dots whole, 3px apart: at 5px wide
@@ -4308,7 +4310,7 @@ body.panel .modal { padding: 16px 12px; }
 .us-handle:focus-visible::before { opacity: 1; }
 .subscription-usage.sorting { user-select: none; -webkit-user-select: none; }
 .subscription-usage.sorting > .subscription-card { transition: transform .22s cubic-bezier(.22, 1, .36, 1); }
-.subscription-usage.sorting .us-handle { cursor: grabbing; }
+.subscription-usage.sorting .us-handle { cursor: var(--cur-grabbing); }
 .subscription-usage > .subscription-card.dragging { position: relative; z-index: 2; box-shadow: 0 8px 22px rgba(20, 22, 30, .14), 0 0 0 1px var(--line); transition: none; }
 @media (prefers-reduced-motion: reduce) {
   .accts.sorting > [data-account-id], #agents.sorting > .row, .subscription-usage.sorting > .subscription-card { transition: none; }
@@ -4505,14 +4507,14 @@ body.window .row.agent .who.with-models { flex-wrap: wrap; row-gap: 0; }
    any row; its grip shows only on the row under the pointer */
 .pop.am-pop.ordering .am-search, .pop.am-pop.ordering .am-rail { display: none; }
 .am-order { padding-top: 4px; }
-.am-rows.am-order .am-mr { padding-left: 14px; cursor: grab; user-select: none; -webkit-user-select: none; }
+.am-rows.am-order .am-mr { padding-left: 14px; cursor: var(--cur-grab); user-select: none; -webkit-user-select: none; }
 .am-or .grip { flex: none; width: 6px; height: 11px; margin-right: -4px; background: radial-gradient(circle, var(--muted) .9px, transparent 1.2px) 0 0 / 3px 3.75px; opacity: 0; transition: opacity .15s; }
 .am-or:is(:hover, .dragging) .grip { opacity: 1; }
 /* apart: Safari before 15.4 drops a whole selector list with :focus-visible in it */
 .am-or:focus-visible .grip { opacity: 1; }
 @media (hover: none) { .am-or .grip { opacity: 1; } }
 .am-or .ix { flex: none; min-width: 16px; font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; text-align: right; }
-.am-order.sorting .am-or { transition: transform .22s cubic-bezier(.22, 1, .36, 1); cursor: grabbing; }
+.am-order.sorting .am-or { transition: transform .22s cubic-bezier(.22, 1, .36, 1); cursor: var(--cur-grabbing); }
 .am-order .am-or.dragging { position: relative; z-index: 2; transition: none; background: var(--pop-bg); box-shadow: 0 6px 18px rgba(20, 22, 30, .12), 0 0 0 1px var(--line); }
 
 /* ---- an agent's switch onto magpie ---------------------------------------- */

@@ -11,6 +11,13 @@
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --k-results: #fdba74; } }
 :root[data-theme="dark"] { --k-results: #fdba74; }
 :root[data-colorblind="1"] { --k-results: var(--c5); }
+/* the dark theme's palette is pale, and white names on it read washed out:
+   the parts keep fills deep enough for white in either theme. Colorblind
+   mode keeps its own palette */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-colorblind="1"]) { --k-system: #7c3aed; --k-tools: #0284c7; --k-skills: #475569; --k-memory: #b45309; --k-files: #047857; --k-chat: #4f46e5; --k-results: #c2410c; }
+}
+:root[data-theme="dark"]:not([data-colorblind="1"]) { --k-system: #7c3aed; --k-tools: #0284c7; --k-skills: #475569; --k-memory: #b45309; --k-files: #047857; --k-chat: #4f46e5; --k-results: #c2410c; }
 .k-system { --k: var(--k-system); }
 .k-tools { --k: var(--k-tools); }
 .k-skills { --k: var(--k-skills); }
@@ -106,11 +113,8 @@ i.dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radiu
 .ctx-seg .v { font-weight: 500; opacity: .78; }
 .ctx-seg.short .n, .ctx-seg.bare > span { position: absolute; visibility: hidden; }
 .ctx-seg.bare { padding-left: 0; }
-/* white on the darker fills, near-black on the rest */
-.ctx-seg:is(.k-system, .k-skills, .k-chat) { --ink: #fff; }
-:root[data-colorblind="1"] .ctx-seg.k-system { --ink: #17171b; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ctx-seg.ctx-seg { --ink: #17171b; } }
-:root[data-theme="dark"] .ctx-seg.ctx-seg { --ink: #17171b; }
+/* white on every part, in either theme */
+.ctx-seg { --ink: #fff; }
 .ctx-blocks { display: flex; flex-wrap: wrap; gap: 8px; }
 .ctx-block { display: flex; flex-direction: column; gap: 2px; flex: 0 1 130px; min-width: 130px; padding: 9px 12px 10px; border-radius: 10px; background: color-mix(in srgb, var(--k) 10%, var(--card)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--k) 22%, transparent); transition: flex-grow .62s cubic-bezier(.32, .72, 0, 1), opacity .2s ease, box-shadow .2s ease; }
 .ctx-block.on { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--k) 55%, transparent); }
@@ -127,16 +131,18 @@ i.dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radiu
 /* one part picked: the others dimmed; an item of the contents pointed at,
    its part lit */
 :is(.ctx-seg, .ctx-block).dim { opacity: .3; }
-.ctx-viz[data-over] :is(.ctx-seg, .ctx-block):not(.over):not(.dim) { opacity: .5; }
-.ctx-tip { position: absolute; z-index: 5; min-width: 190px; max-width: 280px; padding: 8px 10px; border-radius: 9px; background: #17171b; color: #ededf1; box-shadow: 0 10px 30px rgba(0, 0, 0, .28); font-size: 11.5px; pointer-events: none; display: flex; flex-direction: column; gap: 3px; }
+/* pointed at: no ring and nothing dimmed, the tip says which; the bar
+   keeps the colours of the tags and the contents below it */
+/* in the theme's pop colours, as the other charts' tips are */
+.ctx-tip { position: absolute; z-index: 5; min-width: 190px; max-width: 280px; padding: 8px 10px; border-radius: 9px; background: var(--pop-bg); color: var(--fg); box-shadow: var(--shadow); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); font-size: 11.5px; pointer-events: none; display: flex; flex-direction: column; gap: 3px; }
 .ctx-tip[hidden] { display: none; }
 .ctx-tip-head { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
 .ctx-tip-head .grow { flex: 1; }
-.ctx-tip-head span:last-child { color: #a1a1aa; }
-.ctx-tip-row { display: flex; gap: 10px; color: #b9b9c1; }
+.ctx-tip-head span:last-child { color: var(--muted); }
+.ctx-tip-row { display: flex; gap: 10px; color: var(--fg-2); }
 .ctx-tip-row .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ctx-tip-row.on { color: #fff; font-weight: 500; }
-.ctx-tip-more { color: #85858d; font-size: 10.5px; }
+.ctx-tip-row.on { color: var(--fg); font-weight: 500; }
+.ctx-tip-more { color: var(--faint); font-size: 10.5px; }
 
 /* the tags: the bar's legend, and the part the contents show */
 .ctx-legend { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: -8px; }
@@ -439,7 +445,7 @@ i.dot.all { background: linear-gradient(90deg, var(--k-chat) 0 34%, var(--k-tool
 .ctx-view-all { margin-right: auto; }
 
 .ctx-tip-head b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ctx-tip-sub { color: #a1a1aa; font-size: 11px; }
+.ctx-tip-sub { color: var(--muted); font-size: 11px; }
 
 /* an image the request carried, in its text */
 .ctx-pic { display: block; width: fit-content; max-width: 100%; margin: 4px 0 2px; padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: color-mix(in srgb, var(--fg) 4%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 9%, transparent); cursor: zoom-in; transform-origin: top left; opacity: 0; transition: opacity .4s ease; }

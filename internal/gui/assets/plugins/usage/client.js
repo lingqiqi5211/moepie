@@ -66,6 +66,7 @@ magpie.plugin("usage", (ctx) => {
       <button class="sess-pick" id="ledModel" type="button" hidden></button>
       <button class="sess-pick" id="ledAccount" type="button" hidden></button>
       <button class="sess-pick" id="ledKey" type="button" hidden></button>
+      <button class="sess-pick" id="ledGroup" type="button"></button>
       <div class="segs" id="ledStatus"></div>
       <button class="sess-pick led-mis" id="ledMis" type="button" aria-pressed="false" hidden></button>
       <span id="ledSess" hidden><span id="ledSessLabel"></span><button class="text" id="ledSessClear" type="button">×</button></span>
@@ -104,9 +105,6 @@ magpie.plugin("usage", (ctx) => {
     </section>
     <div class="led-head"><p class="led-sum" id="ledSum"></p><span class="grow"></span><span class="led-arch" id="ledArchive"></span></div>
     <div class="led-strip led-vias" id="ledVia" hidden></div>
-    <div class="led-explorer">
-      <span class="led-groupby"><span class="led-by" id="ledGroupBy"></span><span class="segs" id="ledGroup" role="group"></span></span>
-    </div>
     <div class="led-table">
       <div class="led-wrap" id="ledWrap"></div>
       <div class="led-hscroll" id="ledHScroll" hidden><div></div></div>
