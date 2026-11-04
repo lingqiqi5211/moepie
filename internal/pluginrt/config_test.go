@@ -107,6 +107,40 @@ func TestSettleAndSet(t *testing.T) {
 	}
 }
 
+// Put writes a whole plugins.yml as a backup or a sync brings one: the
+// preset and every row, the file it replaces kept beside it, and a preset
+// it doesn't know refused without writing.
+func TestPut(t *testing.T) {
+	home(t)
+	no := false
+	f := File{Preset: PresetEssentials, Plugins: []Row{
+		{ID: "extra", Enabled: &no},
+		{ID: "core", Config: map[string]any{"n": 2}},
+	}}
+	if err := Put(f); err != nil {
+		t.Fatal(err)
+	}
+	if err := Put(f); err != nil { // a second put keeps the file it replaced
+		t.Fatal(err)
+	}
+	got, there, err := Load()
+	if err != nil || !there || got.Preset != PresetEssentials || got.Settled != settled ||
+		len(got.Plugins) != 2 || got.Plugins[0].ID != "extra" || got.Plugins[0].Enabled == nil || *got.Plugins[0].Enabled ||
+		got.Plugins[1].Config["n"] != 2 {
+		t.Fatalf("after Put: %+v %v %v", got, there, err)
+	}
+	if _, err := os.Stat(Path() + ".bak"); err != nil {
+		t.Fatalf("no .bak: %v", err)
+	}
+	before, _ := os.ReadFile(Path())
+	if err := Put(File{Preset: "another"}); err == nil {
+		t.Fatal("a preset Put doesn't know was taken")
+	}
+	if after, _ := os.ReadFile(Path()); !reflect.DeepEqual(before, after) {
+		t.Fatal("a refused Put wrote the file")
+	}
+}
+
 // The Essentials a new install was written before settled 1 becomes
 // All on the next start, and what the user turned off stays off.
 func TestSettleBringsUpAnEssentialsInstall(t *testing.T) {

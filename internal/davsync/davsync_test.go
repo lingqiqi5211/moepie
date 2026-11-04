@@ -20,6 +20,7 @@ import (
 	"github.com/yetone/magpie/internal/backup"
 	"github.com/yetone/magpie/internal/library"
 	"github.com/yetone/magpie/internal/plugin"
+	"github.com/yetone/magpie/internal/pluginrt"
 	"github.com/yetone/magpie/internal/profile"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/settings"
@@ -438,6 +439,79 @@ func TestSyncProviderOrder(t *testing.T) {
 	now(t)
 	if got := listed(); !slices.Equal(got, []string{"two", "three", "one"}) {
 		t.Fatalf("a after b arranged: %v", got)
+	}
+}
+
+// plugins.yml goes with the settings: a computer joining gets the built-in
+// plugins the first one turned off and configured, and a change on either
+// goes to the other.
+func TestSyncBuiltinPlugins(t *testing.T) {
+	fake := &fakeDAV{files: map[string][]byte{}, etags: map[string]string{}, dirs: map[string]bool{"/dav": true}}
+	srv := httptest.NewServer(fake)
+	defer srv.Close()
+	cfg := Config{URL: srv.URL + "/dav/", User: "me", Password: "pw", Passphrase: "correct horse", Keys: true}
+	now := func(t *testing.T) {
+		t.Helper()
+		if err := Now(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	row := func(f pluginrt.File, id string) pluginrt.Row {
+		for _, r := range f.Plugins {
+			if r.ID == id {
+				return r
+			}
+		}
+		return pluginrt.Row{}
+	}
+	a, b := newComputer(t), newComputer(t)
+	a.use(t)
+	no := false
+	if err := pluginrt.Put(pluginrt.File{Preset: pluginrt.PresetEssentials, Plugins: []pluginrt.Row{
+		{ID: "sessions", Enabled: &no},
+		{ID: "gateway", Config: map[string]any{"callsPage": 20}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	Configure(cfg)
+	now(t)
+
+	b.use(t)
+	Configure(cfg)
+	now(t)
+	f, there, err := pluginrt.Load()
+	if err != nil || !there || f.Preset != pluginrt.PresetEssentials || len(f.Plugins) != 2 {
+		t.Fatalf("b after joining: %+v %v %v", f, there, err)
+	}
+	if r := row(f, "sessions"); r.Enabled == nil || *r.Enabled {
+		t.Fatalf("b's sessions: %+v", r)
+	}
+	if r := row(f, "gateway"); r.Config["callsPage"] != 20 {
+		t.Fatalf("b's gateway config: %+v", r.Config)
+	}
+	puts := fake.puts
+	now(t)
+	if fake.puts != puts {
+		t.Fatal("b pushed back the plugins.yml it brought in")
+	}
+
+	// b turns sessions on: a gets it
+	yes := true
+	if err := pluginrt.Put(pluginrt.File{Preset: pluginrt.PresetEssentials, Plugins: []pluginrt.Row{
+		{ID: "sessions", Enabled: &yes},
+		{ID: "gateway", Config: map[string]any{"callsPage": 20}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	now(t)
+	a.use(t)
+	now(t)
+	f, _, err = pluginrt.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := row(f, "sessions"); r.Enabled == nil || !*r.Enabled {
+		t.Fatalf("a after b changed it: %+v", r)
 	}
 }
 

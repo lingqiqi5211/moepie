@@ -21,8 +21,9 @@ clone a working tree or synchronize arbitrary files.
   branch or using the repository's default.
 - [`backup.go`](../../internal/backup/backup.go) owns bundle contents and
   sealing. Sync divides the setup into providers, settings, profiles, agents
-  and library. Provider keys, agent models, library and usage have their own
-  inclusion switches.
+  and library. The settings part carries `plugins.yml` (the built-in
+  plugins' switches and config) with this computer's preferences. Provider
+  keys, agent models, library and usage have their own inclusion switches.
 - [`usage.go`](../../internal/davsync/usage.go) shares separately sealed usage
   and quota files through a remote's `files` interface.
 - [`restore.go`](../../internal/davsync/restore.go) replaces local parts from

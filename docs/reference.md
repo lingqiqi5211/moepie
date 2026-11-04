@@ -3060,7 +3060,10 @@ has). Without keys, a
 server's environment variables and headers that look like a key go empty.
 Gateway credentials, their names, ids and disabled state travel encrypted
 with Settings too. Restoring Settings replaces the gateway-key store with
-the backed-up one. `--no-keys` leaves gateway credentials and their legacy
+the backed-up one. The built-in plugins' switches and settings (`plugins.yml`,
+Plugins › Built-in) are part of Settings: they come back with it, and a
+backup made before they were carried leaves this machine's file as it is.
+`--no-keys` leaves gateway credentials and their legacy
 mirror out; restoring it preserves the destination's existing keys instead.
 Restoring the library replaces the one there — what it replaces is kept with
 the library's backups — and writes it into the agents on that machine.

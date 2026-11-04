@@ -1,10 +1,10 @@
 // Package backup packs what the user set up in magpie into one file, sealed
 // with a passphrase, to carry to another machine: the providers (their keys
-// too, unless left out), the pictures picked for them, the settings, the
-// profiles, every agent's model and the library (the instructions, MCP
-// servers and skills magpie gives the agents). Subscriptions are not in it: each is
-// the sign-in of an agent on this machine, so each machine signs in on its
-// own.
+// too, unless left out), the pictures picked for them, the settings (the
+// built-in plugins' switches and config included), the profiles, every
+// agent's model and the library (the instructions, MCP servers and skills
+// magpie gives the agents). Subscriptions are not in it: each is the
+// sign-in of an agent on this machine, so each machine signs in on its own.
 //
 // The file is JSON: a header naming how it is sealed, and the bundle
 // encrypted with AES-256-GCM under a key derived from the passphrase with
@@ -33,6 +33,7 @@ import (
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/library"
 	"github.com/yetone/magpie/internal/plugin"
+	"github.com/yetone/magpie/internal/pluginrt"
 	"github.com/yetone/magpie/internal/profile"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/settings"
@@ -89,6 +90,10 @@ type Bundle struct {
 	// the providers they serve come with them. Their sign-ins don't, as a
 	// subscription's don't. Nil from a magpie before them.
 	Plugins *[]plugin.Entry `json:"plugins,omitempty"`
+	// BuiltinPlugins is plugins.yml: which built-in plugins are on, the
+	// preset they follow, and each one's config, put back with Settings.
+	// Nil from a magpie before it, or with no file.
+	BuiltinPlugins *pluginrt.File `json:"builtinPlugins,omitempty"`
 	// Sync can carry one part's credentials without changing the others'
 	// Keys policy; these are absent from older backups and whole collects.
 	ProvidersKeys *bool `json:"providersKeys,omitempty"`
@@ -222,6 +227,13 @@ func Collect(keys bool, app string) (Bundle, error) {
 			s.GitHubToken = ""
 		}
 		b.Settings = &s
+	}
+	if f, there, err := pluginrt.Load(); err != nil {
+		// unreadable is unknown, never none: carried as none it would
+		// overwrite the plugins.yml where it is put back
+		return b, err
+	} else if there {
+		b.BuiltinPlugins = &f
 	}
 	ps, err := profile.Load()
 	if err != nil {
@@ -431,7 +443,7 @@ func Restore(b Bundle, parts Parts) (Result, error) {
 			}
 		}
 	}
-	if parts.Settings && (b.Settings != nil || b.GatewayKeys != nil) {
+	if parts.Settings && (b.Settings != nil || b.GatewayKeys != nil || b.BuiltinPlugins != nil) {
 		keys := b.scopedKeys("settings")
 		// the window's size, the proxy, the menu bar's usage are this machine's own
 		cur := settings.Load()
@@ -474,6 +486,11 @@ func Restore(b Bundle, parts Parts) (Result, error) {
 		}
 		if keys && b.GatewayKeys == nil {
 			access.MigrateLegacyLANKeyBestEffort()
+		}
+		if b.BuiltinPlugins != nil {
+			if err := pluginrt.Put(*b.BuiltinPlugins); err != nil {
+				return r, fmt.Errorf("the built-in plugins: %w", err)
+			}
 		}
 		r.Settings = true
 	}

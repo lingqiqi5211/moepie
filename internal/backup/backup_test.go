@@ -16,6 +16,7 @@ import (
 	"github.com/yetone/magpie/internal/agentenv"
 	"github.com/yetone/magpie/internal/library"
 	"github.com/yetone/magpie/internal/plugin"
+	"github.com/yetone/magpie/internal/pluginrt"
 	"github.com/yetone/magpie/internal/profile"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/settings"
@@ -495,5 +496,87 @@ func TestRestorePluginsAndSignIn(t *testing.T) {
 	got.Plugins = nil
 	if _, err := Restore(got, All); err != nil || asked != nil {
 		t.Fatalf("an older backup asked to install %v (%v)", asked, err)
+	}
+}
+
+// A plugins.yml that can't be read is unknown, never "no built-in plugin
+// settings": a backup that carried it as none would overwrite the file the
+// other machine has.
+func TestCollectStopsOnBrokenPluginsYML(t *testing.T) {
+	home(t)
+	if err := os.MkdirAll(filepath.Dir(pluginrt.Path()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pluginrt.Path(), []byte("preset: another\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Collect(false, "test"); err == nil {
+		t.Fatal("a backup was made from a plugins.yml that can't be read")
+	}
+}
+
+// A backup carries plugins.yml: the built-in plugins a user turned off or
+// configured are the same on the machine it is put back on, and an older
+// backup that has none leaves this machine's file alone.
+func TestBackupCarriesBuiltinPlugins(t *testing.T) {
+	home(t)
+	no := false
+	if err := pluginrt.Put(pluginrt.File{Preset: pluginrt.PresetEssentials, Plugins: []pluginrt.Row{
+		{ID: "sessions", Enabled: &no},
+		{ID: "gateway", Config: map[string]any{"callsPage": 20}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := Collect(false, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.BuiltinPlugins == nil || b.BuiltinPlugins.Preset != pluginrt.PresetEssentials || len(b.BuiltinPlugins.Plugins) != 2 {
+		t.Fatalf("bundle: %+v", b.BuiltinPlugins)
+	}
+	data, err := Seal(b, "correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	home(t) // another machine
+	got, err := Open(data, "correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Restore(got, All); err != nil {
+		t.Fatal(err)
+	}
+	f, there, err := pluginrt.Load()
+	if err != nil || !there || f.Preset != pluginrt.PresetEssentials || len(f.Plugins) != 2 {
+		t.Fatalf("plugins.yml: %+v %v %v", f, there, err)
+	}
+	for _, r := range f.Plugins {
+		switch r.ID {
+		case "sessions":
+			if r.Enabled == nil || *r.Enabled {
+				t.Errorf("sessions: %+v", r)
+			}
+		case "gateway":
+			if r.Config["callsPage"] != 20 {
+				t.Errorf("gateway config: %+v", r.Config)
+			}
+		default:
+			t.Errorf("unexpected row: %+v", r)
+		}
+	}
+
+	// a backup from a magpie before plugins.yml leaves this machine's alone
+	home(t)
+	if err := pluginrt.Put(pluginrt.File{Preset: pluginrt.PresetAll}); err != nil {
+		t.Fatal(err)
+	}
+	old := got
+	old.BuiltinPlugins = nil
+	if _, err := Restore(old, All); err != nil {
+		t.Fatal(err)
+	}
+	if f, _, _ := pluginrt.Load(); f.Preset != pluginrt.PresetAll {
+		t.Fatalf("an older backup changed plugins.yml: %+v", f)
 	}
 }
