@@ -103,6 +103,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const seen = [];
       seen.ring = [];
       await page.route("**/*", serve(lang, seen));
+      // the requests ungrouped: the archive is a request row's
+      await page.addInitScript(() => localStorage.setItem("magpie.ledGroup", ""));
       // brought into view by the wheel, as the reader would; the click itself
       // must not move the page
       const press = async (loc, view) => {

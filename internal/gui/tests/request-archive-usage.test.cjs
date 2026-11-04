@@ -101,6 +101,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           p.on("pageerror", (e) => errors.push(e.message));
           await p.route("**/*", server(lang, web, seen));
           await p.addInitScript(() => {
+            // the requests ungrouped: the archive is a request row's
+            localStorage.setItem("magpie.ledGroup", "");
             window.followed = [];
             HTMLAnchorElement.prototype.click = function () { window.followed.push([this.href, this.hasAttribute("download")]); };
           });
