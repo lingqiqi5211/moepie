@@ -1416,6 +1416,10 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 			if _, sent := fields["refusalRetries"]; !sent {
 				in.RefusalRetries = cur.RefusalRetries
 			}
+			// nor the longest wait an agent is told (#5371)
+			if _, sent := fields["retryAfterCap"]; !sent {
+				in.RetryAfterCap = cur.RetryAfterCap
+			}
 			// Older pages preserve the limit; null restores the default of 24.
 			if _, sent := fields["defaultModelLimit"]; !sent {
 				in.DefaultModelLimit = cur.DefaultModelLimit

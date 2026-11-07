@@ -394,6 +394,12 @@ type Settings struct {
 	// the vendor's own reply, stop_reason "refusal", which Claude Code
 	// answers by switching to its fallback model itself (DD on Discord).
 	RefusalRetries *int `json:"refusalRetries,omitempty"`
+	// RetryAfterCap is the longest Retry-After, in seconds, an agent is
+	// told (#5371, tlerbao): a plan's quota running out rests its account
+	// until the plan's reset, hours away, and an agent with a fallback
+	// chain of its own waited that long before it moved on. The account
+	// rests as long either way. Unset, the wait goes out as it is.
+	RetryAfterCap *int `json:"retryAfterCap,omitempty"`
 	// DefaultModelLimit bounds a provider's vendor list when no models were
 	// picked explicitly. Unset keeps 24; 0 serves the whole list.
 	DefaultModelLimit *int `json:"defaultModelLimit,omitempty"`
