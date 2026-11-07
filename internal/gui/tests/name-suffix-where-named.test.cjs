@@ -135,7 +135,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     test(`${engine} ${lang}: "· routing group" is set over the groups, for all of them, and a group's editor says what it shows`, async (t) => {
       const posts = [];
       const { page, errors } = await launch(t, engine, lang, posts);
-      await page.goto("http://magpie.test/?view=routing");
+      await page.goto("http://magpie.test/?view=routing&tab=groups");
       const card = page.locator(".rt-group", { hasText: "Fast" });
       await card.waitFor();
       // the setting is over the groups, before the first card

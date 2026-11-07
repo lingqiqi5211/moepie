@@ -4,7 +4,8 @@
 // groups, and no word of why. With them off, where they were the page says
 // so and has a button that turns them on (plugins/builtin {id:"groups"}),
 // after which the groups and New group are back and the note is gone. With
-// them on, there is no note. English and Chinese, Chromium and WebKit, wide
+// them on, there is no note. The groups are the Routing page's other tab
+// now, so each opens it first. English and Chinese, Chromium and WebKit, wide
 // and narrow, and every language has the strings.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -83,6 +84,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         page.on("pageerror", (e) => errors.push(e.message));
         await page.route("**/*", serve(lang, false, posts));
         await page.goto("http://magpie.test/?view=routing");
+        await page.evaluate(() => localStorage.removeItem("magpie.routingTab"));
+        await page.locator("#rtTabs .opt").nth(1).click();
 
         const note = page.locator(".rt-gsec .rt-goff");
         await note.waitFor();
@@ -90,7 +93,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert(text.includes(w.why), text);
         const btn = note.locator("button", { hasText: w.on });
         assert(await btn.isVisible());
-        assert.equal(await page.locator("#rtNewGroup").isVisible(), false, "New group is off with them");
+        assert.equal(await page.locator(".rt-gsec .rt-gnew").isVisible(), false, "New group is off with them");
         assert.equal(await page.locator(".rt-group", { hasText: "Mine" }).isVisible(), false);
         assert(await note.evaluate((n) => n.getBoundingClientRect().right <= innerWidth + 1), "the note fits the window");
         assert(await btn.evaluate((b) => b.getBoundingClientRect().right <= innerWidth + 1), "so does its button");
@@ -99,7 +102,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await note.waitFor({ state: "hidden" });
         assert.deepEqual(posts, [{ id: "groups", on: true }]);
         await page.locator(".rt-group", { hasText: "Mine" }).waitFor({ state: "visible" });
-        await page.locator("#rtNewGroup").waitFor({ state: "visible" });
+        await page.locator(".rt-gsec .rt-gnew").waitFor({ state: "visible" });
         await page.waitForFunction((m) => document.querySelector("#status").textContent.includes(m), w.done);
         assert.deepEqual(errors, []);
       });
@@ -111,9 +114,11 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       page.on("pageerror", (e) => errors.push(e.message));
       await page.route("**/*", serve(lang, true, []));
       await page.goto("http://magpie.test/?view=routing");
+      await page.evaluate(() => localStorage.removeItem("magpie.routingTab"));
+      await page.locator("#rtTabs .opt").nth(1).click();
       await page.locator(".rt-group", { hasText: "Mine" }).waitFor({ state: "visible" });
       assert.equal(await page.locator(".rt-goff").isVisible(), false);
-      assert(await page.locator("#rtNewGroup").isVisible());
+      assert(await page.locator(".rt-gsec .rt-gnew").isVisible());
       assert.deepEqual(errors, []);
     });
   }
@@ -122,6 +127,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     const page = await open(engine, 900, t, `${engine}-routing-groups-off-i18n.png`);
     await page.route("**/*", serve("en", false, []));
     await page.goto("http://magpie.test/?view=routing");
+    await page.evaluate(() => localStorage.removeItem("magpie.routingTab"));
+    await page.locator("#rtTabs .opt").nth(1).click();
     await page.locator(".rt-goff").waitFor();
     const missing = await page.evaluate((ks) => ["zh", "zh-TW", "ja", "de"].flatMap((l) => ks.filter((k) => !I18N[l]?.[k]).map((k) => `${l}: ${k}`)), keys);
     assert.deepEqual(missing, []);

@@ -89,7 +89,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const errors = [];
       page.on("pageerror", (e) => errors.push(e.message));
       await page.route("**/*", serve(lang));
-      await page.goto("http://magpie.test/?view=routing");
+      await page.goto("http://magpie.test/?view=routing&tab=groups");
       await page.locator(".rt-group[data-id=big]").waitFor();
 
       // narrow, the row is below the window's foot; magpie moves the page

@@ -2,11 +2,12 @@
 // A routing group of any models is made with New group, which sat only at
 // the routing groups' head, below the requests: out of sight on a first
 // look, so a user used the found groups for days without knowing their
-// own could be made (mintonight, #944). The Routing page's head has a New
-// group too, by Hide accounts, with a plus and a tooltip saying what a
-// group is; its click opens an empty group's editor and brings it into
-// view, its name field focused. The groups' own New group has the plus as
-// well. No left-border accent. In English and Chinese, Chromium and WebKit.
+// own could be made (mintonight, #944). The page's head had a New group of
+// its own then; the groups have their own tab now (routing-groups-jump),
+// so it went and this holds what that one was for: the groups' New group a
+// click away, in sight, opening an empty group's editor with its name field
+// focused. It has the plus. No left-border accent. In English and Chinese,
+// Chromium and WebKit.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -59,7 +60,7 @@ function serve(lang) {
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
   for (const lang of ["en", "zh"]) {
     const w = words[lang];
-    test(`${engine} ${lang}: New group in the Routing page's head`, async (t) => {
+    test(`${engine} ${lang}: New group in the routing groups`, async (t) => {
       const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
       const page = await (await browser.newContext({ viewport: { width: 1000, height: 560 }, reducedMotion: "reduce" })).newPage();
       t.after(async () => {
@@ -82,21 +83,19 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.equal(await inList.count(), 1);
       assert.equal(await inList.locator("svg").count(), 1, "the groups' New group has a plus");
 
-      // the page's head: a New group in sight on arrival, the groups not
-      const head = page.locator("#view-routing > .row-head #rtNewGroup");
-      await head.waitFor();
-      assert.equal((await head.textContent()).trim(), w.btn);
-      assert.equal(await head.getAttribute("title"), w.tip);
-      assert.equal(await head.locator("svg").count(), 1);
+      // the page's head had a New group too, for the groups sat below every
+      // request; they have their tab now, so it went
+      assert.equal(await page.locator("#rtNewGroup").count(), 0, "no New group in the head");
+      // the groups' own, a click away on their tab, in sight on arrival
+      await page.locator("#rtTabs .opt").nth(1).click();
+      await page.locator(".rt-gsec").waitFor({ state: "visible" });
       const vh = await page.evaluate(() => innerHeight);
-      const hb = await head.boundingBox();
-      assert(hb && hb.y >= 0 && hb.y + hb.height <= vh, "the head's New group is in sight");
-      const gTop = await page.locator(".rt-gsec").evaluate((e) => e.getBoundingClientRect().top);
-      assert(gTop > vh, `the groups are below the fold here (${gTop} > ${vh})`);
-      const border = await head.evaluate((e) => { const c = getComputedStyle(e); return c.borderLeftWidth !== c.borderRightWidth || c.borderLeftColor !== c.borderRightColor; });
+      const hb = await inList.boundingBox();
+      assert(hb && hb.y >= 0 && hb.y + hb.height <= vh, "the groups' New group is in sight");
+      const border = await inList.evaluate((e) => { const c = getComputedStyle(e); return c.borderLeftWidth !== c.borderRightWidth || c.borderLeftColor !== c.borderRightColor; });
       assert.equal(border, false, "no left-border accent");
 
-      await head.click();
+      await inList.click();
       const ed = page.locator(".rt-gsec .rt-gedit");
       await ed.waitFor();
       // an empty new group's editor, in view, its name field focused
@@ -107,27 +106,26 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       });
       assert.equal(await ed.locator("input").first().inputValue(), "");
       assert.equal(await ed.evaluate((e) => e.contains(document.activeElement) && document.activeElement.tagName), "INPUT");
-      // Both New group entrances replace the same draft only after Discard.
+      // Both entrances replace the same draft only after Discard: the
+      // groups' New group and the model picker's.
       const name = ed.locator("input").first();
       const ask = page.locator("dialog.action-confirm[open]");
-      for (const entrance of [inList, head]) {
-        await name.fill("Unsaved group");
-        await page.mouse.move(500, 300);
-        for (let i = 0; i < 20; i++) {
-          const b = await entrance.boundingBox();
-          if (b.y >= 60 && b.y + b.height < vh - 60) break;
-          await page.mouse.wheel(0, b.y < 60 ? -400 : 400);
-          await page.waitForTimeout(100);
-        }
-        await entrance.click();
-        await ask.waitFor();
-        await ask.locator("button").first().click();
-        assert.equal(await name.inputValue(), "Unsaved group", "Cancel keeps the existing group draft");
-        await entrance.click();
-        await ask.locator("button").last().click();
-        await page.waitForFunction(() => document.querySelector(".rt-gedit input")?.value === "");
-        assert.equal(await ask.count(), 0, "Discard opens a clean new group");
+      await name.fill("Unsaved group");
+      await page.mouse.move(500, 300);
+      for (let i = 0; i < 20; i++) {
+        const b = await inList.boundingBox();
+        if (b.y >= 60 && b.y + b.height < vh - 60) break;
+        await page.mouse.wheel(0, b.y < 60 ? -400 : 400);
+        await page.waitForTimeout(100);
       }
+      await inList.click();
+      await ask.waitFor();
+      await ask.locator("button").first().click();
+      assert.equal(await name.inputValue(), "Unsaved group", "Cancel keeps the existing group draft");
+      await inList.click();
+      await ask.locator("button").last().click();
+      await page.waitForFunction(() => document.querySelector(".rt-gedit input")?.value === "");
+      assert.equal(await ask.count(), 0, "Discard opens a clean new group");
       // The model picker's entry must protect the same draft as both buttons.
       await name.fill("Unsaved group");
       const fromModel = () => page.evaluate(() => { window.newGroupWith("a/m", "Model A"); });

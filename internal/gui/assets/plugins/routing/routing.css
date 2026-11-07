@@ -19,6 +19,9 @@
 .rt-canvas { position: relative; height: max(360px, 70vh); overflow: auto; scrollbar-gutter: stable; cursor: var(--cur-grab); touch-action: none; }
 .rt-canvas.panning { cursor: var(--cur-grabbing); user-select: none; -webkit-user-select: none; }
 .rt-field { position: relative; overflow: clip; }
+.rt-view-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; }
+.rt-height { white-space: nowrap; font-size: 12px; }
+.rt-height:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .rt-zoom { display: flex; align-items: center; gap: 1px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
 .rt-zoom button { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); font: inherit; font-size: 11.5px; font-variant-numeric: tabular-nums; cursor: pointer; transition: background .12s, color .12s; }
 .rt-zoom button.rt-zoom-at { min-width: 42px; color: var(--fg-2); }
@@ -366,16 +369,6 @@
 #view-routing .row-head { margin: 14px 0 6px; padding: 0 2px; gap: 0; }
 #view-routing .row-head .note { font-size: 11px; color: var(--faint); margin-left: 8px; }
 #view-routing .row-head .rt-livedot + .note { margin-left: 8px; }
-.rt-newgroup, .rt-gogroups { display: inline-flex; align-items: center; gap: 5px; }
-.rt-newgroup svg, .rt-gogroups svg { width: 13px; height: 13px; flex: none; }
-/* the routing groups, far below with many models: the head goes to them */
-.rt-gogroups { margin-right: 6px; flex: none; }
-.rt-gogroups[data-fit="icon"] > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.rt-gogroups[data-fit="none"] { display: none; }
-.rt-gsec:focus { outline: none; }
-/* the routing groups' New group, at the top too: the groups sit below the
-   requests, out of sight on a first look (#944) */
-.rt-newgroup { margin-right: 6px; }
 .rt-gnew { display: inline-flex; align-items: center; gap: 4px; }
 /* an email, hidden: stand-in letters of its shape, softly blurred —
    coming in out of focus when asked for */
@@ -383,6 +376,16 @@
 .masking .pii { animation: rtpii .35s ease-out backwards; }
 @keyframes rtpii { from { filter: blur(0); opacity: 1; } }
 #view-routing .rt { margin: 0; }
+/* the page's two parts: the live view (the stage, the requests, the accounts
+   and keys) and the routing groups with their settings. The tabs are the
+   Usage page's strip, in the head where the page's name is; in the sidebar's
+   layout app.js lists both under Routing there (NAV_SUBS) and the strip goes */
+#view-routing > .row-head > #rtTabs { margin: 0 2px 0 12px; flex: none; }
+#view-routing > .row-head > #rtTabs .opt { white-space: nowrap; }
+body.side-nav #rtTabs { display: none !important; }
+#rtPanes { display: block; }
+#rtPaneGroups > .rt-gsec { margin-top: 14px; }
+.rt-gsec:focus { outline: none; }
 .rt-more { padding-bottom: 12px; }
 .rt-cols { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 16px; }
 /* side by side, the accounts end where the requests do and scroll like

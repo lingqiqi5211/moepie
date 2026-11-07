@@ -111,7 +111,7 @@ const kinds = [
   { name: "Agents", mode: "window", view: "agents", row: '#agents > .row.agent[data-id="beta"]', grip: ".ag-handle" },
   { name: "Providers", mode: "window", view: "providers", row: "#providers > .row.provider", grip: ".pv-handle" },
   { name: "Usage", mode: "window", view: "usage", row: ".subscription-card", grip: ".us-handle" },
-  { name: "Routing groups", mode: "window", view: "routing", row: '.rt-groups > .rt-group[data-id="g"]', grip: ".rt-ghandle" },
+  { name: "Routing groups", mode: "window", view: "routing", tab: "groups", row: '.rt-groups > .rt-group[data-id="g"]', grip: ".rt-ghandle" },
   {
     name: "a group's members", mode: "window", view: "routing", row: ".rt-gedit .fbrow:has(.rt-mhandle)", grip: ".rt-mhandle",
     open: async (page) => {
@@ -159,7 +159,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         page.on("pageerror", (e) => errors.push(e.message));
         try {
           await page.route("**/*", serve(lang, web));
-          await page.goto("http://magpie.test/?" + (web ? "" : `mode=${k.mode}&`) + (k.view ? `view=${k.view}` : ""));
+          await page.goto("http://magpie.test/?" + (web ? "" : `mode=${k.mode}&`) + (k.view ? `view=${k.view}` : "") + (k.tab ? `&tab=${k.tab}` : ""));
           if (k.open) await k.open(page);
           const row = page.locator(k.row).first();
           await row.waitFor();

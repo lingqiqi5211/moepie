@@ -70,7 +70,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const errors = [], posts = [];
       page.on("pageerror", (e) => errors.push(e.message));
       await page.route("**/*", serve(lang, posts));
-      await page.goto("http://magpie.test/?view=routing");
+      await page.goto("http://magpie.test/?view=routing&tab=groups");
       await page.locator(".rt-group").first().waitFor();
       const ed = page.locator(".rt-gedit");
       // the editor's Levels row: the field after its label

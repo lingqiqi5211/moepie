@@ -1,15 +1,15 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
-// The routing groups sit at the Routing page's foot, below the stage, the
-// story and every request: with many models a long scroll down (shihh on
-// Discord). The page's head has a Routing groups beside New group, with a
-// down arrow and a tooltip saying where they are; its click brings the
-// groups' heading to the top of the view (or the view to its foot) and the
-// focus into them, and nothing else moves: the groups stay where they were
-// in the page, and a click no reader made scrolls nothing. It takes only
-// room the head has spare: named where that fits, its arrow alone (still
-// named to a screen reader) where only that does, left out where nothing
-// does, and every other part of the head is where it is without it. Every
-// language, Chromium and WebKit, wide, a phone's width and a narrow window.
+// The routing groups used to sit at the Routing page's foot, below the stage,
+// the story and every request: with many models a long scroll down (shihh on
+// Discord), and the page's head had a Routing groups beside New group to
+// bring them into sight (#944). The page is in two parts now, its live view
+// and its groups, picked by the tabs in its head (the Usage page's strip) or,
+// in the sidebar's layout, by its rows under Routing there: the head's jump
+// went with the tabs, and so did its New group, for the groups' own one is a
+// click away. What this holds is what the jump was for: the groups are in
+// sight on arrival, the pick is kept, and the page has had no sideways
+// scroll. Every language, Chromium and WebKit, wide, a phone's width and a
+// narrow window.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -25,14 +25,15 @@ const info = (ids) => ids.map((id) => ({ id, ready: true }));
 const found = { id: "auto-m", name: "Model M", members: ["a/m", "b/m"], auto: true, ready: true, memberInfo: info(["a/m", "b/m"]) };
 
 const words = {
-  en: { btn: "Routing groups", tip: "Go to the routing groups, below the requests" },
-  zh: { btn: "路由组", tip: "跳到请求下方的路由组" },
-  "zh-TW": { btn: "路由組", tip: "跳到請求下方的路由組" },
-  ja: { btn: "ルーティンググループ", tip: "リクエストの下にあるルーティンググループへ移動" },
-  de: { btn: "Weiterleitungsgruppen", tip: "Zu den Weiterleitungsgruppen unter den Anfragen springen" },
+  en: { view: "Live routing", groups: "Routing groups" },
+  zh: { view: "路由情况", groups: "路由组" },
+  "zh-TW": { view: "路由情況", groups: "路由組" },
+  ja: { view: "ルーティングの状況", groups: "ルーティンググループ" },
+  de: { view: "Routing im Überblick", groups: "Weiterleitungsgruppen" },
 };
 
-// requests enough to put the groups well below the window's fold
+// requests enough to have put the groups well below the window's fold, as
+// they were when they shared the page with them
 const now = Date.now();
 const routes = Array.from({ length: 60 }, (_, i) => ({
   id: "r" + i, seq: i + 1, at: new Date(now - i * 60000).toISOString(), agent: "claude", asked: "group/auto-m",
@@ -66,13 +67,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
   for (const lang of Object.keys(words)) {
     for (const { width, web } of [{ width: 1000, web: true }, { width: 480, web: true }, { width: 640, web: false }]) {
       const w = words[lang];
-      test(`${engine} ${lang} ${width}px${web ? " web" : " window"}: Routing groups in the Routing page's head goes to them`, async (t) => {
+      test(`${engine} ${lang} ${width}px${web ? " web" : " window"}: the Routing page's groups tab shows them in sight`, async (t) => {
         const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
         const page = await (await browser.newContext({ viewport: { width, height: 600 }, reducedMotion: "reduce" })).newPage();
         t.after(async () => {
           if (process.env.ARTIFACT_DIR) {
             await fs.mkdir(process.env.ARTIFACT_DIR, { recursive: true });
-            await page.screenshot({ path: path.join(process.env.ARTIFACT_DIR, `${engine}-${lang}-${width}${web ? "-web" : ""}-routing-groups-jump.png`) });
+            await page.screenshot({ path: path.join(process.env.ARTIFACT_DIR, `${engine}-${lang}-${width}${web ? "-web" : ""}-routing-groups-tab.png`) });
           }
           await browser.close();
         });
@@ -82,82 +83,138 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         page.on("pageerror", (e) => errors.push(e.message));
         await page.route("**/*", serve(lang, web));
         await page.goto("http://magpie.test/?view=routing");
-        await page.locator(".rt-group", { hasText: "Model M" }).waitFor({ state: "attached" });
         await page.locator(".rt-reqs > *").first().waitFor({ state: "attached" });
+        await page.locator(".rt-group", { hasText: "Model M" }).waitFor({ state: "attached" });
 
+        // the page's two parts are tabs in its head, the groups the second
         const view = page.locator("#view-routing");
-        const go = page.locator("#view-routing > .row-head #rtGoGroups");
-        await go.waitFor({ state: "attached" });
-        await page.waitForFunction(() => document.getElementById("rtGoGroups").dataset.fit);
-        await page.waitForTimeout(100); // the fit settles in the frame after a resize
-        const fit = await go.getAttribute("data-fit");
-        if (width === 1000) assert.equal(fit, "full", "a wide head names it");
-        assert.equal(await go.getAttribute("title"), w.tip);
-        assert.equal(await go.evaluate((e) => e.tagName), "BUTTON", "a button, no native select");
-        assert.equal(await go.locator("svg").count(), 1, "a down arrow");
-        // nothing else in the head moves for it, or wraps, at this width (the
-        // spacer gives it its room)
-        const apart = await page.evaluate(() => {
-          const b = document.getElementById("rtGoGroups"), h = b.parentElement;
-          const at = () => JSON.stringify([h.getBoundingClientRect().height, ...[...h.children].filter((c) => c !== b && !c.classList.contains("grow")).map((c) => { const r = c.getBoundingClientRect(); return [c.className, Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]; })]);
-          const withIt = at();
-          b.style.setProperty("display", "none", "important");
-          const without = at();
-          b.style.removeProperty("display");
-          return { withIt, without, over: h.scrollWidth - h.clientWidth };
-        });
-        assert.equal(apart.withIt, apart.without, "the head is laid out as without it");
-        assert(apart.over <= 0, `nothing overflows the head (${apart.over}px)`);
-        const vw = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
-        assert(vw <= 0, `no sideways scroll (${vw}px)`);
-        if (fit === "none") {
-          assert.equal(await go.isVisible(), false, "left out where the head has no room");
-          assert.deepEqual(errors, []);
-          return;
+        const tabs = view.locator("> .row-head #rtTabs > .opt");
+        await tabs.first().waitFor({ state: "attached" });
+        assert.equal(await tabs.count(), 2, "two tabs");
+        assert.deepEqual((await tabs.allTextContents()).map((s) => s.trim()), [w.view, w.groups]);
+        // the head's jump went with the tabs, and its New group with the groups' own
+        assert.equal(await page.locator("#rtGoGroups, #rtNewGroup").count(), 0, "no jump or New group in the head");
+        await page.evaluate(() => localStorage.removeItem("magpie.routingTab"));
+
+        // the live view first: the requests on it, the groups off screen
+        const side = await page.evaluate(() => document.body.classList.contains("side-nav"));
+        const gsec = page.locator(".rt-gsec");
+        assert.equal(await tabs.first().getAttribute("aria-pressed"), "true", "Live routing picked at the start");
+        assert.equal(await page.locator("#rtPaneView").isVisible(), true);
+        assert.equal(await page.locator(".rt-reqs > *").first().isVisible(), true, "the requests are on the view's pane");
+        assert.equal(await gsec.isVisible(), false, "no groups on screen");
+        // whose tab is in the head, or a row under Routing in the sidebar's layout
+        let pick;
+        if (side) {
+          assert.equal(await tabs.first().isVisible(), false, "the strip goes in the sidebar's layout");
+          pick = page.locator(".nav-sub:not(.leaving) .nav-s", { hasText: w.groups });
+          await pick.waitFor({ state: "visible" });
+        } else {
+          assert.equal(await tabs.first().isVisible(), true);
+          pick = tabs.nth(1);
         }
-        await go.waitFor();
-        // named on screen, or to a screen reader where only the arrow shows
-        assert.equal(await page.getByRole("button", { name: w.btn, exact: true }).count(), 1);
-        const label = go.locator("span");
-        if (fit === "full") assert.equal((await label.textContent()).trim(), w.btn);
-        else assert((await label.boundingBox()).width <= 1, "the arrow alone");
-        const border = await go.evaluate((e) => { const c = getComputedStyle(e); return c.borderLeftWidth !== c.borderRightWidth || c.borderLeftColor !== c.borderRightColor; });
-        assert.equal(border, false, "no left-border accent");
-        const hb = await go.boundingBox();
-        assert(hb.x >= 0 && hb.x + hb.width <= width && hb.y >= 0, "in sight on arrival");
-
-        // the layout as before: the groups after every request, below the fold
-        assert.equal(await page.evaluate(() => {
-          const more = document.getElementById("rtMore"), g = more.querySelector(".rt-gsec"), reqs = more.querySelector(".rt-reqs");
-          return g.parentElement === more && more.lastElementChild === g && !!(reqs.compareDocumentPosition(g) & Node.DOCUMENT_POSITION_FOLLOWING);
-        }), true, "the groups stay at the page's foot, after the requests");
-        const vh = await view.evaluate((v) => v.getBoundingClientRect().bottom);
-        const gTop = () => page.locator(".rt-gsec").evaluate((e) => e.getBoundingClientRect().top);
-        assert(await gTop() > vh, "the groups are below the fold on arrival");
+        // the pick: the groups' pane, its settings, in sight on arrival
+        await pick.click();
+        await gsec.waitFor({ state: "visible" });
+        assert.equal(await page.locator("#rtPaneView").isVisible(), false, "the view's pane went");
+        assert.equal(await tabs.nth(1).getAttribute("aria-pressed"), "true", "the tab shows as picked");
+        const gb = await gsec.boundingBox();
+        assert(gb.y >= 0 && gb.y < 600, "the groups are in sight");
         assert.equal(await view.evaluate((v) => v.scrollTop), 0, "the page opens at its top");
-
-        // a click no reader made (code's own) scrolls nothing
-        await go.evaluate((b) => b.click());
-        await page.waitForTimeout(300);
-        assert.equal(await view.evaluate((v) => v.scrollTop), 0, "an untrusted click doesn't move the page");
-
-        // the reader's click: the groups' heading at the top of the view, the focus in them
-        await go.click();
-        // at the top of the view, or the view at its foot where the page ends first
-        await page.waitForFunction(() => {
-          const v = document.getElementById("view-routing"), g = document.querySelector(".rt-gsec");
-          const top = g.getBoundingClientRect().top - v.getBoundingClientRect().top;
-          return (top >= -1 && top < 40) || (top > 0 && v.scrollTop > 0 && v.scrollTop + v.clientHeight >= v.scrollHeight - 1);
-        });
-        assert.equal(await page.evaluate(() => document.querySelector(".rt-gsec").contains(document.activeElement)), true, "the focus goes with them");
-        const gh = await page.locator(".rt-gsec > .row-head .label").first().boundingBox();
-        assert(gh && gh.y >= 0 && gh.y + gh.height <= vh, "the groups' heading is in sight");
-        // and stays there: a moment later the view hasn't been pulled away
-        const at = await view.evaluate((v) => v.scrollTop);
-        await page.waitForTimeout(400);
-        assert.equal(await view.evaluate((v) => v.scrollTop), at, "the view stays where the click took it");
+        // ... and stays picked across a reload (as the stage's height and zoom are)
+        await page.reload();
+        await gsec.waitFor({ state: "visible" });
+        assert.equal((await tabs.nth(1).textContent()).trim(), w.groups);
+        assert.equal(await tabs.nth(1).getAttribute("aria-pressed"), "true", "the pick is kept");
+        // the other tab puts it back
+        if (side) {
+          await page.locator(".nav-sub:not(.leaving) .nav-s", { hasText: w.view }).click();
+        } else {
+          await tabs.first().click();
+        }
+        await page.locator("#rtPaneView").waitFor({ state: "visible" });
+        assert.equal(await gsec.isVisible(), false, "the groups went with their pane");
+        // the strip's arrow keys walk it, focus with the pick
+        if (!side) {
+          await tabs.first().focus();
+          await page.keyboard.press("ArrowRight");
+          await gsec.waitFor({ state: "visible" });
+          assert.equal(await page.evaluate(() => document.activeElement?.dataset?.tab), "groups", "ArrowRight picks the groups");
+        }
+        const over = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+        assert(over <= 0, `no sideways scroll (${over}px)`);
+        const hb = await page.locator("#view-routing > .row-head").boundingBox();
+        assert(hb.width <= width, "the head fits its page");
         assert.deepEqual(errors, []);
       });
     }
   }
 }
+
+// a jump to a group from elsewhere — a model's card's New group, a window
+// opened on one — picks the groups' page, as if their tab was clicked
+test("chromium en: a jump to a group picks the Routing groups' tab", async (t) => {
+  const browser = await chromium.launch({ channel: "chromium" });
+  const page = await (await browser.newContext({ viewport: { width: 1000, height: 600 }, reducedMotion: "reduce" })).newPage();
+  t.after(() => browser.close());
+  page.setDefaultTimeout(5000);
+  page.setDefaultNavigationTimeout(60000);
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.route("**/*", serve("en", true));
+  await page.goto("http://magpie.test/?view=routing");
+  await page.locator(".rt-reqs > *").first().waitFor({ state: "attached" });
+  await page.locator(".rt-group", { hasText: "Model M" }).waitFor({ state: "attached" });
+  const tabs = page.locator("#view-routing > .row-head #rtTabs > .opt");
+  await tabs.first().waitFor({ state: "attached" });
+  assert.equal(await page.locator("#rtPaneView").isVisible(), true, "the live view first");
+  assert.equal(await page.locator(".rt-gsec").isVisible(), false);
+
+  await page.evaluate(() => window.newGroupWith("a/m", "Model A"));
+  await page.locator(".rt-gsec .rt-gedit").waitFor({ state: "visible" });
+  assert.equal(await page.locator("#rtPaneGroups").isVisible(), true, "the groups' pane");
+  assert.equal(await page.locator("#rtPaneView").isVisible(), false, "the view's pane went");
+  assert.equal(await tabs.nth(1).getAttribute("aria-pressed"), "true", "their tab shows as picked");
+  assert.equal(await page.evaluate(() => localStorage.getItem("magpie.routingTab")), "groups", "and the pick is kept");
+  assert.deepEqual(await page.locator(".rt-gedit .fbrow .n").allTextContents(), ["mA"], "the new group has its model");
+  assert.deepEqual(errors, []);
+});
+
+// the sidebar's layout: the page's two parts are its rows under Routing, and
+// the strip in the head goes
+test("chromium en: the sidebar lists the Routing page's two parts under Routing", async (t) => {
+  const browser = await chromium.launch({ channel: "chromium" });
+  const page = await (await browser.newContext({ viewport: { width: 1000, height: 620 }, reducedMotion: "reduce" })).newPage();
+  t.after(() => browser.close());
+  page.setDefaultTimeout(5000);
+  page.setDefaultNavigationTimeout(60000);
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.addInitScript(() => { try { localStorage.setItem("magpie.navLayout", "side"); } catch {} });
+  await page.route("**/*", serve("en", true));
+  await page.goto("http://magpie.test/?view=routing");
+  await page.locator(".rt-reqs > *").first().waitFor({ state: "attached" });
+  await page.locator(".rt-group", { hasText: "Model M" }).waitFor({ state: "attached" });
+  assert.equal(await page.evaluate(() => document.body.classList.contains("side-nav")), true, "the sidebar's layout");
+  assert.equal(await page.locator("#rtTabs").evaluate((e) => e.offsetParent !== null), false, "the strip in the head goes");
+
+  const rows = page.locator(".nav-sub:not(.leaving) .nav-s");
+  await rows.first().waitFor({ state: "visible" });
+  assert.deepEqual((await rows.allTextContents()).map((s) => s.trim()), ["Live routing", "Routing groups"]);
+  assert.equal(await rows.first().getAttribute("aria-selected"), "true", "the live view first");
+  assert.equal(await page.locator("#rtPaneView").isVisible(), true);
+
+  await rows.nth(1).click();
+  await page.locator(".rt-gsec").waitFor({ state: "visible" });
+  assert.equal(await page.locator("#rtPaneGroups").isVisible(), true);
+  assert.equal(await page.locator("#rtPaneView").isVisible(), false);
+  assert.equal(await rows.nth(1).getAttribute("aria-selected"), "true", "the row shows as picked");
+
+  await page.reload();
+  await page.locator(".rt-gsec").waitFor({ state: "visible" });
+  assert.equal(await page.locator("#rtPaneGroups").isVisible(), true, "the pick is kept");
+  assert.equal(await page.locator(".nav-sub:not(.leaving) .nav-s[aria-selected='true']").textContent(), "Routing groups");
+  const over = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+  assert(over <= 0, `no sideways scroll (${over}px)`);
+  assert.deepEqual(errors, []);
+});

@@ -301,6 +301,45 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await page.waitForTimeout(200);
       assert.notEqual((await k()).said, "50%", "Ctrl and the wheel over the zoom zoom the stage");
       assert(!(await page.evaluate(() => window.__wheels)).includes(false), "and not the page");
+
+      // The viewport preference changes its height, independently of zoom,
+      // and survives reloading without changing the default for other users.
+      const sizes = lang === "zh" ? ["紧凑画布", "标准画布", "宽裕画布"] : ["Compact canvas", "Standard canvas", "Large canvas"];
+      const heightPick = page.locator('.rt-height');
+      const chooseSize = async (name) => {
+        await heightPick.click();
+        await page.getByRole('menuitemradio', { name, exact: true }).click();
+        await frames(page);
+      };
+      const zoomBeforeSize = (await k()).said;
+      await chooseSize(sizes[0]);
+      let sizedView = await k();
+      assert.equal(sizedView.h, Math.round(Math.max(240, sizedView.view * .45)), 'compact viewport gives room back to the request details');
+      assert.equal(sizedView.said, zoomBeforeSize, 'height never changes zoom');
+      assert.equal(await page.evaluate(() => localStorage.getItem('magpie.routingStageSize')), 'compact');
+      await page.reload();
+      await page.locator('#view-routing .rt-req').nth(5).waitFor();
+      await frames(page);
+      sizedView = await k();
+      assert.equal(await heightPick.textContent(), sizes[0]);
+      assert.equal(sizedView.h, Math.round(Math.max(240, sizedView.view * .45)), 'compact viewport is kept after reload');
+      await chooseSize(sizes[2]);
+      sizedView = await k();
+      assert.equal(sizedView.h, Math.round(Math.max(360, sizedView.view * .9)), 'large viewport is available');
+      await chooseSize(sizes[1]);
+      sizedView = await k();
+      assert.equal(sizedView.h, want(sizedView.view), 'standard restores the existing height');
+
+      const pending = req(9, 3);
+      pending.done = false;
+      delete pending.ms;
+      pending.tries[0].done = false;
+      delete pending.tries[0].ms;
+      feed.q.push(pending);
+      await page.waitForFunction((expected) => document.querySelector('.rt-detail-panel')?.textContent?.includes(expected), lang === 'zh' ? '回答中' : 'Reply in progress');
+      const elapsed = await page.locator('.rt-stat b').first().textContent();
+      assert.match(elapsed, /\d/, 'running request keeps its measured clock');
+      assert(!elapsed.includes('…'), 'running duration has no unexplained ellipsis');
       assert.deepEqual(errors, []);
     });
   }

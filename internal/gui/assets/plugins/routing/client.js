@@ -19,12 +19,12 @@ magpie.plugin("routing", (ctx) => {
     key: "routing",
     title: "Routing",
     html: `
-    <div class="row-head"><span class="label" data-t>Routing</span><span class="rt-livedot" aria-hidden="true"></span><span class="note" data-t>live, as the gateway decides</span><span class="grow"></span>
-      <button class="text rt-gogroups" id="rtGoGroups" type="button" data-tt="Go to the routing groups, below the requests"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v9.5M4 8.5l4 4 4-4"/></svg><span data-t>Routing groups</span></button>
-      <button class="text rt-newgroup" id="rtNewGroup" type="button" data-feature="groups" data-tt="Make a routing group of any models you like — agents pick it as one model"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9"/></svg><span data-t>New group</span></button>
+    <div class="row-head"><span class="label" data-t>Routing</span><div class="segs" id="rtTabs" role="tablist"></div><span class="rt-livedot" aria-hidden="true"></span><span class="note" data-t>live, as the gateway decides</span><span class="grow"></span>
       <button class="text rt-mask" id="rtMask" aria-pressed="false" data-tt="Mask the accounts on this page — email addresses and account names — for a screenshot to share"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.9 4.2A10.4 10.4 0 0 1 12 4c6.5 0 10 8 10 8a17.6 17.6 0 0 1-2.2 3.2M6.6 6.6C3.9 8.4 2 12 2 12s3.5 8 10 8a9.7 9.7 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2M2 2l20 20"/></svg><span data-t>Hide accounts</span></button></div>
-    <section class="rt" id="rt"></section>
-    <div class="rt-more" id="rtMore"></div>
+    <div id="rtPanes">
+      <div id="rtPaneView" role="tabpanel"><section class="rt" id="rt"></section><div class="rt-more" id="rtMore"></div></div>
+      <div id="rtPaneGroups" role="tabpanel" hidden></div>
+    </div>
 `,
     // once the window's scripts have all run: the page it opens on is
     // shown by then, so the first draw is of a page in sight (WebKit
@@ -104,13 +104,34 @@ function routingPage(part) {
   const ZOOM_MIN = .5, ZOOM_MAX = 2;
   let scale = 1;
   try { const z = Number(localStorage.getItem("magpie.routingStageZoom")); if (z >= ZOOM_MIN && z <= ZOOM_MAX) scale = z; } catch {}
+  const HEIGHTS = [["compact", "Compact canvas", .45, 240], ["standard", "Standard canvas", .7, 360], ["large", "Large canvas", .9, 360]];
+  let canvasSize = "standard";
+  try { const v = localStorage.getItem("magpie.routingStageSize"); if (HEIGHTS.some(([id]) => id === v)) canvasSize = v; } catch {}
+  const heightPick = el("button", "text rt-height");
+  heightPick.type = "button";
+  heightPick.setAttribute("aria-haspopup", "menu");
+  heightPick.setAttribute("aria-expanded", "false");
+  heightPick.onclick = () => {
+    if (heightPick.classList.contains("open")) return closeProtoMenu();
+    openProtoMenu(heightPick, HEIGHTS.map(([v, name]) => ({ v, name, note: "" })), canvasSize, (v) => {
+      closeProtoMenu();
+      if (!HEIGHTS.some(([id]) => id === v)) return;
+      canvasSize = v;
+      try { localStorage.setItem("magpie.routingStageSize", v); } catch {}
+      zoomWords();
+      fitWindow();
+      heightPick.focus({ preventScroll: true });
+    }, "Canvas height", "", "right");
+  };
   const zoomBar = el("div", "rt-zoom");
   const zBtn = (cls, svg) => { const b = el("button", cls); b.type = "button"; if (svg) b.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${svg}"/></svg>`; return b; };
   const zOut = zBtn("rt-zoom-out", "M3.5 8h9"), zAt = zBtn("rt-zoom-at"), zIn = zBtn("rt-zoom-in", "M8 3.5v9M3.5 8h9");
   zoomBar.append(zOut, zAt, zIn);
   // the zoom on the heading's line, right of it, over the window rather
   // than in it: it covers none of the stage and takes none of its height
-  what.after(zoomBar);
+  const viewTools = el("div", "rt-view-tools");
+  viewTools.append(heightPick, zoomBar);
+  what.after(viewTools);
   const pane = el("div", "rt-pane");
   pane.append(canvas);
   const foot = el("div", "rt-foot");
@@ -172,6 +193,64 @@ function routingPage(part) {
   // under the stage: every request the gateway keeps, and each account or
   // key as those requests found it
   const more = $("#rtMore");
+
+  // ---------- the page's two parts ----------
+  // The live view — the stage, the requests and the accounts and keys it is
+  // read with — and the routing groups with their settings: two panes, one
+  // shown, picked by the tabs in the head (the same .segs strip the Usage
+  // page's tabs are) or, in the sidebar's layout, by the page's rows under
+  // Routing there (app.js's NAV_SUBS, routing.css hiding this strip). The
+  // pick is kept (magpie.routingTab), as the stage's height and zoom are,
+  // and a jump to a group from elsewhere (a model's card, a window opened
+  // on one) picks the groups' pane.
+  const tabBox = $("#rtTabs"), paneView = $("#rtPaneView"), paneGroups = $("#rtPaneGroups");
+  const TAB_WORDS = { view: "Live routing", groups: "Routing groups" };
+  const tabOf = () => { try { return localStorage.getItem("magpie.routingTab") === "groups" ? "groups" : "view"; } catch { return "view"; } };
+  const tabWords = () => {
+    for (const b of tabBox.querySelectorAll(":scope > .opt")) b.textContent = t(TAB_WORDS[b.dataset.tab]);
+  };
+  // showTab: the pane picked, the strip drawn as picked, the pick kept. A
+  // jump to the page's groups says the same as a click on their tab.
+  function showTab(id) {
+    const tab = id === "groups" ? "groups" : "view";
+    for (const b of tabBox.querySelectorAll(":scope > .opt")) {
+      const on = b.dataset.tab === tab;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", String(on));
+      b.setAttribute("aria-selected", String(on));
+      b.tabIndex = on ? 0 : -1;
+    }
+    paneView.hidden = tab !== "view";
+    paneGroups.hidden = tab !== "groups";
+    slide(tabBox, "rtTabs");
+    try { localStorage.setItem("magpie.routingTab", tab); } catch {}
+  }
+  for (const id of ["view", "groups"]) {
+    const b = el("button", "opt");
+    b.type = "button";
+    b.dataset.tab = id;
+    b.setAttribute("role", "tab");
+    b.onclick = () => { if (!b.classList.contains("on")) showTab(id); };
+    tabBox.append(b);
+  }
+  tabWords();
+  // a link may name the pane (?view=routing&tab=groups), as the Usage page's
+  // tab=requests does; otherwise the one picked last
+  const askedTab = params.get("view") === "routing" && params.get("tab");
+  showTab(askedTab === "groups" || askedTab === "view" ? askedTab : tabOf());
+  requestAnimationFrame(() => slide(tabBox, "rtTabs"));
+  // arrow keys walk the strip, as a tablist's do
+  tabBox.onkeydown = (e) => {
+    const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const next = e.target?.dataset?.tab === "view" ? "groups" : "view";
+    showTab(next);
+    tabBox.querySelector(`[data-tab="${next}"]`)?.focus();
+  };
+  // the tabs say their words again when the language changes
+  new MutationObserver(tabWords).observe(document.documentElement, { attributes: true, attributeFilter: ["lang"] });
+
   const reqHead = el("div", "row-head rt-req-head"), reqNote = el("span", "note");
   const reqs = el("div", "list rt-reqs");
   // the days the history keeps on disk, to look back at one: see listed
@@ -3440,7 +3519,7 @@ function routingPage(part) {
   function stepTimes(r, list) {
     const total = Math.max(1, r.done ? r.ms || 0 : since(now(), at(r.time)), ...list.map(s => s.at + (s.ms || 0)));
     const { prompt, read } = promptOf(r);
-    const stats = [[t("Duration"), took(Math.round(total)) + (!r.done ? "…" : "")],
+    const stats = [[t("Duration"), took(Math.round(total))],
       [t("First token"), r.ttft ? took(r.ttft) : "—"], [t("Cache hit"), prompt ? pct(100 * read / prompt) : "—"],
       [t("Tokens"), Number.isFinite(r.tokens) ? tokens(r.tokens) : "—"]];
     const names = stats.map(x => x[0]).join("|");
@@ -5327,9 +5406,10 @@ function routingPage(part) {
   gOffBox.append(el("div", "rt-goffwhy", t("Routing groups are off in Plugins › Built-in: the groups magpie finds, one model several providers serve, still route, but your own can't be made or changed here.")), gOn);
   gOff.append(el("div", "row-head", el("span", "label", t("Routing groups"))), gOffBox);
   gsec.append(gHead, gFound, gNames, gList, gOff, pHead, pList);
-  // after the requests: a request picked in the list plays on the stage,
-  // so the list sits right under it
-  more.append(gsec);
+  // the groups are the page's other pane: their own tab, under the tabs'
+  // head, rather than after the requests (they sat at the page's foot,
+  // a long scroll down with many models)
+  paneGroups.append(gsec);
   const ROUTE_OPTS = [["", "Smart"], ["order", "In order"], ["drain", "Until used up"], ["rotate", "In turn"], ["usage", "Least used"], ["pace", "Weekly pace"], ["free", "Free first"], ["fast", "Speed first"]];
   // a group may also be routed by hand: every request to the member the
   // user picks on its card (provider.Manual, #317) — a provider's keys can't
@@ -5548,6 +5628,7 @@ function routingPage(part) {
   // there, rather than leaving the slot empty.
   const openGroupEditor = async (g) => {
     if (groupDirty() && !(await confirmDiscard())) return false;
+    showTab("groups");
     gEdit = { id: g.id, draft: { name: g.name, members: [...g.members], match: [...(g.match || [])], matched: [...(g.matched || [])], fast: [...(g.fast || [])], off: [...(g.off || [])], weights: { ...(g.weights || {}) }, routing: g.routing || "", pick: g.pick || "", affinity: g.affinity || "", sink: !!g.sink, unlists: !!g.unlists, firstToken: g.firstToken || 0, patience: patienceOf(g.patience), context: g.context || 0, classifier: g.classifier || "", effort: g.effort || "", levels: [...(g.levels || [])], rules: (g.rules || []).map((r) => ({ ...r, ...(r.more?.length ? { more: [...r.more] } : {}), intent: r.intent || "", agents: [...(r.agents || [])], folders: [...(r.folders || [])], exceptFolders: [...(r.exceptFolders || [])], time: r.time ? { ...r.time, days: [...(r.time.days || [])] } : null })) } };
     renderGroups();
     return true;
@@ -7686,17 +7767,19 @@ function routingPage(part) {
     if (!groups) await loadGroups();
     if (!groups) return;
     if (groupDirty() && !(await confirmDiscard())) return;
+    showTab("groups");
     gEdit = { id: "", draft: { name: name || modelOf(id)?.name || id.split("/").pop(), members: [id], fast: [], routing: "", affinity: "", rules: [] } };
     renderGroups();
     const ed = gList.querySelector(".rt-gedit");
     if (ed && window.scrollOnPurpose?.(ev)) ed.scrollIntoView({ block: "center", behavior: "smooth" });
     ed?.querySelector("input")?.focus({ preventScroll: true });
   };
-  // newGroup: an empty new group's editor. The groups sit below the
-  // requests, out of sight on a first look, so the page's head has a New
-  // group too (mintonight, #944), which brings the editor into view.
+  // newGroup: an empty new group's editor, opened from the groups' own New
+  // group. The head used to have one too (#944), for the groups sat below
+  // the requests out of sight; they have their own tab now, so it went.
   async function newGroup(ev) {
     if (groupDirty() && !(await confirmDiscard())) return;
+    showTab("groups");
     gSel = null;
     gEdit = { id: "", draft: { name: "", members: [], match: [], matched: [], fast: [], off: [], routing: "", affinity: "", rules: [] } };
     renderGroups();
@@ -7704,43 +7787,6 @@ function routingPage(part) {
     const ed = gList.querySelector(".rt-gedit");
     if (ed && window.scrollOnPurpose?.(ev)) ed.scrollIntoView({ block: "center", behavior: "smooth" });
     ed?.querySelector("input")?.focus({ preventScroll: true });
-  }
-  const headNew = $("#rtNewGroup");
-  if (headNew) headNew.onclick = async (ev) => {
-    if (!groups) await loadGroups();
-    if (groups) newGroup(ev);
-  };
-  // the head's Routing groups: the groups sit below the stage, the story
-  // and every request, a long scroll down with many models (shihh on
-  // Discord). Its click brings them to the top of the view, and the focus
-  // with them, so Tab goes on from there; the page is laid out as before
-  gsec.tabIndex = -1;
-  const headGo = $("#rtGoGroups");
-  if (headGo) headGo.onclick = (ev) => {
-    if (!window.scrollOnPurpose?.(ev)) return;
-    gsec.scrollIntoView({ block: "start", behavior: still() ? "auto" : "smooth" });
-    gsec.focus({ preventScroll: true });
-  };
-  // fitGo: it takes only room the head has spare, so nothing else in the
-  // head moves or wraps for it: named where its name fits, its arrow alone
-  // where only that does, and left out of a head with no room (a phone's)
-  const goHead = headGo?.parentElement, goGrow = goHead?.querySelector(".grow");
-  function fitGo() {
-    if (!goGrow || !goHead.offsetParent) return;
-    headGo.dataset.fit = "none";
-    const room = goGrow.getBoundingClientRect().width, gap = parseFloat(getComputedStyle(goHead).columnGap) || 0;
-    for (const fit of ["full", "icon"]) {
-      headGo.dataset.fit = fit;
-      if (room >= headGo.getBoundingClientRect().width + 6 + gap) return;
-    }
-    headGo.dataset.fit = "none";
-  }
-  let goFitting = 0;
-  const fitGoSoon = () => { if (!goFitting) goFitting = requestAnimationFrame(() => { goFitting = 0; fitGo(); }); };
-  if (goHead) {
-    const ro = new ResizeObserver(fitGoSoon);
-    for (const n of [goHead, ...goHead.querySelectorAll(".label, .note")]) ro.observe(n);
-    new MutationObserver(fitGoSoon).observe(document.documentElement, { attributes: true, attributeFilter: ["lang"] });
   }
   const askedGroup = document.body.classList.contains("window") && params.get("newgroup");
   if (askedGroup) loadGroups().then(() => window.newGroupWith(askedGroup, ""));
@@ -8237,12 +8283,12 @@ function routingPage(part) {
     const tall = stageH > ch + .5;
     if (tall !== stage.classList.contains("tall")) { stage.classList.toggle("tall", tall); layoutSoon(); }
   }
-  // The larger proportional viewport requested for the diagram remains
-  // independent of the scene and the compact details below it.
+  // The reader's viewport size is independent of scene zoom and layout.
   function fitWindow() {
     const v = $("#view-routing"), h = v.clientHeight;
     if (v.hidden || !h) return;
-    const px = Math.round(Math.max(360, h * .7)) + "px";
+    const [, , share, min] = HEIGHTS.find(([id]) => id === canvasSize);
+    const px = Math.round(Math.max(min, h * share)) + "px";
     if (canvas.style.height !== px) canvas.style.height = px;
   }
   // Zoom only transforms the scene. Layout width and breakpoints follow
@@ -8338,6 +8384,9 @@ function routingPage(part) {
   };
   for (const e of [pane, zoomBar]) e.addEventListener("wheel", wheelZoom, { passive: false });
   function zoomWords() {
+    setText(heightPick, t(HEIGHTS.find(([id]) => id === canvasSize)[1]));
+    heightPick.title = t("Canvas height");
+    heightPick.setAttribute("aria-label", heightPick.title + " · " + heightPick.textContent);
     zOut.title = t("Zoom the flow out");
     zIn.title = t("Zoom the flow in");
     zAt.title = t("Reset the flow's zoom to 100%");

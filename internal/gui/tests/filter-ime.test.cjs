@@ -119,7 +119,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const errors = [];
         page.on("pageerror", (e) => errors.push(e.message));
         await page.route("**/*", serve(lang, held));
-        await page.goto("http://magpie.test/?view=" + view);
+        // the routing groups are their own pane of the Routing page
+        await page.goto("http://magpie.test/?view=" + view + (view === "routing" ? "&tab=groups" : ""));
         return { page, errors };
       };
       // typeIn: through an IME where there is one to drive, by key elsewhere

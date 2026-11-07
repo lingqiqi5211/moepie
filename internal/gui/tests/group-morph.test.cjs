@@ -93,7 +93,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       page.on("pageerror", (e) => errors.push(e.message));
       let release;
       await page.route("**/*", serve(lang, new Promise((r) => { release = r; })));
-      await page.goto("http://magpie.test/?view=routing");
+      await page.goto("http://magpie.test/?view=routing&tab=groups");
       const row = page.locator(".rt-group[data-id=b]");
       await row.waitFor();
       const rowH = (await row.boundingBox()).height;
@@ -155,7 +155,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     page.setDefaultTimeout(5000);
     page.setDefaultNavigationTimeout(60000);
     await page.route("**/*", serve("en", Promise.resolve()));
-    await page.goto("http://magpie.test/?view=routing");
+    await page.goto("http://magpie.test/?view=routing&tab=groups");
     await page.locator(".rt-group[data-id=b]").click();
     await page.locator(".rt-gedit").waitFor();
     assert.equal((await slotMotion(page)).from, null, "no height animation opening");

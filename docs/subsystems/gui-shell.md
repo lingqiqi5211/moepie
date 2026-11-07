@@ -95,8 +95,11 @@ Verification: `routing-route-timeline.test.cjs` (whole card in five languages,
 
 ### Routing canvas
 
-The live diagram sits in a fixed viewport (70% of the view height, at least
-360 px). Zoom transforms the whole scene at 50–200%; its layout width,
+The live diagram sits in a fixed viewport. The height menu beside zoom
+chooses Compact (45% of the view height, at least 240 px), Standard (70%,
+at least 360 px, the default) or Large (90%, at least 360 px). The choice
+is local to this browser in `magpie.routingStageSize`; an absent or unknown
+value uses Standard. Zoom transforms the whole scene at 50–200%; its layout width,
 column proportions and breakpoints do not change with the zoom. The scene
 has panning room on every side, including when smaller than the viewport.
 Dragging the canvas or a node’s non-control area pans with native scrolling;
@@ -617,12 +620,13 @@ Routing's New group buttons share `newGroup`, which asks before replacing a
 dirty group draft; Cancel retains the draft and Discard opens the new editor.
 `newGroupWith` applies the same guard when creating a group from a model and
 waits for `show` to accept navigation before creating its draft.
-The Routing page's head also has Routing groups (`#rtGoGroups`), since the
-groups sit below every request. Its click goes through `scrollOnPurpose`,
-brings `.rt-gsec` to the top of the view and focuses it; the page's layout is
-unchanged. `fitGo` gives it only the head's spare room: named, its arrow
-alone, or left out, so nothing else in the head moves or wraps for it
-(`routing-groups-jump.test.cjs`).
+The Routing page has two panes: Live routing (the stage, the requests, the
+accounts and keys) and Routing groups (`.rt-gsec` with its settings). The
+head's `#rtTabs` strip, the Usage page's `.segs`, picks one; in the sidebar's
+layout the two are rows under Routing (`NAV_SUBS.routing`) and the strip is
+hidden. The pick is kept in `magpie.routingTab`, a link can name it
+(`?view=routing&tab=groups`), and `openGroupEditor`, `newGroup` and
+`newGroupWith` pick the groups' pane first (`routing-groups-jump.test.cjs`).
 Live, the Routing page's card (its head, story and context window) tells of
 one request, `cur`, chosen by `told()` in `plugins/routing/client.js`: it
 stays on the request it tells of until that one is done, then goes to the

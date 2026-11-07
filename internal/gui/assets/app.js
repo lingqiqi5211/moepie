@@ -23316,6 +23316,9 @@ function navMorph(change) {
 // and picks them there, the page's own strip hidden (app.css)
 var NAV_SUBS = {
   usage: () => $("#usageTab"),
+  // the Routing page's two parts are its own: the live view and the routing
+  // groups, tabs the sidebar lists under Routing (routing.css hides them there)
+  routing: () => $("#rtTabs"),
   library: () => $("#view-library .lib-tabs"),
   plugins: () => $("#view-plugins .lib-tabs"),
   settings: () => $("#setTabs"),

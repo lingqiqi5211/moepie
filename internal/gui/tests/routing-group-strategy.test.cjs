@@ -86,7 +86,7 @@ async function open(t, engine, { lang, theme = "light", web = true, width = 1100
   const errors = [], posts = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.route("**/*", serve(lang, theme, web, posts));
-  await page.goto("http://magpie.test/?view=routing");
+  await page.goto("http://magpie.test/?view=routing&tab=groups");
   await page.locator(".rt-group", { hasText: "Auto" }).waitFor();
   return { page, errors, posts };
 }
