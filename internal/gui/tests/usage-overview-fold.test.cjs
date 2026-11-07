@@ -222,6 +222,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           await p.goto("http://magpie.test/");
           await goUsage(p);
           await p.locator(":is(#usageTab .opt, .nav-s):visible").nth(1).click();
+          // the totals are in the summary card's fold
+          const fold = p.locator("#ledTrendToggle");
+          await fold.waitFor();
+          if ((await fold.getAttribute("aria-expanded")) !== "true") await fold.click();
           await p.locator("#ledKpi .blk").first().waitFor();
           await p.waitForTimeout(200);
           const fit = await p.locator("#ledKpi .blk").first().evaluate((b) => {

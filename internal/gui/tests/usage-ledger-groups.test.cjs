@@ -100,7 +100,7 @@ function server(lang, asked) {
 
 const L = {
   en: {
-    groups: ["No grouping", "Agents", "Models", "Sessions"], sum: "1 served-model mismatch", mis: "⚠ Only served-model mismatches 1",
+    groups: ["No grouping", "Agents", "Models asked for", "Sessions"], sum: "1 served-model mismatch", mis: "Model mismatches 1",
     lines: [["swapped", "⚠ Served model:gpt-6-luna"], ["renamed", "Reply named:claude-sonnet-5-20260801"], ["routed", "Group picked:glm-fast"]],
     head: "⚠ Served model: gpt-6-luna", dts: ["Model requested", "Upstream request model", "Served model", "Actual provider"],
     why: "The model name the upstream returned doesn't match the upstream request model, under any spelling magpie recognizes. An alias or a dated version can also differ, so this warning alone doesn't prove the model was replaced.",
@@ -113,7 +113,7 @@ const L = {
     fresh: "133 requests in this group, 132 shown", noneFoot: ["4 requests in this group, 4 shown", "1 of them, turned away or a probe, isn't counted in the figures above"],
   },
   zh: {
-    groups: ["不分组", "Agent", "模型", "会话"], sum: "响应模型不一致 1", mis: "⚠ 只看响应模型不一致 1",
+    groups: ["不分组", "Agent", "请求的模型", "会话"], sum: "响应模型不一致 1", mis: "模型不一致 1",
     lines: [["swapped", "⚠ 响应模型：gpt-6-luna"], ["renamed", "响应：claude-sonnet-5-20260801"], ["routed", "分组挑中：glm-fast"]],
     head: "⚠ 响应模型：gpt-6-luna", dts: ["请求模型", "上游请求模型", "响应模型", "实际供应商"],
     why: "上游返回的模型名与上游请求模型不一致（magpie 能识别的写法差异已排除）。别名或日期版本也可能导致差异，不能仅凭此警示认定模型被替换。",
@@ -171,8 +171,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await p.keyboard.press("Escape");
         await menu.waitFor({ state: "hidden" });
         assert.equal((await p.locator("#ledSum .mis").textContent()).trim(), w.sum);
-        assert.equal((await p.locator("#ledMis").textContent()).trim(), w.mis);
-        assert.equal(await p.locator("#ledMis").isEnabled(), true);
+        assert.equal((await p.locator("#ledStatus .opt.mis").textContent()).trim(), w.mis);
+        assert.equal(await p.locator("#ledStatus .opt.mis").isEnabled(), true);
 
         // the model column: the one asked for, a line under it as the reply named it
         for (const [i, [as, text]] of w.lines.entries()) {
@@ -225,11 +225,11 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         }
 
         // only the mismatches: the server's pick, over the whole period
-        await press(p.locator("#ledMis"));
+        await press(p.locator("#ledStatus .opt.mis"));
         await last((q) => q.get("mismatch") === "1" && !q.has("group"), "the switch asks the server");
         await p.waitForFunction(() => document.querySelectorAll("#ledWrap .led tbody tr.led-row").length === 1);
-        assert.equal(await p.locator("#ledMis").getAttribute("aria-pressed"), "true");
-        await press(p.locator("#ledMis"));
+        assert.equal(await p.locator("#ledStatus .opt.mis").getAttribute("aria-pressed"), "true");
+        await press(p.locator("#ledStatus .opt").first());
         await last((q) => !q.has("mismatch"));
         await p.waitForFunction(() => document.querySelectorAll("#ledWrap .led tbody tr.led-row").length === 100);
 
@@ -289,13 +289,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await p.evaluate(() => loadLedger(true));
         await p.waitForFunction(() => document.querySelector(".led-grp .led-gs b")?.textContent === "132" && document.querySelectorAll(".led-grp tbody tr.led-row").length === 132);
         // with only the mismatches: the groups that have any, their headers whole
-        await press(p.locator("#ledMis"));
+        await press(p.locator("#ledStatus .opt.mis"));
         await last((q) => q.get("mismatch") === "1" && q.get("agent") === "codex", "the open group read again");
         await p.waitForFunction(() => document.querySelectorAll(".led-gh").length === 1);
         assert.equal(await p.locator(".led-gh").first().locator(".led-gs b").first().textContent(), "132", "a header sums all of its group");
         await p.locator(".led-grp .led-gfoot").waitFor();
         assert.equal((await p.locator(".led-grp .led-gfoot span").first().textContent()).trim(), w.misFoot);
-        await press(p.locator("#ledMis"));
+        await press(p.locator("#ledStatus .opt").first());
         await last((q) => !q.has("mismatch"));
 
         // by model: the one asked for, a group's rows read by it

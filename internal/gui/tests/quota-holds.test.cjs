@@ -111,7 +111,8 @@ for (const [name, engine] of [["webkit", webkit], ["chromium", chromium]]) {
             assert.ok(l.inReset && !l.cut && l.inCard && l.muted, `${at}: ${JSON.stringify(l)}`);
             assert.equal(l.title.split("\n").length, 2, at);
           }
-          const [five, week, kiro] = got.lines;
+          // the rings list a pool's 7-day window first, its 5-hour one inside
+          const [week, five, kiro] = got.lines;
           assert.equal(five.text, want[lang].line + " · ≈ $85.43", at);
           assert.match(week.text, /≈ \$1235$/, at);
           assert.doesNotMatch(kiro.text, /\$/, `${at}: no API price, no cost`);

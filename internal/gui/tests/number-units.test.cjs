@@ -154,6 +154,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const requests = async () => {
           await p.locator('[data-view="usage"]').first().click();
           await p.locator(":is(#usageTab .opt, .nav-s):visible").nth(1).click();
+          // the trend and its chart are in the summary card's fold
+          const fold = p.locator("#ledTrendToggle");
+          await fold.waitFor();
+          if ((await fold.getAttribute("aria-expanded")) !== "true") await fold.click();
           await p.locator("#ledChart svg").waitFor();
         };
 

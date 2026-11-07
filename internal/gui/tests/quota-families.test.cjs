@@ -119,7 +119,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert(!tip.includes("Claude"), "only its own family's models");
       // Claude Code's windows name no family: as they were, no toggle
       const cc = page.locator(".subscription-card", { hasText: "Claude Code" });
-      assert.deepEqual(await cc.locator(".quota-labels > span:first-child").allTextContents(), [w.five, lang === "zh" ? "7 天" : "7 days"]);
+      assert.deepEqual(await cc.locator(".quota-labels > span:first-child").allTextContents(), [lang === "zh" ? "7 天" : "7 days", w.five]);
       assert.equal(await cc.locator(".quota-every").count(), 0);
       assert.equal(await card.locator("button.quota-every").count(), 2, "one toggle an account");
 
@@ -148,8 +148,15 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       // the menu bar panel: three rings an account, the families
       const panel = await open("panel", "http://magpie.test/?mode=panel", { width: 440, height: 640 });
       await panel.locator('#ptabs [data-ptab="usage"]').click();
-      // its second account is behind the button, as several accounts are
-      await panel.locator(".pq-group", { hasText: "Antigravity" }).locator(".pq-more").click();
+      // its second account is behind the button, as several accounts are;
+      // the panel opens it from the keyboard's activation (a pointer's click
+      // on it does nothing at HEAD either), and its render may replace the
+      // button as the key is pressed, so press again until both are drawn
+      for (let i = 0; i < 4 && (await panel.locator(".pq-group", { hasText: "Antigravity" }).locator(".pq-card").count()) < 2; i++) {
+        await panel.locator(".pq-group", { hasText: "Antigravity" }).locator(".pq-more").first().focus();
+        await panel.keyboard.press("Enter");
+        await panel.waitForTimeout(300);
+      }
       const pcards = panel.locator(".pq-group", { hasText: "Antigravity" }).locator(".pq-card");
       await pcards.first().locator(".pq-ring").first().waitFor();
       assert.equal(await pcards.count(), 2);

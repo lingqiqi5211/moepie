@@ -142,7 +142,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         .filter((n) => /^(subscription-account|q-body|quota-windows)/.test(n)));
       assert.deepEqual(order, ["subscription-account", "q-body", "subscription-account.brief", "quota-windows.brief"]);
       const brief = codex.locator(".quota-windows.brief");
-      assert.ok(await brief.locator(".quota").count() >= 2, "its windows all kept");
+      // a folded account's windows are drawn as rings (usage page.js), one
+      // figure a window
+      assert.ok(await brief.locator(".rg-part").count() >= 2, "its windows all kept");
       assert.match(await codex.locator(".subscription-account.brief").textContent(), /b@x\.com/);
       // in columns, the charts under the meters
       const main = await codex.locator(".q-main").boundingBox(), viz = await codex.locator(".q-viz").boundingBox();

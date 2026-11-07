@@ -61,55 +61,65 @@ magpie.plugin("usage", (ctx) => {
       <button class="sess-pick" id="ledComputer" type="button" hidden></button>
       <button class="sess-pick" id="ledAgent" type="button" hidden></button>
       <button class="sess-pick" id="ledPurpose" type="button" hidden></button>
+      <button class="sess-pick" id="ledKey" type="button" hidden></button>
+      <span class="led-sep" aria-hidden="true"></span>
       <button class="sess-pick" id="ledProvider" type="button" hidden></button>
       <button class="sess-pick led-more" id="ledProviderMore" type="button" aria-haspopup="menu" hidden></button>
-      <button class="sess-pick" id="ledModel" type="button" hidden></button>
       <button class="sess-pick" id="ledAccount" type="button" hidden></button>
-      <button class="sess-pick" id="ledKey" type="button" hidden></button>
-      <button class="sess-pick" id="ledGroup" type="button"></button>
-      <div class="segs" id="ledStatus"></div>
-      <button class="sess-pick led-mis" id="ledMis" type="button" aria-pressed="false" hidden></button>
+      <button class="sess-pick" id="ledModel" type="button" hidden></button>
       <span id="ledSess" hidden><span id="ledSessLabel"></span><button class="text" id="ledSessClear" type="button">×</button></span>
       <span id="ledReq" hidden><span id="ledReqLabel"></span><button class="text" id="ledReqClear" type="button">×</button></span>
       <span id="ledRoute" hidden><span id="ledRouteLabel"></span><button class="text" id="ledRouteClear" type="button" data-tt="Clear filter" aria-label="Clear filter">×</button></span>
+      <span class="led-sep" aria-hidden="true"></span>
+      <div class="segs" id="ledStatus"></div>
+      <button class="sess-pick" id="ledGroup" type="button"></button>
       <span class="grow"></span>
       <input class="sess-filter" id="ledQ" type="search" spellcheck="false" autocomplete="off" placeholder="Search models, providers, sessions" data-tp>
       <button class="text" id="ledExport" type="button" title="Save every request listed, all pages, as a CSV file in Downloads" data-tt><span data-t>Export CSV</span></button>
     </div>
-    <p class="usage-note" id="ledScope" data-t>Gateway and session-log calls; local rejections excluded from totals.</p>
-    <div class="led-dash" id="ledDash" hidden>
-      <div class="led-strip" id="ledKpi"></div>
-      <section class="led-trend">
-        <div class="led-bar">
-          <div class="segs" id="ledMetric"></div>
-          <div class="segs led-style" id="ledStyle"></div>
-          <span class="grow"></span>
-          <span class="led-split"><span class="led-by" data-t>Split by</span><span class="segs" id="ledSplit"></span></span>
-        </div>
-        <div class="led-body">
-          <div class="led-chart" id="ledChart"></div>
-          <div class="led-rank" id="ledRank"></div>
-          <div class="led-rail" id="ledRail" hidden><i></i></div>
-        </div>
-      </section>
-    </div>
-    <section class="led-heat" id="ledHeat" hidden>
-      <div class="led-bar">
-        <div class="heat-title"><b data-t>Usage heatmap</b><span data-t>Daily usage over the last 53 weeks</span></div>
+    <div class="fx-sum" id="ledSumCard">
+      <div class="led-strip led-vias" id="ledVia" hidden></div>
+      <div class="led-head fx-sum-head">
+        <p class="led-sum" id="ledSum"></p>
         <span class="grow"></span>
-        <div class="segs" id="ledHeatMetric"></div>
+        <span class="led-arch" id="ledArchive"></span>
+        <button class="fx-fold" id="ledTrendToggle" type="button" aria-expanded="false" aria-controls="ledTrendBody"><span data-t>Trend and analysis</span><i aria-hidden="true"></i></button>
       </div>
-      <div class="heat-scroll" id="ledHeatScroll"></div>
-      <div class="heat-foot"></div>
-      <div class="heat-tip" id="ledHeatTip" hidden></div>
-    </section>
-    <div class="led-head"><p class="led-sum" id="ledSum"></p><span class="grow"></span><span class="led-arch" id="ledArchive"></span></div>
-    <div class="led-strip led-vias" id="ledVia" hidden></div>
+      <div class="fx-sum-body" id="ledTrendBody" hidden>
+        <div class="led-dash" id="ledDash" hidden>
+          <div class="led-strip" id="ledKpi"></div>
+          <section class="led-trend">
+            <div class="led-bar">
+              <div class="segs" id="ledMetric"></div>
+              <div class="segs led-style" id="ledStyle"></div>
+              <span class="grow"></span>
+              <span class="led-split"><span class="led-by" data-t>Split by</span><span class="segs" id="ledSplit"></span></span>
+            </div>
+            <div class="led-body">
+              <div class="led-chart" id="ledChart"></div>
+              <div class="led-rank" id="ledRank"></div>
+              <div class="led-rail" id="ledRail" hidden><i></i></div>
+            </div>
+          </section>
+        </div>
+        <section class="led-heat" id="ledHeat" hidden>
+          <div class="led-bar">
+            <div class="heat-title"><b data-t>Usage heatmap</b><span data-t>Daily usage over the last 53 weeks</span></div>
+            <span class="grow"></span>
+            <div class="segs" id="ledHeatMetric"></div>
+          </div>
+          <div class="heat-scroll" id="ledHeatScroll"></div>
+          <div class="heat-foot"></div>
+          <div class="heat-tip" id="ledHeatTip" hidden></div>
+        </section>
+      </div>
+    </div>
     <div class="led-table">
       <div class="led-wrap" id="ledWrap"></div>
       <div class="led-hscroll" id="ledHScroll" hidden><div></div></div>
     </div>
     <div class="led-pager" id="ledPager" hidden></div>
+    <p class="usage-note" id="ledScope" data-t>Gateway and session-log calls; local rejections excluded from totals.</p>
     <p class="usage-note" id="ledNote"></p>
   </div>
   <div class="usage-pane ctx-pane" id="contextPane" hidden></div>

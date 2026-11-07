@@ -40,6 +40,8 @@ const quotas = [
 ];
 // each account's meters: Gemini 5h, 7d, then Claude & GPT 5h, 7d
 const figures = { "ada@example.com": [5, 25, 30, 60], "bob@example.com": [0, 10, 100, 100] };
+// the rings read a pool's windows outside in: its 7 days, then its 5 hours
+const weekFirst = (a) => [a[1], a[0], a[3], a[2]];
 const logins = quotas.slice(1).map((q, i) => ({ user: q.user, plan: q.plan, active: i === 0, on: true }));
 const antigravity = {
   id: "antigravity", name: "Antigravity", icon: "antigravity-color", chat: "", responses: "", anthropic: "", catalog: "",
@@ -101,7 +103,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         return page;
       };
       const fill = (loc) => loc.evaluateAll((es) => es.map((e) => Math.round(parseFloat(e.style.width))));
-      const names = [`Gemini · ${w.five}`, `Gemini · ${w.week}`, `Claude & GPT · ${w.five}`, `Claude & GPT · ${w.week}`];
+      // the rings put the 7-day window outside, the 5-hour one inside it
+      const names = [`Gemini · ${w.week}`, `Gemini · ${w.five}`, `Claude & GPT · ${w.week}`, `Claude & GPT · ${w.five}`];
 
       // the Usage page: each pool's 5 hours then its 7 days, Gemini first
       const page = await open("usage", "http://magpie.test/?view=usage", { width: 900, height: 700 });
@@ -112,7 +115,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       for (const [i, user] of ["ada@example.com", "bob@example.com"].entries()) {
         const box = boxes.nth(i);
         assert.deepEqual(await box.locator(".quota-labels > span:first-child").allTextContents(), names, `${user}: a pool's two windows`);
-        assert.deepEqual(await fill(box.locator(".quota-track i")), figures[user], `${user}: each window's own figure`);
+        assert.deepEqual(await fill(box.locator(".quota-track i")), weekFirst(figures[user]), `${user}: each window's own figure`);
       }
       const tip = await boxes.first().locator(".quota").nth(1).getAttribute("title");
       assert(tip.includes(w.shared), "the pool says its models share it: " + tip);
@@ -120,9 +123,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert(!tip.includes("Claude"), "only its own pool's models");
       const other = await boxes.first().locator(".quota").nth(2).getAttribute("title");
       for (const m of ["Claude Opus 4.6 (Thinking)", "Claude Sonnet 4.6", "GPT-OSS 120B (Medium)"]) assert(other.includes(m), `Claude & GPT names ${m}`);
-      // Claude Code's windows name no pool: as they were, no toggle
+      // Claude Code's windows name no pool: one ring, the week outside
       const cc = page.locator(".subscription-card", { hasText: "Claude Code" });
-      assert.deepEqual(await cc.locator(".quota-labels > span:first-child").allTextContents(), [w.five, w.week]);
+      assert.deepEqual(await cc.locator(".quota-labels > span:first-child").allTextContents(), [w.week, w.five]);
       assert.equal(await cc.locator(".quota-every").count(), 0);
 
       // Every model: the five models' windows, not the pools' again; and back
@@ -148,8 +151,16 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       // the menu bar panel: four rings an account, 5h and 7d a pool
       const panel = await open("panel", "http://magpie.test/?mode=panel", { width: 440, height: 640 });
       await panel.locator('#ptabs [data-ptab="usage"]').click();
-      // its second account is behind the button, as several accounts are
-      await panel.locator(".pq-group", { hasText: "Antigravity" }).locator(".pq-more").click();
+      // its second account is behind the button, as several accounts are;
+      // the panel opens it from the keyboard's activation (a pointer's click
+      // on it does nothing at HEAD either), and its render may replace the
+      // button as the key is pressed, so press again until both are drawn
+      for (let i = 0; i < 4 && (await panel.locator(".pq-group", { hasText: "Antigravity" }).locator(".pq-card").count()) < 2; i++) {
+        await panel.locator(".pq-group", { hasText: "Antigravity" }).locator(".pq-more").first().focus();
+        await panel.keyboard.press("Enter");
+        await panel.waitForTimeout(300);
+      }
+      await panel.waitForTimeout(400);
       const pcards = panel.locator(".pq-group", { hasText: "Antigravity" }).locator(".pq-card");
       await pcards.first().locator(".pq-ring").first().waitFor();
       assert.equal(await pcards.count(), 2);

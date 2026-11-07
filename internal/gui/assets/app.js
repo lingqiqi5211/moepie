@@ -15725,9 +15725,17 @@ usageFolds();
 addEventListener("storage", (e) => {
   if (["magpie.usageOpen", "magpie.usageAccounts", "magpie.usageAcctsOpened"].includes(e.key)) { usageFolds(); renderQuotas(); }
 });
+// The pick is kept for the session, by provider: a refresh in which another
+// account answered the last request left the open one folded and opened that
+// one, the card changing height under the reader. It is picked anew when it
+// is gone from the card.
+const usagePicked = new Map();
 function usageShown(subs) {
+  const kept = subs.find((q) => usageAcctKey(q) === usagePicked.get(subs[0]?.provider));
+  if (kept) return kept;
   let pick = subs[0];
   for (const q of subs) if (q.lastServedAt && (!pick.lastServedAt || q.lastServedAt > pick.lastServedAt)) pick = q;
+  if (pick) usagePicked.set(pick.provider, usageAcctKey(pick));
   return pick;
 }
 const usageAcctKey = (q) => q.provider + "\n" + (q.user || "").toLowerCase();
@@ -18584,7 +18592,8 @@ function openSessCombo(anchor, all, opts, value, choose, head) {
     words.append(el("span", "pm-name", o.name), el("span", "pm-note", o.note));
     b.title = o.v;
     b.append(tick, words);
-    b.onclick = (e) => { e.stopPropagation(); closeProtoMenu(); choose(o.v); };
+    if (o.off) b.disabled = true;
+    b.onclick = (e) => { e.stopPropagation(); if (o.off) return; closeProtoMenu(); choose(o.v); };
     hoverFocus(b);
     return b;
   };
@@ -18608,15 +18617,15 @@ function openSessCombo(anchor, all, opts, value, choose, head) {
   const outside = (e) => { if (!box.contains(e.target) && !anchor.contains(e.target)) closeProtoMenu(); };
   const scroll = (e) => { if (scrollCloses(box, e)) closeProtoMenu(); };
   const keys = (e) => {
-    const i = items.indexOf(document.activeElement);
+    const live = items.filter((b) => !b.disabled), i = live.indexOf(document.activeElement);
     if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeProtoMenu(); anchor.focus(); }
-    else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && items.length) {
+    else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && live.length) {
       e.preventDefault(); e.stopPropagation();
-      const n = items.length, from = i < 0 ? (e.key === "ArrowDown" ? n - 1 : 0) : i;
-      items[(from + (e.key === "ArrowDown" ? 1 : n - 1)) % n].focus();
+      const n = live.length, from = i < 0 ? (e.key === "ArrowDown" ? n - 1 : 0) : i;
+      live[(from + (e.key === "ArrowDown" ? 1 : n - 1)) % n].focus();
     } else if (e.key === "Enter" && document.activeElement === q) {
       e.preventDefault();
-      const o = items[0];
+      const o = live[0];
       if (o) o.click();
     } else if (i >= 0 && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
       // typing on a row goes on in the search

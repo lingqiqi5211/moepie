@@ -346,7 +346,12 @@ function renderUsageLoading() {
   view.setAttribute("aria-busy", "true");
   renderPeriod(true);
   $("#usageCost").replaceChildren(el("span", "skeleton sk-cost"));
-  renderQuotas();
+  // cards drawn already stay as they are: the read of the allowances that
+  // goes with every load (loadQuotas) draws them again once it answers.
+  // Drawn here as well, every card and curve was built twice, the first
+  // time inside the click that opened the page, so its motion stuttered
+  // (_hii11 on Discord)
+  if (!quotas || !$("#subscriptionUsage").hasChildNodes()) renderQuotas();
   const stats = $("#stats");
   stats.classList.remove("empty");
   stats.replaceChildren();
@@ -1361,8 +1366,11 @@ try {
   const g = localStorage.getItem("magpie.ledGroup");
   if (["", "agent", "model", "session"].includes(g)) ledGroup = g;
 } catch {}
-// the one request a route lists is never grouped
-const ledGrouping = () => ledRoute ? "" : ledGroup;
+// the one request a route lists is never grouped, nor rows a filter keeps to
+// one agent, model asked for or session: they would make a single group. The
+// grouping is kept and comes back once that filter is let go.
+const ledPinned = (by) => by === "agent" ? ledAgent : by === "model" ? ledRequested : by === "session" ? ledSession : "";
+const ledGrouping = () => ledRoute || ledPinned(ledGroup) ? "" : ledGroup;
 
 const LED_PAGE = 100;
 // Remember the chart metric; start each app load split by model.
@@ -2008,12 +2016,14 @@ function ledRail(rail, box) {
   };
 }
 
-// the request list's status filter: "" for all, "failed" or "retried"
-const ledStatusOf = () => ledFailed ? "failed" : ledRetried ? "retried" : "";
+// the request list's status filter: "" for all, "failed", "retried" or
+// "mismatch" (the reply named another model), one at a time
+const ledStatusOf = () => ledMis ? "mismatch" : ledFailed ? "failed" : ledRetried ? "retried" : "";
 function ledShowStatus(to) {
   if (to === ledStatusOf()) return;
   ledFailed = to === "failed";
   ledRetried = to === "retried";
+  ledMis = to === "mismatch";
   ledOffset = 0;
   loadLedger().catch((e) => status(e.message, "err"));
 }
@@ -2412,11 +2422,22 @@ function ledHeatShow(cell) {
 }
 // the table's scrollbar, kept in view at the window's foot (#799): as wide
 // as the table can go sideways, and moving it as the table moves it
+// Grouped, each opened group's table scrolls in its own box: the bar follows
+// the one at the window's foot, or the lowest one in view.
+let ledHTarget = null;
+function ledHScrollTarget() {
+  const wrap = $("#ledWrap");
+  if (wrap.querySelector(":scope > table")) return wrap.scrollWidth > wrap.clientWidth + 1 ? wrap : null;
+  const wide = [...wrap.querySelectorAll(".led-grp > .led-gbody")].filter((b) => b.querySelector(":scope > table") && b.scrollWidth > b.clientWidth + 1);
+  if (!wide.length) return null;
+  const foot = wrap.closest(".view")?.getBoundingClientRect().bottom ?? innerHeight;
+  const seen = wide.filter((b) => { const r = b.getBoundingClientRect(); return r.bottom > 0 && r.top < foot; });
+  return seen.find((b) => { const r = b.getBoundingClientRect(); return r.top < foot && r.bottom >= foot; }) || seen.at(-1) || null;
+}
 function ledHScroll() {
-  const wrap = $("#ledWrap"), bar = $("#ledHScroll");
-  const over = !!wrap.querySelector("table") && wrap.scrollWidth > wrap.clientWidth + 1;
-  bar.hidden = !over;
-  if (!over) return;
+  const bar = $("#ledHScroll"), wrap = ledHTarget = ledHScrollTarget();
+  bar.hidden = !wrap;
+  if (!wrap) return;
   bar.firstElementChild.style.width = wrap.scrollWidth - wrap.clientWidth + bar.clientWidth + "px";
   bar.scrollLeft = wrap.scrollLeft;
   // a sticky box keeps clear of its scroller's padding, so at bottom 0 it
@@ -2426,8 +2447,15 @@ function ledHScroll() {
   const pad = view ? parseFloat(getComputedStyle(view).paddingBottom) || 0 : 0;
   bar.style.bottom = -pad + "px";
 }
-$("#ledWrap").addEventListener("scroll", () => { const bar = $("#ledHScroll"); if (bar.scrollLeft !== $("#ledWrap").scrollLeft) bar.scrollLeft = $("#ledWrap").scrollLeft; }, { passive: true });
-$("#ledHScroll").addEventListener("scroll", () => { const wrap = $("#ledWrap"); if (wrap.scrollLeft !== $("#ledHScroll").scrollLeft) wrap.scrollLeft = $("#ledHScroll").scrollLeft; }, { passive: true });
+// a group's box doesn't pass its scroll up, so the wrap hears it on the way down
+$("#ledWrap").addEventListener("scroll", (e) => { const bar = $("#ledHScroll"); if (e.target === ledHTarget && bar.scrollLeft !== ledHTarget.scrollLeft) bar.scrollLeft = ledHTarget.scrollLeft; }, { passive: true, capture: true });
+$("#ledHScroll").addEventListener("scroll", () => { const w = ledHTarget, x = $("#ledHScroll").scrollLeft; if (w?.isConnected && w.scrollLeft !== x) w.scrollLeft = x; }, { passive: true });
+// grouped, scrolling the page down brings another group's table to the foot
+let ledHFrame = 0;
+document.addEventListener("scroll", (e) => {
+  if (ledHFrame || !e.target?.classList?.contains("view") || !ledGrouping() || !e.target.contains($("#ledWrap"))) return;
+  ledHFrame = requestAnimationFrame(() => { ledHFrame = 0; ledHScroll(); });
+}, { passive: true, capture: true });
 // a window that changes size redraws the chart at its new width
 // a new width fits the table again, on the next frame, and so do the
 // details' width (--ledw) and the scrollbar: each changes the table's or the
@@ -2879,7 +2907,7 @@ function ledTableEl() {
 const ledGroupOpen = new Set(); // grouping|id
 // grouping|id → { want, g, rows, total, calls, swaps, count, seq, drawn }
 const ledGroupGot = new Map();
-const LED_GROUPS = [["", "No grouping"], ["agent", "Agents"], ["model", "Models"], ["session", "Sessions"]];
+const LED_GROUPS = [["", "No grouping"], ["agent", "Agents"], ["model", "Models asked for"], ["session", "Sessions"]];
 // the filter a group's rows are read by: models group by the one asked for
 const LED_GROUP_PARAM = { agent: "agent", model: "requested", session: "session" };
 // the most rows one read gets (usage.QueryPage's bound)
@@ -3006,11 +3034,15 @@ function ledGroupEl(l, by, g, whole) {
       return s;
     };
     const speed = ledGroupSpeed(g);
-    head.replaceChildren(arrow, name, share,
+    // the figures in one block, so a narrow head moves them under the name
+    // together instead of leaving the last one alone on a line
+    const stats = el("span", "led-gstats");
+    stats.append(
       stat(ledNum(g.calls || 0), t("Requests")), stat(fmtN(g.input || 0), t("In")), stat(fmtN(g.output || 0), t("Out")),
       stat(fmtCost(g) || "—", t("Cost")), stat(ledNum(g.errors || 0), t("Failed"), g.errors ? "bad" : "zero"),
       stat(ledNum(g.swaps || 0), t("Model mismatches"), g.swaps ? "mis" : "zero"),
       stat(speed ? (speed.mainParts?.[0] || speed.main) : "—", t("Avg speed"), "speed", speed ? [speed.text, speed.title].filter(Boolean).join("\n") : ""));
+    head.replaceChildren(arrow, name, share, stats);
     set(ledGroupOpen.has(id));
     if (ledGroupOpen.has(id)) ledGroupBody(by, g, box);
   };
@@ -3138,7 +3170,14 @@ function ledOnlyGroup(by, g) {
 // never grouped: the menu waits till the route is let go.
 function ledGroupTools(l) {
   const btn = $("#ledGroup"), cur = ledGrouping();
-  const opts = LED_GROUPS.filter(([by]) => by).map(([v, name]) => ({ v, name: t(name), note: "" }));
+  // a dimension a filter already keeps to one value is greyed, saying which
+  const pinName = (by) => by === "agent" ? (l.agents.find((a) => a.id === ledAgent)?.name || ledAgent)
+    : by === "model" ? (ledRequested === "none" ? t("Without a model") : ledReqName || ledRequested)
+    : ledSession === "none" ? t("Without a session ID") : ledSession;
+  const opts = LED_GROUPS.filter(([by]) => by).map(([v, name]) => {
+    const pin = ledPinned(v);
+    return { v, name: t(name), note: pin ? t("Already filtered to {name}", { name: pinName(v) }) : "", off: !!pin };
+  });
   const label = (v) => v ? t("Group by") + " · " + (opts.find((o) => o.v === v)?.name || v) : t("No grouping");
   btn.hidden = false;
   btn.disabled = !!ledRoute;
@@ -3158,20 +3197,6 @@ function ledGroupTools(l) {
       ledOffset = 0;
       loadLedger().catch((e) => status(e.message, "err"));
     }, "Group by");
-  };
-  const mis = $("#ledMis"), n = l.swaps || 0;
-  mis.hidden = false;
-  mis.classList.toggle("on", ledMis);
-  mis.setAttribute("aria-pressed", ledMis ? "true" : "false");
-  mis.disabled = !n && !ledMis;
-  mis.textContent = "⚠ " + t("Only served-model mismatches") + " " + ledNum(n);
-  mis.title = t("Show only the requests whose reply named another model than the one asked for, over the whole period");
-  mis.onclick = () => {
-    ledMis = !ledMis;
-    mis.classList.toggle("on", ledMis);
-    mis.setAttribute("aria-pressed", ledMis ? "true" : "false");
-    ledOffset = 0;
-    loadLedger().catch((e) => status(e.message, "err"));
   };
   const chip = $("#ledSess");
   chip.hidden = !ledSession;
@@ -3255,12 +3280,21 @@ function renderLedger(quiet) {
   })).concat(noKey ? [{ v: "none", name: t("No gateway key"), note: "" }] : []), "Gateway keys", (v) => { ledCallerKey = v; ledOwn("callerKey"); ledOffset = 0; loadLedger().catch((e) => status(e.message, "err")); });
   const seg = $("#ledStatus");
   seg.replaceChildren();
-  // every request, those the agent got an error for, and those answered
-  // after a try that failed first
-  const shown = ledStatusOf();
-  for (const [on, name] of [["", "All"], ["failed", "Failed"], ["retried", "Retried"]]) {
+  // every request, those the agent got an error for, those answered after
+  // a try that failed first, and those whose reply named another model, with
+  // how many there are over the whole period
+  const shown = ledStatusOf(), swaps = l.swaps || 0;
+  for (const [on, name] of [["", "All"], ["failed", "Failed"], ["retried", "Retried"], ["mismatch", "Model mismatches"]]) {
     const b = el("button", "opt" + (on === shown ? " on" : ""), t(name));
+    b.type = "button";
+    b.setAttribute("aria-pressed", on === shown ? "true" : "false");
     if (on === "retried") b.title = t("Show only the requests answered on a retry");
+    if (on === "mismatch") {
+      b.classList.add("mis");
+      b.append(el("span", "n", " " + ledNum(swaps)));
+      b.disabled = !swaps && on !== shown;
+      b.title = t("Show only the requests whose reply named another model than the one asked for, over the whole period");
+    }
     b.onclick = () => {
       if (on === ledStatusOf()) return;
       for (const x of seg.querySelectorAll(".opt")) x.classList.toggle("on", x === b);
@@ -3571,6 +3605,15 @@ function ledSaid(p, model) {
 
 const USAGE_TABS = [["usage", "Overview"], ["requests", "Requests"], ["sessions", "Sessions"], ["context", "Context"]];
 let usageTab = "usage";
+// the allowance cards drawn while the Overview is out of sight: none. A read
+// of the quotas, a refresh or a page's summary asked for them on every page
+// (the Gateway, Providers, Routing and Requests each drew them once to three
+// times, 150-450 ms each on 14 accounts); they are drawn once when shown
+let quotasStale = true, quotasStaleFrame = 0, quotasDrawnSig = "";
+// what the cards were drawn from: the same on coming back (a read while away
+// that brought nothing new, a minute not yet past) is no reason to draw them
+// again, as upstream's read that changed nothing draws nothing
+const quotasSig = () => JSON.stringify([quotas, quotaHistV, quotaLeft, quotaRange, locale, state?.settings, Math.floor(Date.now() / 60e3)]);
 try { const k = localStorage.getItem("magpie.usageTab"); if (USAGE_TABS.some(([id]) => id === k)) usageTab = k; } catch {}
 let sessAgent = "all";
 let sessQuery = "";
@@ -3719,6 +3762,16 @@ function renderUsageTab() {
   $("#ledgerPane").hidden = usageTab !== "requests";
   $("#sessionsPane").hidden = !on;
   $("#contextPane").hidden = usageTab !== "context";
+  if (quotasStale && quotas && view === "usage" && usageTab === "usage" && !quotasStaleFrame) {
+    // the page shows first, with the cards as they were; they are drawn
+    // anew on the next frame, outside the click that opened it
+    quotasStaleFrame = requestAnimationFrame(() => {
+      quotasStaleFrame = 0;
+      if (!quotasStale || view !== "usage" || usageTab !== "usage") return;
+      if (quotasSig() === quotasDrawnSig && $("#subscriptionUsage").hasChildNodes()) { quotasStale = false; return; }
+      renderQuotas();
+    });
+  }
 }
 
 const sessDays = () => SESS_RANGES.find(([id]) => id === sessRange)[2];
@@ -5108,3 +5161,245 @@ if (mode === "window" && params.get("view") === "usage") {
   for (const k of ["tab", "provider", "agent", "computer", "card", "purpose", "via", "period"]) u.searchParams.delete(k);
   history.replaceState(null, "", u);
 }
+
+// ---- the requests tab's summary card ---------------------------------------
+// The sources and the sum are one card at the top of the list; the trend
+// chart and the heatmap open under them, in the same card. How it was left
+// is kept with the page's other folds (localStorage), and the fold is always
+// there: what it opens may still be reading.
+const LED_TREND_KEY = "magpie.ledSumOpen";
+let ledTrendOpen = false;
+try { ledTrendOpen = localStorage.getItem(LED_TREND_KEY) === "1"; } catch {}
+let ledTrendWired = false, ledTrendFrame = 0;
+// syncLedTrend: the fold's body shows what the page drew into #ledDash and
+// #ledHeat, and the button only when there is something to open.
+function syncLedTrend() {
+  const body = $("#ledTrendBody"), btn = $("#ledTrendToggle");
+  if (!body || !btn) return;
+  const dash = $("#ledDash"), heat = $("#ledHeat");
+  const any = !!dash && !dash.hidden || !!heat && !heat.hidden;
+  btn.hidden = !any;
+  body.hidden = !ledTrendOpen || !any;
+  btn.setAttribute("aria-expanded", String(!body.hidden));
+  // the heatmap and the chart are sized to the room they are in: once the
+  // fold is open, they read it again
+  if (!body.hidden && !ledTrendFrame) {
+    ledTrendFrame = requestAnimationFrame(() => { ledTrendFrame = 0; dispatchEvent(new Event("resize")); });
+  }
+}
+function wireLedTrend() {
+  const btn = $("#ledTrendToggle");
+  if (!btn || ledTrendWired) return;
+  ledTrendWired = true;
+  btn.onclick = () => {
+    ledTrendOpen = !ledTrendOpen;
+    try { localStorage.setItem(LED_TREND_KEY, ledTrendOpen ? "1" : "0"); } catch {}
+    syncLedTrend();
+  };
+  const obs = new MutationObserver(syncLedTrend);
+  for (const n of [$("#ledDash"), $("#ledHeat")]) if (n) obs.observe(n, { attributes: true, attributeFilter: ["hidden"] });
+  syncLedTrend();
+}
+wireLedTrend();
+const renderLedgerShown = renderLedger;
+renderLedger = function (quiet) {
+  renderLedgerShown(quiet);
+  wireLedTrend();
+  syncLedTrend();
+};
+
+// ---- the allowances' rings --------------------------------------------------
+// A folded account says each pool with one small ring instead of a row of
+// bars: the 7-day window outside, the 5-hour one inside it (one ring for a
+// pool with one window), the fill in the bar's own colours. An opened
+// account keeps the source's bars: they weigh less on the eye than big rings
+// and read the same in any column's width.
+function rgIsShort(name) {
+  const short = t("5 hours");
+  return name === short || /(^|\D)5\s*(hours?|小时|小時|時間|Stunden?|heures?|horas?|ore|uur|timmar|timers?)/i.test(name);
+}
+// a bar's colours as the stylesheet gives them (app.css .quota.low / .eta,
+// .quota-track.full), or one set on the bar itself: read off its classes, so
+// drawing the rings asks the page for no style and lays nothing out
+function rgFill(q, track, fill) {
+  if (fill?.style.background || fill?.style.backgroundColor) return fill.style.backgroundColor || fill.style.background;
+  if (q.classList.contains("low")) return "var(--red)";
+  if (q.classList.contains("eta") || track?.classList.contains("full")) return "var(--amber)";
+  return "";
+}
+function rgItem(q) {
+  const track = q.querySelector(".quota-track");
+  const fill = track?.querySelector("i");
+  const tick = q.querySelector(".quota-tick");
+  const name = q.querySelector(".quota-name")?.textContent.trim() || "";
+  const n = q.querySelector(".quota-n");
+  let v = null;
+  const bar = fill?.style.width ? parseFloat(fill.style.width) : NaN;
+  if (track && track.style.visibility !== "hidden" && Number.isFinite(bar)) v = bar;
+  else {
+    const m = (n?.textContent || "").match(/(\d+(?:\.\d+)?)\s*%/);
+    if (m) v = parseFloat(m[1]);
+  }
+  return { q, name, v, tick: tick ? parseFloat(tick.style.left) : null, ca: rgFill(q, track, fill), tr: track?.style.backgroundColor || "" };
+}
+// the windows in pools: a 5-hour window is the one inside the ring of the
+// 7-day window beside it, whichever of the two comes first
+function rgPools(items) {
+  const pools = [];
+  for (const it of items) {
+    const last = pools.at(-1);
+    if (rgIsShort(it.name)) {
+      if (last && last.a && !last.b) last.b = it;
+      else pools.push({ a: null, b: it });
+    } else if (last && !last.a && last.b) last.a = it;
+    else pools.push({ a: it, b: null });
+  }
+  for (const p of pools) if (!p.a && p.b) p.a = p.b, p.b = null;
+  return pools;
+}
+function rgPace(deg, cls) {
+  const i = el("i", "rg-pace " + cls);
+  i.style.setProperty("--deg", (deg * 3.6).toFixed(1) + "deg");
+  return i;
+}
+function rgDial(p) {
+  const o = p.a;
+  const d = el("div", "rg-dial");
+  if (!o) return d;
+  d.style.setProperty("--p", String(o.v == null ? 0 : Math.min(100, Math.max(0, o.v))));
+  if (o.tr) d.style.setProperty("--tr", o.tr);
+  if (o.ca) d.style.setProperty("--ca", o.ca);
+  if (o.tick != null) d.append(rgPace(o.tick, "outer"));
+  if (p.b) {
+    const inner = el("span", "rg-in");
+    inner.style.setProperty("--p", String(p.b.v == null ? 0 : Math.min(100, Math.max(0, p.b.v))));
+    if (p.b.tr) inner.style.setProperty("--tr", p.b.tr);
+    if (p.b.ca) inner.style.setProperty("--ca", p.b.ca);
+    d.append(inner);
+    if (p.b.tick != null) d.append(rgPace(p.b.tick, "inner"));
+  } else d.classList.add("one");
+  return d;
+}
+// a window's name split in its pool and its length ("Gemini · 7 days")
+function rgSplit(name) {
+  const at = name.lastIndexOf(" · ");
+  return at < 0 ? { pool: "", win: name } : { pool: name.slice(0, at), win: name.slice(at + 3) };
+}
+// a window's figure, short: its share when it has one, else what it says
+function rgFigure(it) {
+  const text = it.q.querySelector(".quota-n")?.textContent.trim() || "";
+  const m = text.match(/(\d+(?:\.\d+)?)\s*%/);
+  return m ? m[1] + "%" : text;
+}
+// the pool's name over each window's length and figure, outer ring first:
+// "Gemini" over "7 days 91% · 5 hours 100%"
+function rgSmall(p) {
+  const r = el("div", "rg rg-sm");
+  const d = rgDial(p);
+  d.classList.add("small");
+  const t2 = el("div", "rg-txt");
+  const ws = [p.a, p.b].filter(Boolean);
+  const pool = rgSplit(p.a?.name || "").pool;
+  if (pool) t2.append(el("span", "rg-name", pool));
+  const nums = el("span", "rg-nums");
+  ws.forEach((it, i) => {
+    if (i) nums.append(el("span", "rg-sep", " · "));
+    const part = el("span", "rg-part");
+    part.append(el("span", "rg-win", rgSplit(it.name).win), " ", el("span", "rg-fig", rgFigure(it)));
+    if (it.v != null && it.v < 10) part.classList.add("low");
+    nums.append(part);
+  });
+  t2.append(nums);
+  r.append(d, t2);
+  r.title = ws.map((it) => [it.name, it.q.querySelector(".quota-n")?.textContent.trim(), it.q.querySelector(".quota-reset")?.textContent.trim()].filter(Boolean).join(" · ")).join("\n");
+  return r;
+}
+// the curve's own pick has no line beside a ring to mark: an opened account
+// shows the source's bars
+function rgMark() {}
+// decorateQuotaRings: after renderQuotas, a folded account's windows as
+// small rings; an opened one is left as the source drew it
+function decorateQuotaRings() {
+  const root = $("#subscriptionUsage");
+  if (!root) return false;
+  let changed = false;
+  for (const qw of root.querySelectorAll(".quota-windows.brief")) {
+    const items = [...qw.children].filter((q) => q.classList.contains("quota")).map(rgItem);
+    if (!items.length) continue;
+    const pools = rgPools(items).filter((p) => p.a);
+    if (!pools.length) continue;
+    const row = el("div", "rg-row rg-brief");
+    for (const p of pools) row.append(rgSmall(p));
+    qw.replaceChildren(row);
+    qw.classList.add("rg-brief");
+    changed = true;
+  }
+  return changed;
+}
+const renderQuotasDrawn = renderQuotas;
+renderQuotas = function (lazy) {
+  if (mode === "window" && (view !== "usage" || usageTab !== "usage")) { quotasStale = true; return; }
+  quotasStale = false;
+  quotasDrawnSig = quotasSig();
+  renderQuotasDrawn(lazy);
+  // packed (packUsageNow) on the source's bars: measured again now the rings
+  // stand in for them, so the next frame has nothing to move
+  if (decorateQuotaRings()) packUsage();
+};
+// the page draws an account's windows more than once (opening it, fitting the
+// list, a refresh): the rings follow whatever was drawn last, before the page
+// paints. A frame later, the bars showed for a frame first: the card jumped
+// in height and flashed. The callback runs as a microtask after the drawing,
+// and the swap it makes itself is taken out of its records.
+const rgRoot = $("#subscriptionUsage");
+if (rgRoot) {
+  const rgSee = new MutationObserver((recs) => {
+    if (!recs.some((r) => [...r.addedNodes].some((n) => n.nodeType === 1 && (n.matches(".quota-windows.brief, .quota") || n.querySelector?.(".quota-windows.brief"))))) return;
+    decorateQuotaRings();
+    rgSee.takeRecords();
+  });
+  rgSee.observe(rgRoot, { childList: true, subtree: true });
+}
+
+// ---- the curve's window ------------------------------------------------------
+// Every window an account has can be the one the curve draws, the 5-hour one
+// too: a row of choices above the chart, the same pick from a line beside a
+// ring. The curve itself is the source's (quotaChart).
+const quotaPicks = new Map(); // account -> the window's line name
+const quotaChartDrawn = quotaChart;
+quotaChart = function (sub) {
+  if (quotaRange === "off") return quotaChartDrawn(sub);
+  const lines = quotaLines(sub);
+  if (!lines.length) return quotaChartDrawn(sub);
+  const key = usageAcctKey(sub);
+  const draw = (name) => {
+    const line = name ? lines.find((l) => l.name === name) : null;
+    const box = quotaChartDrawn(line ? { ...sub, windows: [line.window] } : sub);
+    if (!box) return null;
+    box.dataset.picked = line ? line.name : "";
+    const chips = el("div", "rg-chips");
+    chips.setAttribute("role", "group");
+    chips.setAttribute("aria-label", t("Pick the window this curve draws"));
+    for (const l of lines) {
+      const b = el("button", "rg-chip" + (line && line.name === l.name ? " on" : ""), l.label);
+      b.type = "button";
+      b.setAttribute("aria-pressed", line && line.name === l.name ? "true" : "false");
+      b.onclick = () => box.rgPick(l.name);
+      chips.append(b);
+    }
+    // the chart picks by name, from a chip or from a window's line beside its ring
+    box.rgPick = (n) => {
+      const l = lines.find((x) => x.name === n || x.label === n || x.label.split(" · ").pop() === n);
+      if (!l) return;
+      quotaPicks.set(key, l.name);
+      const next = draw(l.name);
+      if (!next) return;
+      const card = box.closest?.(".subscription-card");
+      box.replaceWith(next);
+      if (card) rgMark(card, l.name);
+    };
+    box.prepend(chips);
+    return box;
+  };
+  return draw(quotaPicks.get(key));
+};

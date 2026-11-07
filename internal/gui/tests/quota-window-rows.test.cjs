@@ -27,6 +27,8 @@ const quotas = [{
     { name: "Month", used: 7 },
   ],
 }];
+// a second account of the provider: drawn folded, its pools as small rings
+quotas.push({ ...quotas[0], user: "b" });
 
 function serve(lang, quotas) {
   const settings = { lang, theme: "light", quotaLeft: true, currency: "usd" };
@@ -60,37 +62,42 @@ test("no rule of the windows says subgrid", async () => {
   assert.deepEqual(bad, []);
 });
 
-// each window: its row's y, its name's height, its bar's top, its names' bottom
-const windowsOf = (page) => page.evaluate(() => [...document.querySelectorAll(".subscription-card .quota-windows > .quota")].map((q) => ({
-  row: Math.round(q.getBoundingClientRect().top),
-  name: q.querySelector(".quota-name").getBoundingClientRect().height,
-  bar: q.querySelector(".quota-track")?.getBoundingClientRect().top,
-  under: q.querySelector(".quota-labels").getBoundingClientRect().bottom,
-  reset: q.querySelector(".quota-track + .quota-reset")?.getBoundingClientRect().top,
-})));
+// a folded account's rings: each pool's small dial and its figures in the
+// card (an opened account keeps the source's bars)
+const ringsOf = (page) => page.evaluate(() => [...document.querySelectorAll(".subscription-card .rg-sm")].map((r) => {
+  const card = r.closest(".subscription-card").getBoundingClientRect(), b = r.getBoundingClientRect();
+  const d = r.querySelector(".rg-dial")?.getBoundingClientRect();
+  const lines = [...r.querySelectorAll(".rg-name, .rg-part")].map((l) => {
+    const lb = l.getBoundingClientRect();
+    return { text: l.textContent, right: card.right - lb.right, left: lb.left - card.left, cut: l.scrollWidth > l.clientWidth + 1 };
+  });
+  return { inside: b.left >= card.left - 1 && b.right <= card.right + 1, square: d ? Math.abs(d.width - d.height) < 0.5 : true, size: d ? Math.round(d.width) : 0, lines };
+}));
 
 // the frames a resize takes: the windows' observer, then the frame it
 // fits them in (quotaFit)
 const frames = (page) => page.evaluate(() => new Promise((r) => { let n = 4; const f = () => (--n ? requestAnimationFrame(f) : r()); requestAnimationFrame(f); }));
 
-// the bars of each row of windows start at one y, and a reset line is as
-// far under its bar as it was; and whether some row's names differ in
-// height, as the case is about
-async function lined(page) {
+// one ring a pool, its dial a circle inside the card at every width, the
+// windows' lines whole: a long name wraps, it is never cut
+async function ringsFit(page) {
   await frames(page);
-  const ws = await windowsOf(page);
-  for (const y of new Set(ws.map((w) => w.row))) {
-    const bars = ws.filter((w) => w.row === y && w.bar != null).map((w) => Math.round(w.bar));
-    assert.equal(new Set(bars).size, 1, `row at ${y}: bars at ${bars} ${JSON.stringify(ws)}`);
+  const rs = await ringsOf(page);
+  assert.ok(rs.length > 0, "no ring was drawn");
+  for (const r of rs) {
+    assert.ok(r.inside, `a ring past the card: ${JSON.stringify(r)}`);
+    assert.ok(r.square, `a dial not a circle: ${JSON.stringify(r)}`);
+    for (const l of r.lines) {
+      assert.ok(l.left >= -1 && l.right >= -1, `"${l.text}" runs past the card (${l.left}, ${l.right})`);
+      assert.equal(l.cut, false, `"${l.text}" is cut`);
+    }
   }
-  for (const w of ws) if (w.bar != null) assert.ok(w.under <= w.bar + 0.5, `names past the bar ${JSON.stringify(w)}`);
-  for (const w of ws) if (w.reset != null) assert.ok(Math.abs(w.reset - w.bar - 13) < 0.6, `reset ${w.reset - w.bar}px under its bar's top`);
-  return [...new Set(ws.map((w) => w.row))].some((y) => new Set(ws.filter((w) => w.row === y).map((w) => Math.round(w.name))).size > 1);
+  return rs;
 }
 
 for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
   for (const lang of ["en", "zh", "zh-TW", "ja", "de"]) {
-    test(`${name} ${lang}: windows side by side have their bars at one height`, async () => {
+    test(`${name} ${lang}: one ring a pool, its dial a circle, its lines whole`, async () => {
       const browser = await engine.launch();
       try {
         const page = await (await browser.newContext({ viewport: { width: 1100, height: 900 }, reducedMotion: "reduce" })).newPage();
@@ -100,13 +107,15 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
         page.on("pageerror", (e) => errors.push(e.message));
         await page.route("**/*", serve(lang, quotas));
         await page.goto("http://magpie.test/?view=usage");
-        await page.locator(".subscription-card .quota-track").nth(2).waitFor();
-        let wrapped = false;
+        await page.locator(".subscription-card .rg-dial").nth(1).waitFor();
+        let sizes = [];
         for (const width of [1100, 700, 390, 1100]) {
           await page.setViewportSize({ width, height: 900 });
-          wrapped = (await lined(page)) || wrapped;
+          const rs = await ringsFit(page);
+          sizes.push(...new Set(rs.map((r) => r.size)));
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${width}px: the page scrolls sideways`);
         }
-        assert.ok(wrapped, "no width had one window's name taller than the one beside it");
+        assert.ok(sizes.length > 0, "a dial's size was read");
         assert.deepEqual(errors, []);
       } finally { await browser.close(); }
     });

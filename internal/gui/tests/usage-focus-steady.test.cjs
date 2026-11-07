@@ -178,6 +178,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
 
       // the Routing page's groups: the same cards stay
       await p.locator('[data-view="routing"]').first().click();
+      // the groups are the page's second pane: its tab (or, in the sidebar's
+      // layout, the row it is listed by) picks them
+      await p.evaluate(() => document.querySelector('#rtTabs [data-tab="groups"]').click());
       const GRP = "#view-routing .rt-group";
       await p.locator(GRP).first().waitFor();
       await p.waitForTimeout(300);

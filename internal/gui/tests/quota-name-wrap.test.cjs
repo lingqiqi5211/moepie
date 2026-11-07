@@ -36,7 +36,8 @@ function serve(lang) {
     if (url.pathname === "/api/gateway/history") return json({ cut: false, days: [], routes: [] });
     if (url.pathname === "/api/groups") return json({ models: [], groups: [], pools: [] });
     if (url.pathname === "/api/providers") return json({ providers: [], presets: [], excluded: [], gateway: { running: true, window: true, url: "http://127.0.0.1:3999" } });
-    if (url.pathname === "/api/usage/quotas") return json([zcode]);
+    // a second account, drawn folded: its pools are the small rings named
+    if (url.pathname === "/api/usage/quotas") return json([zcode, { ...zcode, user: "b" }]);
     if (url.pathname === "/api/plugins") return json({ plugins: [] });
     if (url.pathname.startsWith("/api/")) return json({});
     const file = path.join(assets, url.pathname === "/" ? "index.html" : url.pathname);
@@ -56,18 +57,21 @@ for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]]) {
         page.setDefaultNavigationTimeout(60000);
         await page.route("**/*", serve(lang));
         await page.goto("http://magpie.test/?view=usage");
-        await page.locator(".subscription-card .quota-name").nth(1).waitFor();
+        await page.locator(".subscription-card .rg").nth(1).waitFor();
         await page.waitForTimeout(300);
-        const ws = await page.evaluate(() => [...document.querySelectorAll(".quota-windows .quota")].map((q) => {
-          const nm = q.querySelector(".quota-name"), b = nm.getBoundingClientRect(), col = q.getBoundingClientRect();
-          return { text: nm.textContent, left: b.left - col.left, right: col.right - b.right, cut: nm.scrollWidth > nm.clientWidth + 1 };
+        // the names the rings show wrap, never cut: the brief ring's name,
+        // and the legend naming the two windows a ring holds
+        const ws = await page.evaluate(() => [...document.querySelectorAll(".subscription-card .rg-sm .rg-name, .subscription-card .rg-legend")].map((nm) => {
+          const b = nm.getBoundingClientRect(), card = nm.closest(".subscription-card").getBoundingClientRect();
+          return { text: nm.textContent, left: b.left - card.left, right: card.right - b.right, cut: nm.scrollWidth > nm.clientWidth + 1 };
         }));
         const where = `${lang} ${width}px`;
-        assert.equal(ws.length, 2, where);
+        assert.ok(ws.length >= 1, `${where}: no name drawn`);
         for (const w of ws) {
-          assert.ok(w.left >= -1 && w.right >= -1, `${where}: "${w.text}" runs past its column (${w.left}, ${w.right})`);
+          assert.ok(w.left >= -1 && w.right >= -1, `${where}: "${w.text}" runs past its card (${w.left}, ${w.right})`);
           assert.equal(w.cut, false, `${where}: "${w.text}" is cut`);
         }
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${where}: the page scrolls sideways`);
         await page.close();
       }
     } finally { await browser.close(); }

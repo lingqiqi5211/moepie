@@ -140,7 +140,14 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await p.goto("http://magpie.test/");
       await p.locator('[data-view="usage"]').first().click();
       await p.locator(":is(#usageTab .opt, .nav-s):visible").nth(1).click();
-      if (variant !== "none") await p.locator("#ledRank .rk").first().waitFor();
+      // the trend and its ranking sit folded under the totals: opened, as the reader would
+      // (with nothing to chart the fold has nothing to open, and no handle)
+      if (variant !== "none") {
+        const fold = p.locator("#ledTrendToggle");
+        await fold.waitFor();
+        if ((await fold.getAttribute("aria-expanded")) !== "true") await fold.click();
+        await p.locator("#ledRank .rk").first().waitFor();
+      }
       if (["many", "unpriced"].includes(variant)) await p.locator("#ledSplit .opt").nth(SPLIT.provider).click();
       return { p, errors, asked, exported, context };
     };
@@ -431,16 +438,18 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const corners = (n) => p.locator("#ledVia .blk").nth(n).evaluate((b) => { const c = getComputedStyle(b); return [c.borderTopLeftRadius, c.borderTopRightRadius, c.borderBottomRightRadius, c.borderBottomLeftRadius].join(" "); });
       await hoverFirst();
       if (process.env.ARTIFACT_DIR) await p.screenshot({ clip: await p.locator("#ledVia").boundingBox(), path: path.join(process.env.ARTIFACT_DIR, `via-hover-${engine}-narrow.png`) });
+      // the sources are the summary card's top row, the sum's row under them:
+      // only the card's own rounded corners round
       assert.equal(await corners(0), "11px 11px 0px 0px", "the first source rounds on top");
-      assert.equal(await corners(-1), "0px 0px 11px 11px", "the last rounds below");
+      assert.equal(await corners(-1), "0px 0px 0px 0px", "the last sits on the sum's row, square");
       // the chart follows the window
       await p.setViewportSize({ width: 1100, height: 760 });
       await p.waitForTimeout(300);
       const wider = await p.locator("#ledChart svg").boundingBox();
       await hoverFirst();
       if (process.env.ARTIFACT_DIR) await p.screenshot({ clip: await p.locator("#ledVia").boundingBox(), path: path.join(process.env.ARTIFACT_DIR, `via-hover-${engine}-wide.png`) });
-      assert.equal(await corners(0), "11px 0px 0px 11px", "in a row the first source rounds at its left");
-      assert.equal(await corners(-1), "0px 11px 11px 0px", "and the last at its right");
+      assert.equal(await corners(0), "11px 0px 0px 0px", "in a row the first source rounds at the card's top left");
+      assert.equal(await corners(-1), "0px 11px 0px 0px", "and the last at its top right");
       assert(wider.width > 500 && (await p.locator("#ledRank").boundingBox()).x > wider.x + wider.width - 5, `beside it again: ${svg.width} → ${wider.width}`);
       if (process.env.ARTIFACT_DIR) await p.screenshot({ path: path.join(process.env.ARTIFACT_DIR, `chart-${engine}-dark.png`) });
       assert.deepEqual(errors, []);
@@ -488,10 +497,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       // a pick redraws the ranking where it was scrolled to (clicked where it
       // is, as a reader does, not scrolled to first as a test's click would)
       const rows = p.locator("#ledRank .rk:not(.plain)");
+      // in sight: inside the ranking's box and inside the window (the trend
+      // sits folded under the summary, so the ranking may run past the fold)
+      const vh = p.viewportSize().height;
       let hit = -1, at;
       for (let i = (await rows.count()) - 1; i >= 0 && hit < 0; i--) {
         at = await rows.nth(i).boundingBox();
-        if (at.y >= b.rank.y && at.y + at.height <= b.rank.y + b.rank.height) hit = i;
+        if (at.y >= b.rank.y && at.y + at.height <= Math.min(b.rank.y + b.rank.height, vh)) hit = i;
       }
       assert(hit > 0, "a row in sight");
       await p.mouse.click(at.x + at.width / 2, at.y + at.height / 2);

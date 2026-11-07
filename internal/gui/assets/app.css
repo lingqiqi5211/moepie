@@ -1029,6 +1029,38 @@ body.window .field.solo { grid-column: auto; }
 .quota.low .quota-track i { background: var(--red); }
 .quota-eta { margin-top: 3px; font-size: 10px; color: var(--amber); }
 .quota-windows.brief .quota-eta { display: none; }
+/* each pool as one ring: the 7-day window outside, the 5-hour one inside it,
+   one ring for a pool with one window (page.js); the fill in the bar's own
+   colours, a tick where an even pace would be */
+.quota-windows.rg-brief { display: block; }
+.rg-row { display: flex; flex-wrap: wrap; gap: 10px 16px; min-width: 0; }
+.rg-brief .rg { flex: 1 1 150px; }
+.rg { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.rg-txt { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rg-name { font-size: 10.5px; color: var(--muted); overflow-wrap: anywhere; }
+.rg-nums { font-size: 11px; font-weight: 600; color: var(--fg-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.rg-dial { --p: 0; --tr: var(--pill); --ca: var(--accent); position: relative; flex: none; width: 26px; height: 26px; border-radius: 50%; background: conic-gradient(from -90deg, var(--ca) calc(var(--p) * 1%), var(--tr) 0); }
+.rg-dial::before { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: var(--card); }
+/* a folded account's ring: small, the 7-day window outside, the 5-hour one
+   inside it, a gap of the card between */
+.rg-dial.small { width: 30px; height: 30px; }
+.rg-dial.small::before { inset: 3px; }
+.rg-dial.small .rg-in { inset: 6px; }
+.rg-dial.small .rg-in::before { inset: 3px; }
+.rg-dial.small .rg-pace::before { height: 5px; }
+.rg-dial.small .rg-pace.inner { inset: 6px; }
+.rg-dial.small .rg-pace.inner::before { height: 5px; }
+/* each window's length and figure, kept together; a line breaks between them */
+.rg-part { min-width: 0; overflow-wrap: anywhere; }
+.rg-fig { white-space: nowrap; }
+.rg-part.low { color: var(--red); }
+.rg-win { font-weight: 400; color: var(--muted); }
+.rg-in { --tr: var(--pill); --ca: var(--accent); position: absolute; inset: 16px; border-radius: 50%; background: conic-gradient(from -90deg, var(--ca) calc(var(--p) * 1%), var(--tr) 0); }
+.rg-in::before { content: ""; position: absolute; inset: 5px; border-radius: 50%; background: var(--card); }
+.rg-pace { position: absolute; inset: 0; border-radius: 50%; transform: rotate(var(--deg, 0deg)); pointer-events: none; }
+.rg-pace::before { content: ""; position: absolute; left: 50%; top: -1px; width: 2px; height: 12px; margin-left: -1px; border-radius: 1px; background: var(--fg-2); opacity: .55; }
+.rg-pace.inner { inset: 16px; }
+.rg-pace.inner::before { height: 7px; }
 /* a provider's accounts together (CryptoSarom on X): a quiet inset under
    the card's head, each window's figure over a thin bar, side by side
    while they fit, the accounts as they were below it */
@@ -1038,7 +1070,7 @@ body.window .field.solo { grid-column: auto; }
 /* the name cut short and the figure kept on its line, so every window's
    bar sits at one height however long its name */
 .quota-all-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.quota-all-n { flex: none; color: var(--fg-2); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.quota-all-n { flex: 0 1 auto; min-width: 0; max-width: 100%; color: var(--fg-2); font-weight: 600; font-variant-numeric: tabular-nums; white-space: normal; overflow-wrap: anywhere; text-align: right; }
 .quota-all-bar { flex-basis: 100%; height: 3px; margin-top: 2px; border-radius: 2px; background: var(--pill); overflow: hidden; }
 .quota-all-bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
 .quota-all-bar.full i { background: var(--amber); }
@@ -1060,6 +1092,11 @@ body.window .field.solo { grid-column: auto; }
 .quota-head { flex-wrap: wrap; gap: 6px 8px; }
 .quota-head .quota-trend { margin-right: 0; }
 .quota-curve { margin-top: 10px; }
+/* the windows the curve can draw, above it (page.js) */
+.rg-chips { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; margin: 0 0 5px; min-width: 0; }
+.rg-chip { max-width: 100%; padding: 2px 8px; border: 1px solid var(--line-2); border-radius: 999px; background: none; color: var(--muted); font: inherit; font-size: 10px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rg-chip:hover { color: var(--fg); border-color: var(--line); }
+.rg-chip.on { color: var(--fg); border-color: var(--accent); background: var(--pill); }
 .quota-curve .qc-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font-size: 10.5px; color: var(--muted); }
 .quota-curve .qc-title { color: var(--fg-2); font-weight: 600; min-width: 0; }
 .quota-curve .qc-range { font-size: 10px; color: var(--faint); }
@@ -1318,6 +1355,7 @@ body.masked :hover > .acct-eye, body.masked .pq-card:hover .acct-eye, body.maske
 #ledgerPane { min-width: 0; }
 #ledgerPane .sess-tools .segs .opt { height: 22px; }
 #ledExport { flex: none; font-size: 12px; }
+#ledgerPane .sess-tools #ledQ { margin-left: auto; }
 /* the totals and the trend over the requests listed: a strip of four totals,
    then a chart of them by the hour, day or week beside a ranking of who they
    were of — by provider, agent or model — which is also the chart's legend */
@@ -1449,7 +1487,16 @@ body.masked :hover > .acct-eye, body.masked .pq-card:hover .acct-eye, body.maske
    window's: the sidebar beside the page takes its share */
 .led-dash { container-type: inline-size; }
 @container (max-width: 1000px) {
+  /* five as three over two: six tracks, so the top row's lines are the
+     sources' above it */
+  .led-strip { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .led-strip .blk { grid-column: span 2; }
+  .led-strip .blk:nth-child(n + 4) { grid-column: span 3; border-top: 1px solid var(--line-2); }
+  .led-strip .blk:nth-child(4) { border-left: 0; }
+}
+@container (max-width: 560px) {
   .led-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .led-strip .blk, .led-strip .blk:nth-child(n + 4) { grid-column: auto; border-left: 1px solid var(--line-2); }
   .led-strip .blk:nth-child(odd) { border-left: 0; }
   .led-strip .blk:nth-child(n + 3) { border-top: 1px solid var(--line-2); }
   .led-strip .blk:last-child:nth-child(odd) { grid-column: 1 / -1; }
@@ -1554,10 +1601,42 @@ body.masked :hover > .acct-eye, body.masked .pq-card:hover .acct-eye, body.maske
 #ledSessLabel, #ledReqLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #ledSessClear, #ledReqClear { font-size: 18px; padding: 2px 6px; }
 /* the switch to the replies that named another model: amber, as their mark */
-.sess-pick.led-mis { max-width: none; color: var(--amber); }
-.sess-pick.led-mis.on { background: var(--amber-soft); border-color: color-mix(in srgb, var(--amber) 40%, var(--line)); }
-.sess-pick.led-mis:disabled { color: var(--faint); }
+/* the status filter's last choice: the replies that named another model,
+   their count in amber while there are any */
+#ledStatus .opt.mis .n { color: var(--amber); font-variant-numeric: tabular-nums; }
+#ledStatus .opt.mis:disabled { color: var(--faint); cursor: default; }
+#ledStatus .opt.mis:disabled .n { color: inherit; }
 .led-sum .mis { color: var(--amber); }
+/* the requests tab's summary: the sources and the sum in one card, the trend
+   chart and the heatmap folded under them in it (page.js) */
+.fx-sum { margin: 0 0 10px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.fx-sum .led-vias { margin: 0; border: 0; border-radius: 0; background: none; }
+/* the sources are the card's top row: only the corners on the card's own
+   rounded edge round, so a hover never squares them; the sum's row is under */
+.fx-sum .led-vias .blk:first-child, .fx-sum .led-vias .blk:last-child { border-radius: 0; }
+.fx-sum .led-vias .blk:first-child { border-top-left-radius: 11px; }
+.fx-sum .led-vias .blk:last-child { border-top-right-radius: 11px; }
+@media (max-width: 620px) {
+  .fx-sum .led-vias .blk:first-child { border-top-right-radius: 11px; }
+  .fx-sum .led-vias .blk:last-child { border-top-right-radius: 0; }
+}
+/* the sum's line, the archive switch and the fold's handle, under the sources */
+.fx-sum-head { margin: 0; padding: 8px 15px; gap: 4px 10px; }
+.fx-sum-head .led-sum { margin: 0; }
+.fx-sum-head .led-arch { margin-left: 0; }
+.fx-sum .led-vias:not([hidden]) + .fx-sum-head { border-top: 1px solid var(--line-2); }
+.fx-fold { display: inline-flex; align-items: center; gap: 6px; flex: none; margin-left: auto; padding: 3px 0; background: none; border: 0; font: inherit; font-size: 11.5px; color: var(--muted); cursor: pointer; }
+.fx-fold:hover, .fx-fold[aria-expanded="true"] { color: var(--fg); }
+.fx-fold[hidden] { display: none; }
+.fx-fold > i { width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid currentColor; transition: transform .15s var(--ease); }
+.fx-fold[aria-expanded="true"] > i { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .fx-fold > i { transition: none; } }
+.fx-sum-body { display: flex; flex-direction: column; gap: 16px; padding: 12px 15px 14px; border-top: 1px solid var(--line-2); }
+.fx-sum-body[hidden] { display: none; }
+.fx-sum-body .led-dash { margin-bottom: 0; }
+/* in the card the strips lose their frame: the card is the frame */
+.fx-sum-body .led-strip { margin: 0 -15px; border: 0; border-radius: 0; background: none; }
+.fx-sum-body .led-heat { margin-bottom: 0; padding: 0; border: 0; border-radius: 0; background: none; }
 /* a request's model: the pill of the one asked for, the reply's under it */
 .led-mc { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
 .led-mp { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 1px 8px 1px 2px; border: 1px solid var(--line); border-radius: 999px; background: var(--pill); color: var(--fg-2); font: inherit; font-size: 11.5px; cursor: default; }
@@ -1596,7 +1675,10 @@ body.masked :hover > .acct-eye, body.masked .pq-card:hover .acct-eye, body.maske
 .led-gh:hover { background: var(--card-2, var(--pill)); }
 .led-gh:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .led-arrow { flex: none; width: 10px; color: var(--muted); font-size: 10px; }
-.led-gn { flex: 1 1 200px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.led-gn { flex: 1 1 180px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+/* a group's figures, one block at the head's right end: when the name leaves
+   no room they go under it together, right-aligned, never one stray figure */
+.led-gstats { flex: 0 1 auto; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px 14px; min-width: 0; margin-left: auto; }
 .led-gn b { display: flex; align-items: center; gap: 6px; min-width: 0; font-weight: 600; }
 .led-gn b > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .led-gn b .ic { width: 14px; height: 14px; flex: none; }
@@ -1607,15 +1689,17 @@ body.masked :hover > .acct-eye, body.masked .pq-card:hover .acct-eye, body.maske
 .led-share-track { grid-column: 1 / -1; height: 4px; border-radius: 3px; background: var(--pill); overflow: hidden; }
 .led-share-track i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
 .led-gs { flex: none; display: flex; flex-direction: column; align-items: flex-end; width: 66px; font-variant-numeric: tabular-nums; }
-.led-gs.mis { width: 104px; }
-.led-gs.speed { width: auto; min-width: 120px; }
+.led-gs.mis { width: 72px; }
+.led-gs.speed { width: auto; min-width: 110px; }
 .led-gs.speed b { max-width: none; overflow: visible; text-overflow: clip; }
 .led-gs b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .led-gs small { max-width: 100%; font-size: 10.5px; line-height: 1.4; color: var(--muted); white-space: normal; overflow-wrap: anywhere; text-align: right; }
 .led-gs.zero b { color: var(--faint); font-weight: 500; }
 .led-gs.bad b { color: var(--red); }
 .led-gs.mis b { color: var(--amber); }
-.led-gbody { border-top: 1px solid var(--line-2); background: var(--card-2, var(--pill)); }
+.led-gbody { border-top: 1px solid var(--line-2); background: var(--card-2, var(--pill)); overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+.led-gbody::-webkit-scrollbar { height: 0; }
+.led-gbody > .led-gfoot { position: sticky; left: 0; box-sizing: border-box; width: calc(var(--ledw, 100%) - 2px); }
 .led-gbody .led td, .led-gbody .led th { background: var(--card); }
 .led-gfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 7px 12px; border-top: 1px solid var(--line-2); font-size: 11.5px; color: var(--muted); }
 .led-gfoot .grow { flex: 1; }
@@ -1715,6 +1799,9 @@ details.cx-part[open] > summary .cx-h { margin-bottom: 2px; }
 /* ---- sessions, a segment of usage ------------------------------------------ */
 .sess-tools { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; flex: none; }
 .sess-tools .grow { flex: 1; }
+/* the requests' filter row: who sent, where it went, then how it is shown */
+.sess-tools .led-sep { flex: none; width: 1px; height: 16px; background: var(--line); }
+.proto-menu .pm-item:disabled .pm-note { color: var(--faint); }
 .sess-filter { width: 220px; max-width: 100%; height: 26px; padding: 0 9px; border-radius: 7px; border: 1px solid var(--line); background: var(--card); color: var(--fg); font-size: 12px; outline: none; }
 .sess-filter:focus { border-color: var(--accent); }
 .sess-tools { flex-wrap: wrap; row-gap: 6px; }

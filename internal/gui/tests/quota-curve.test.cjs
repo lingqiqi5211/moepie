@@ -298,7 +298,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         // the range is picked once, in the allowances' head, not on every card
         const pick = page.locator("#quotaHead #quotaTrend");
         assert.equal(await pick.textContent(), w.trend(w.cycle), "Cycle first");
-        assert.equal(await page.locator(".quota-curve .segs, .quota-curve button:not(.qc-range), .quota-curve select").count(), 0, "only the account's cycle picker on a card");
+        // besides the cycle picker, only the usage page's chips that pick the
+        // window the curve is of (5 hours or weekly, plugins/usage/page.js)
+        assert.equal(await page.locator(".quota-curve .segs, .quota-curve button:not(.qc-range):not(.rg-chip), .quota-curve select").count(), 0, "only the account's cycle picker on a card");
         assert.equal(await curve.locator(".qc-range").textContent(), w.cycle);
         // the window whose reset is furthest off, alone: one line, its even
         // burn, now, and its pace carried on to the reset, said in words
@@ -323,7 +325,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal(strokes[theme], c1);
         const box = await card.boundingBox(), plot = await curve.locator(".qc-plot").boundingBox();
         assert.ok(plot.x >= box.x && plot.x + plot.width <= box.x + box.width + 0.5, "the plot fits its card");
-        const left = await curve.evaluate((e) => [...e.querySelectorAll("*")].filter((x) => parseFloat(getComputedStyle(x).borderLeftWidth) > 0).length);
+        // no dividing lines; the window chips' pill outline is not one
+        const left = await curve.evaluate((e) => [...e.querySelectorAll("*")].filter((x) => !x.matches(".rg-chip") && parseFloat(getComputedStyle(x).borderLeftWidth) > 0).length);
         assert.equal(left, 0, "no left borders");
 
         if (theme === "light") {
