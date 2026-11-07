@@ -187,8 +187,10 @@ func TestMoveToPortable(t *testing.T) {
 	if exists(filepath.Join(src.Config, "settings.json")) || exists(filepath.Join(src.Cache, "models.json")) {
 		t.Fatal("verified source data was not removed")
 	}
-	if _, err := Enter(context.Background(), []string{src.Config}); err == nil || !strings.Contains(err.Error(), "moved") {
-		t.Fatalf("the old place still takes a magpie: %v", err)
+	for _, d := range []string{src.Config, src.Cache} {
+		if exists(d) {
+			t.Fatalf("emptied old folder left: %s", d)
+		}
 	}
 	if tx, _ := Status(e); tx == nil || tx.State != StateComplete {
 		t.Fatalf("record: %+v", tx)
@@ -265,6 +267,48 @@ func TestMoveFailureRestores(t *testing.T) {
 	matches, _ := filepath.Glob(data + ".*")
 	if len(matches) != 0 {
 		t.Fatalf("left behind: %v", matches)
+	}
+}
+
+// Moving back takes the portable data folder out whole, its inner cache,
+// system-cache and webview2 folders with it, and leaves the program's own
+// files beside it.
+func TestMoveBackRemovesPortableFolder(t *testing.T) {
+	e := exe(t)
+	installedData(t, e)
+	if err := runMove(t, e, appdir.ModeInstalled, appdir.ModePortable); err != nil {
+		t.Fatal(err)
+	}
+	if err := runMove(t, e, appdir.ModePortable, appdir.ModeInstalled); err != nil {
+		t.Fatal(err)
+	}
+	back, _ := PlacesOf(e, appdir.ModeInstalled)
+	if read(t, filepath.Join(back.Config, "settings.json")) != `{"a":1}` {
+		t.Fatal("data didn't come back")
+	}
+	if exists(filepath.Join(filepath.Dir(e), "data")) {
+		t.Fatal("portable data folder left behind")
+	}
+	if !exists(e) {
+		t.Fatal("program removed")
+	}
+	if tx, _ := Status(e); tx == nil || tx.State != StateComplete {
+		t.Fatalf("record: %+v", tx)
+	}
+}
+
+// A folder that gained a file after the move's snapshot is kept.
+func TestMoveKeepsOldFolderWithNewFile(t *testing.T) {
+	e := exe(t)
+	src := installedData(t, e)
+	afterPublish = func() error {
+		write(t, filepath.Join(src.Cache, "late.txt"), "late")
+		return nil
+	}
+	t.Cleanup(func() { afterPublish = func() error { return nil } })
+	_ = runMove(t, e, appdir.ModeInstalled, appdir.ModePortable)
+	if read(t, filepath.Join(src.Cache, "late.txt")) != "late" {
+		t.Fatal("a file the move never saw was removed")
 	}
 }
 

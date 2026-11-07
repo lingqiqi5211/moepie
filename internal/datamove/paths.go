@@ -103,7 +103,7 @@ func validatePaths(exe string, tx *Transaction) error {
 			return errors.New("invalid source cleanup identity")
 		}
 		for rel, item := range plan.Entries {
-			if rel == "." || filepath.IsAbs(rel) || filepath.Clean(rel) != rel || !contains(plan.Pair.From, filepath.Join(plan.Pair.From, rel)) || skippedPath(rel, cleanupSkip(tx, plan.Pair)) || (!item.Mode.IsDir() && !item.Mode.IsRegular()) {
+			if rel == "." || filepath.IsAbs(rel) || filepath.Clean(rel) != rel || !contains(plan.Pair.From, filepath.Join(plan.Pair.From, rel)) || skippedPath(rel, cleanupSkip(tx, plan.Pair)) || (!item.Mode.IsDir() && !item.Mode.IsRegular() && item.Mode.Type() != os.ModeSymlink) {
 				return errors.New("invalid source cleanup entry")
 			}
 		}

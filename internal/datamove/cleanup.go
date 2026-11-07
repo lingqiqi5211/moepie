@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -44,6 +46,24 @@ func captureSources(exe string, tx *Transaction) error {
 		entries, err := manifest(p.From, cleanupSkip(tx, p))
 		if err != nil {
 			return err
+		}
+		for rel, item := range entries {
+			if item.Mode&os.ModeSymlink == 0 {
+				continue
+			}
+			target, err := os.Readlink(filepath.Join(p.From, rel))
+			if err != nil {
+				return err
+			}
+			resolved, err := filepath.EvalSymlinks(target)
+			if err != nil {
+				return err
+			}
+			for _, pair := range tx.Pairs {
+				if contains(pathKey(pair.From), pathKey(target)) || contains(pathKey(pair.To), pathKey(target)) || contains(pathKey(pair.From), pathKey(resolved)) || contains(pathKey(pair.To), pathKey(resolved)) {
+					return fmt.Errorf("link target is inside data being moved: %s", filepath.Join(p.From, rel))
+				}
+			}
 		}
 		tx.Cleanup = append(tx.Cleanup, CleanupPlan{Pair: p, Entries: entries, Identity: identity})
 	}
@@ -138,6 +158,12 @@ func cleanup(ctx context.Context, exe string, tx *Transaction) error {
 			problems = append(problems, "source identity changed: "+p.From)
 			continue
 		}
+		if cachePair(tx, p) {
+			// Not copied, so its folder can't otherwise be emptied.
+			if err := removeInstallCache(p.From); err != nil {
+				problems = append(problems, err.Error())
+			}
+		}
 		names := make([]string, 0, len(plan.Entries))
 		for name := range plan.Entries {
 			names = append(names, name)
@@ -166,7 +192,7 @@ func cleanup(ctx context.Context, exe string, tx *Transaction) error {
 				continue
 			}
 			original := plan.Entries[rel]
-			if st.Mode()&os.ModeSymlink != 0 || st.IsDir() != original.Mode.IsDir() || (!st.IsDir() && !st.Mode().IsRegular()) {
+			if st.Mode().Type() != original.Mode.Type() || (!st.IsDir() && !st.Mode().IsRegular() && st.Mode()&os.ModeSymlink == 0) {
 				problems = append(problems, "source type changed: "+path)
 				continue
 			}
@@ -216,10 +242,71 @@ func cleanup(ctx context.Context, exe string, tx *Transaction) error {
 	return save(exe, tx)
 }
 
+// dropSources takes each old data folder out once its move is complete:
+// cleanup has emptied it of data, leaving only runtime files and folders.
+// It runs with the gates let go, as Windows removes no open file. A folder
+// still holding anything else, or not this move's, is left.
+func dropSources(exe string, tx *Transaction) {
+	if tx.State != StateComplete {
+		return
+	}
+	for _, p := range tx.Pairs {
+		root := p.From
+		if inside(tx.Pairs, root, from) != "" || contains(root, exe) || overlapsTarget(tx, root) {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(root, runtimeName, sourceOwner)); err != nil || string(b) != tx.ID {
+			continue
+		}
+		if noLinks(root) != nil || !onlyRuntime(root) {
+			continue
+		}
+		_ = removeCache(root)
+	}
+}
+
+func overlapsTarget(tx *Transaction, dir string) bool {
+	for _, q := range tx.Pairs {
+		if contains(dir, q.To) || contains(q.To, dir) {
+			return true
+		}
+	}
+	return false
+}
+
+// onlyRuntime is whether root holds folders and, in runtime folders,
+// plain files only: no data, links or other kinds of file.
+func onlyRuntime(root string) bool {
+	ok := true
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+		if !d.Type().IsRegular() || !slices.Contains(strings.Split(rel, string(filepath.Separator)), runtimeName) {
+			ok = false
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return err == nil && ok
+}
+
 func fileEntry(path string) (entry, error) {
 	st, err := os.Lstat(path)
 	if err != nil {
 		return entry{}, err
+	}
+	if st.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(path)
+		if err != nil {
+			return entry{}, err
+		}
+		h := sha256.Sum256([]byte(target))
+		return entry{Mode: st.Mode(), Size: int64(len(target)), Hash: hex.EncodeToString(h[:])}, nil
 	}
 	if !st.Mode().IsRegular() {
 		return entry{}, fmt.Errorf("not a regular file: %s", path)
@@ -239,8 +326,20 @@ func fileEntry(path string) (entry, error) {
 }
 
 func sameEntry(a, b entry) bool {
-	return a.Mode.IsDir() == b.Mode.IsDir() && a.Size == b.Size && a.Hash == b.Hash
+	return a.Mode.Type() == b.Mode.Type() && a.Size == b.Size && a.Hash == b.Hash
 }
 
 // Removal is injectable for disk errors and interrupted cleanup tests.
 var removeSource = os.Remove
+
+// removeCache removes a tree. Links in it are removed, never followed.
+var removeCache = os.RemoveAll
+
+// removeInstallCache takes Bun's install cache out of an old cache folder.
+func removeInstallCache(root string) error {
+	path := filepath.Join(root, installCache)
+	if err := noLinks(filepath.Dir(path)); err != nil {
+		return err
+	}
+	return removeCache(path)
+}

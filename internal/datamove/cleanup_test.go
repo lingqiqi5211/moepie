@@ -191,12 +191,16 @@ func TestPrepareRefusesOverlapLinksAndUnreadableJournal(t *testing.T) {
 			t.Fatal("linked data changed")
 		}
 	})
-	t.Run("linked child", func(t *testing.T) {
+	t.Run("relative linked child", func(t *testing.T) {
 		e := exe(t)
 		src := installedData(t, e)
 		external := filepath.Join(filepath.Dir(e), "external")
 		write(t, external, "external")
-		if err := os.Symlink(external, filepath.Join(src.Config, "redirect")); err != nil {
+		target, err := filepath.Rel(src.Config, external)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, filepath.Join(src.Config, "redirect")); err != nil {
 			t.Skip("host cannot create symlink", err)
 		}
 		if err := runMove(t, e, appdir.ModeInstalled, appdir.ModePortable); err == nil {

@@ -55,6 +55,18 @@ var WebSkip = []string{
 	"lockfile",
 }
 
+// installCache is Bun's plugin install cache in the cache folder
+// (internal/plugin installCacheDir). Bun links its versions with Windows
+// junctions, which a move can't copy, and plugins/ holds copies of what is
+// installed, so the move leaves it behind and cleanup takes it out.
+var installCache = filepath.Join("bun", "install-cache")
+
+// cachePair is whether p is the move's cache folder: Pairs puts it second
+// and validatePaths holds every record to Pairs.
+func cachePair(tx *Transaction, p Pair) bool {
+	return len(tx.Pairs) > 1 && tx.Pairs[1].From == p.From && tx.Pairs[1].To == p.To
+}
+
 // stageOwner, in a staging folder's runtime folder, names the move that
 // made it: only that move's cleanup removes it, published or not.
 const stageOwner = "stage-owner"
@@ -466,7 +478,10 @@ func move(ctx context.Context, exe string, tx *Transaction) error {
 		return err
 	}
 	if tx.State == StateCleanup {
-		return cleanup(ctx, exe, tx)
+		err := cleanup(ctx, exe, tx)
+		release()
+		dropSources(exe, tx)
+		return err
 	}
 	// the gates are held while copying; a target's is let go before it is
 	// moved aside, as Windows renames no folder with a file open in it
@@ -511,7 +526,10 @@ func move(ctx context.Context, exe string, tx *Transaction) error {
 	if err := appdir.WriteMode(exe, tx.To); err != nil {
 		return err
 	}
-	return finish(exe, tx)
+	err = finish(exe, tx)
+	release()
+	dropSources(exe, tx)
+	return err
 }
 
 // finish ends a published move whose mode file is written: the copies are
@@ -624,9 +642,13 @@ func stageAll(ctx context.Context, exe string, tx *Transaction) error {
 func skipper(tx *Transaction, p Pair, side func(Pair) string) func(rel string) bool {
 	top := inner(tx.Pairs, side(p), side)
 	top = append(top, runtimeName)
+	cache := cachePair(tx, p)
 	return func(rel string) bool {
 		first := strings.Split(rel, string(filepath.Separator))[0]
 		if rel == first && slices.Contains(top, first) {
+			return true
+		}
+		if cache && rel == installCache {
 			return true
 		}
 		return p.Web && slices.Contains(WebSkip, filepath.Base(rel))
@@ -776,6 +798,8 @@ func settle(exe string, force bool) error {
 			}
 		}
 		_ = cleanup(context.Background(), exe, tx)
+		release()
+		dropSources(exe, tx)
 		return nil // startup uses the committed root and shows cleanup status
 	}
 	// a body still running on either place keeps it
@@ -824,7 +848,13 @@ func manifest(root string, skip func(string) bool) (map[string]entry, error) {
 	out := map[string]entry{}
 	err := walk(root, skip, func(path, rel string, d fs.DirEntry, st fs.FileInfo) error {
 		item := entry{Mode: st.Mode()}
-		if !d.IsDir() {
+		if st.Mode()&os.ModeSymlink != 0 {
+			var err error
+			item, err = fileEntry(path)
+			if err != nil {
+				return err
+			}
+		} else if !d.IsDir() {
 			f, err := os.Open(path)
 			if err != nil {
 				return err
@@ -849,16 +879,16 @@ func sameData(a, b map[string]entry) bool {
 	}
 	for k, v := range a {
 		w, ok := b[k]
-		if !ok || v.Hash != w.Hash || v.Size != w.Size || v.Mode.IsDir() != w.Mode.IsDir() {
+		if !ok || v.Hash != w.Hash || v.Size != w.Size || v.Mode.Type() != w.Mode.Type() {
 			return false
 		}
 	}
 	return true
 }
 
-// walk calls f for every regular file and folder under root (not root),
-// skipping what skip names. A link or a special file stops it: the move
-// copies no data it can't be sure of.
+// walk visits regular files, folders and absolute external symbolic links,
+// without following links. Relative or internal links would change meaning
+// when moved, and other special files remain unsupported.
 func walk(root string, skip func(string) bool, f func(path, rel string, d fs.DirEntry, st fs.FileInfo) error) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if errors.Is(err, os.ErrNotExist) && path == root {
@@ -887,7 +917,15 @@ func walk(root string, skip func(string) bool, f func(path, rel string, d fs.Dir
 		if err != nil {
 			return err
 		}
-		if !st.IsDir() && !st.Mode().IsRegular() {
+		if st.Mode()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			if !filepath.IsAbs(target) || contains(pathKey(root), pathKey(target)) {
+				return fmt.Errorf("data move requires an absolute external link target: %s", path)
+			}
+		} else if !st.IsDir() && !st.Mode().IsRegular() {
 			return fmt.Errorf("%s is a link or special file, which a data move doesn't copy", path)
 		}
 		return f(path, rel, d, st)
@@ -905,6 +943,13 @@ func copyTree(ctx context.Context, root, dst string, skip func(string) bool) err
 			return err
 		}
 		to := filepath.Join(dst, rel)
+		if st.Mode()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(target, to)
+		}
 		if d.IsDir() {
 			dirs = append(dirs, rel)
 			return os.MkdirAll(to, 0o700)
