@@ -4123,7 +4123,7 @@ html.theming, html.theming *, html.theming *::before, html.theming *::after {
 .modal .editor.framed { display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 0; min-height: 0; overflow: hidden; }
 .modal .editor.framed > .ebody {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
-  display: grid; grid-template-columns: inherit; gap: 10px 14px; align-items: start; padding: 14px 18px;
+  display: grid; grid-template-columns: inherit; gap: 10px 14px; align-items: start; align-content: start; padding: 14px 18px;
 }
 .modal .editor.framed > .ehead, .modal .editor.framed > .bar { flex: none; min-height: 48px; margin: 0; padding: 0 18px; }
 .modal .editor.framed > .ehead { border-bottom: 1px solid var(--line-2); }
