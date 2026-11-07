@@ -1,7 +1,10 @@
 package gui
 
 import (
+	"context"
 	"math"
+	"os"
+	"os/exec"
 	"runtime"
 	"runtime/debug"
 	"testing"
@@ -198,6 +201,23 @@ func TestSteadyGCKeepsTheUsersGOGC(t *testing.T) {
 // room: Go's 100), a read under a tight GC still sets its tenth, and after
 // the read the next collection sets it for the heap again.
 func TestSteadyGCRetunesAfterACollection(t *testing.T) {
+	// Earlier tests can keep more than steadyGCRoom alive. Run this
+	// small-heap case in its own process, keeping its exact expectations.
+	if os.Getenv("MAGPIE_TEST_STEADY_GC_CHILD") != "1" {
+		exe, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, exe, "-test.run=^TestSteadyGCRetunesAfterACollection$", "-test.v")
+		cmd.Env = append(os.Environ(), "MAGPIE_TEST_STEADY_GC_CHILD=1")
+		cmd.WaitDelay = time.Second
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("isolated steady GC: %v\n%s", err, out)
+		}
+		return
+	}
 	steadyOff(t)
 	t.Setenv("GOGC", "")
 	debug.SetGCPercent(100)
