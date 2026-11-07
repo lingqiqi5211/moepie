@@ -1713,6 +1713,12 @@ func (s *Server) handle(from provider.Protocol) http.HandlerFunc {
 			return
 		}
 		noteAsked(r.Context(), model)
+		// a Claude Code Message Thread magpie keeps no history for: sent
+		// again whole, without it (message_threads.go, #2480)
+		if from == provider.Anthropic && namesThread(body) {
+			refuseThread(w)
+			return
+		}
 		// a thread Codex started on magpie, on one of Codex's own models
 		// magpie serves nothing for: on Codex's own sign-in, as the
 		// ChatGPT backend's route sends it (codexOwnOffMagpie)
@@ -3030,6 +3036,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 		} else if n := userOutput(c.p, c.model); n > 0 {
 			attemptBody = withMaxOutput(from, attemptBody, n)
 		}
+		// Codex's screenshot detail is supported only by native APIs that
+		// accept it; Responses relays receive the closest detail, high.
+		if from == provider.Responses && !takesOriginalDetail(c.p) {
+			attemptBody = originalAsHigh(attemptBody)
+		}
 		// a request naming no reply limit, to an API that would cut it
 		// short (DeepSeek's 8K), asks for the model's own, relayed or
 		// translated (withOwnOutput)
@@ -3233,6 +3244,10 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			// step of its way out, for the Routing page to say whose time
 			// a slow turn was (TryNet)
 			ctx = httptrace.WithClientTrace(ctx, nt.hooks(&asking, &asked, &wrote))
+			if from != provider.Responses {
+				// Leave out carried reasoning this candidate already refused.
+				ctx = withSealScope(ctx, c.p.ID, stuck, c.vendor())
+			}
 			// a key or account with a MaxConcurrency is asked once one of
 			// its slots is free, in turn; the agent gone while it waits,
 			// nothing is sent (the 499 below)
@@ -3452,6 +3467,18 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			s.trace.update(tr, func(t *Route) { t.Tries[len(t.Tries)-1] = try })
 			i--
 			continue
+		}
+		if resealed == 0 && from != provider.Responses && !hw.passing && hw.code() >= 400 && foreignReasoning.Match(hw.errBody()) {
+			// A different Responses upstream cannot read the reasoning
+			// carried by the client's calls. Retry without it and remember
+			// that refusal for this candidate in this conversation.
+			resealed = 2
+			if refuseCarried(stuck, c.vendor(), from, attemptBody) {
+				try.Fail = failForeign
+				s.trace.update(tr, func(t *Route) { t.Tries[len(t.Tries)-1] = try })
+				i--
+				continue
+			}
 		}
 		if resealed < 2 && from == provider.Responses && !hw.passing && hw.code() >= 400 && foreignReasoning.Match(hw.errBody()) {
 			// the conversation moved here from another account or vendor,
@@ -3965,12 +3992,13 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 				s.trace.update(tr, func(t *Route) { t.Order, t.Left = askUnlisted(t.Order, t.Left, c, nextW) })
 			}
 		}
-		if !last && hw.failed() && strings.Contains(call.Error, finishFailed) {
+		if !last && hw.failed() && (strings.Contains(call.Error, finishFailed) || strings.Contains(call.Error, emptyCompleted)) {
 			// a 200 stream the vendor ended with finish_reason "error"
-			// (#2471): the turn failed, as the word says, but the account
-			// is at fault no more than one whose reply said nothing
-			// (#1221) or was cut short by its output limit (#2274): the
-			// next is asked, and nobody rests
+			// (#2471), or with a response.completed that carried nothing
+			// and counted no token (also #2471): the turn failed, as the
+			// words say, but the account is at fault no more than one
+			// whose reply said nothing (#1221) or was cut short by its
+			// output limit (#2274): the next is asked, and nobody rests
 			if other == nil {
 				other = &Try{Status: call.Status, Error: call.Error}
 			}
@@ -4260,7 +4288,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			// and a vendor that failed (not a reply too long, nor one its
 			// filter refused) rests, so the retry goes to another member. A
 			// reply the agent stopped itself is booked as before
-			try.Fail = failureOf(c, call.Status, []byte(call.Error))
+			try.Fail = failureOf(c, failedNamed(hw.header, call.Status), []byte(call.Error))
 			// a compaction a rule sent to a model of its own isn't a turn of
 			// the conversation: it leaves the stick where it was when it
 			// answers (below), and breaking off mid-reply forgets nothing
@@ -4285,6 +4313,15 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			} else if lateRests(call.Error) {
 				rest := s.restAfter(c, call.Status, hw.header, []byte(call.Error))
 				try.Fail, try.Rest = rest.Why, &rest
+			}
+			if hw.looped == "" && !hw.refusedAfter {
+				// an upstream's error frame that named its status (#4855,
+				// mycf_711: wps-lingxi's "（HTTP 503）" rows read status=200)
+				// is booked at it, in the Routing and Usage views, though
+				// the agent's 200 went out before it
+				if named := failedNamed(hw.header, namedStatus([]byte(call.Error))); named >= 400 {
+					call.Status = named
+				}
 			}
 		} else if call.Status < 400 {
 			servedCandidate(c, call.Usage.Input+call.Usage.Output+call.Usage.CacheRead+call.Usage.CacheWrite)
@@ -5374,11 +5411,10 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 	// xAI's own API takes neither a sealed reasoning item's null content
 	// nor a system turn in Messages (xai_body.go, #3392)
 	body = xaiBody(p, proto, body)
-	// a Grok subscription is given Codex's namespaced functions flat
-	// (grokBody), and Zed's plugin likewise (ZedBody); a call to one goes
-	// back under its namespace (#404)
+	// A relayed namespaced call must say its arguments are unsealed for
+	// Codex. OpenAI's own API and a ChatGPT account supply their own seal.
 	var named map[string]nsTool
-	if proto == provider.Responses && p.Account != nil && (p.Account.Agent == "grok" || p.PluginProvider() == "grok" || p.PluginProvider() == "zed") {
+	if proto == provider.Responses && !sealsItsOwn(p) {
 		named = namespacedIn(body)
 	}
 	// the new input alone, after the id the provider keeps the previous
@@ -5774,6 +5810,12 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 	} else if proto == provider.Anthropic && names != nil {
 		// a Messages reply, streamed or whole (textcalls_anthropic.go)
 		written = &anthropicTextCalls{names: names, sse: sse}
+	} else if proto == provider.Responses && names != nil {
+		// a Responses reply, streamed or whole (textcalls_relay.go)
+		written = &responsesTextCalls{names: names, sse: sse, seq: -1}
+	} else if names := geminiToolNames(body); proto == provider.Gemini && names != nil {
+		// a Gemini reply, streamed or whole (textcalls_relay.go)
+		written = &geminiTextCalls{names: names, sse: sse}
 	}
 	// a reply that came whole: JSON, or one under text/plain or no type
 	// that eventStream found isn't a stream
@@ -5922,6 +5964,9 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 			if tidy != nil {
 				out = tidy.write(out)
 			}
+			if spaces != nil {
+				out = spaces.write(out)
+			}
 			if written != nil {
 				out = written.write(out)
 			}
@@ -5930,9 +5975,6 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 			}
 			if search != nil {
 				out = search.write(out)
-			}
-			if spaces != nil {
-				out = spaces.write(out)
 			}
 			// crArgs before ints: ints runs on every reply now and holds
 			// one that came whole to its own flush, which crArgs, after it,
@@ -5993,7 +6035,7 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 			out = append(written.write(out), written.flush()...)
 		}
 		write(sign(out))
-	} else if written != nil {
+	} else if written != nil && spaces == nil {
 		write(sign(written.flush()))
 	}
 	if whole != nil {
@@ -6011,7 +6053,11 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 		write(sign(out))
 	}
 	if spaces != nil {
-		write(sign(spaces.flush()))
+		b := spaces.flush()
+		if written != nil {
+			b = append(written.write(b), written.flush()...)
+		}
+		write(sign(b))
 	}
 	if crArgs != nil {
 		b := crArgs.flush()
@@ -6069,6 +6115,12 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 		sniff.drain()
 	} else {
 		sniff.settleWhole()
+	}
+	if sniff.failedNamed != 0 {
+		// the stream's error frame named its own status: the failure is
+		// booked and rested as it (saidStatusHeader, #4855), while the
+		// frame itself goes to the client as it came
+		noteSaidStatus(w, sniff.failedNamed)
 	}
 	if gather != nil {
 		// the gathered stream is read here, not by the client: it gets
@@ -6149,6 +6201,15 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 // dsh's pi-ai for an error it doesn't retry, and the turn failed (#470).
 func cutMidReply(name string, err error) string {
 	return name + ": connection lost mid-reply (" + err.Error() + ")"
+}
+
+// noteSaidStatus carries the status a relayed stream's error frame named
+// for itself onto the try's writer (#4855), for the routing loop and
+// restAfter to read (namedStatusHeader); the client never sees it.
+func noteSaidStatus(w http.ResponseWriter, status int) {
+	if h, ok := w.(*holdWriter); ok {
+		h.note(namedStatusHeader, strconv.Itoa(status))
+	}
 }
 
 // streamFailure is an error event ending a stream in proto, as each
@@ -6487,6 +6548,16 @@ func (s *Server) forwardTranslated(ctx context.Context, p provider.Provider, to 
 		}
 		if to == provider.Chat && (p.IsBedrock() || p.IsAzure()) {
 			body = asCompletionTokens(body)
+		}
+		if to == provider.Chat && (p.Preset == "mistral" || p.Host() == "api.mistral.ai") {
+			// an earlier turn's reasoning, which the build replays in
+			// reasoning_content for a model whose name says DeepSeek
+			// wherever it is served (chatReplaysReasoning), and Mistral
+			// turns that field away (#494): the thinking part it takes,
+			// as the relayed route converts it. The Chat route alone had
+			// it; every follow-up of a Codex tool loop was refused, 422
+			// extra_forbidden (#4906)
+			body = mistralThinking(body)
 		}
 		if to == provider.Responses && !keepsLoneNone(p) {
 			// the "none" buildResponses keeps for a request that turned
@@ -7307,9 +7378,13 @@ func (s *Server) translate(w http.ResponseWriter, r *http.Request, p provider.Pr
 			}
 		}
 	}
+	// Leave out carried reasoning this candidate refused in this conversation.
+	withoutRefusedCarry(r.Context(), p, request)
 	// a glm-5.3-flash* replica's CR stitched into a call's arguments
 	// (tool_args_cr.go, #4256)
 	request.CR = glmServed(wiresOf(r.Context()), p, model)
+	// Grok's reasoning, carried in its calls' ids (reasoning_carry.go)
+	askSealedReasoning(p, from, request)
 	// a model's 2500.0 in a call's arguments, which Codex turns away, is
 	// rewritten at the encoder and at render (grok_integral.go, #1431,
 	// #3152)
@@ -7365,7 +7440,7 @@ func (s *Server) translate(w http.ResponseWriter, r *http.Request, p provider.Pr
 		}
 		return writeVendorError(w, from, res.StatusCode, msg, b), msg
 	}
-	dec := decoderFor(p, actual)
+	dec := carryReasoning(decoderFor(p, actual), from, actual)
 	rd, sse := eventStream(res)
 	if !sse {
 		// the provider ignored stream:true; read the whole reply as one
@@ -7592,6 +7667,9 @@ func parseRequest(proto provider.Protocol, body []byte, facts, keepInstructions 
 func afterParse(proto provider.Protocol, body []byte, req *Request) (*Request, error) {
 	// a call's id may carry Gemini's thought signature (gemini_signature.go)
 	unsignCalls(req)
+	// and the sealed reasoning a Responses upstream gave before it
+	// (reasoning_carry.go)
+	unreasonCalls(req)
 	req.LastIsTurn = proto == provider.Chat || proto == provider.Responses
 	if req.ToolChoice == "required" && len(req.Tools) == 0 && !req.WebSearch && requiredAllowlist(proto, body) {
 		return nil, fmt.Errorf("required tool choice has no callable tools after filtering")
@@ -7625,6 +7703,15 @@ func requiredAllowlist(proto provider.Protocol, body []byte) bool {
 func buildFor(p provider.Provider, proto provider.Protocol, r *Request, model string) ([]byte, error) {
 	if proto == provider.Gemini && p.IsVertex() {
 		return buildVertex(r, model)
+	}
+	if proto == provider.Responses && p.Account != nil && p.Account.Agent == "codex" && !r.instructionsKept {
+		// the account's send shapes the instructions itself (codexBody):
+		// the client's system rides first as a developer item and the
+		// input's system items stand as developer ones, in place — the
+		// fold would move them out of conversation order (#4632)
+		c := *r
+		c.instructionsKept = true
+		r = &c
 	}
 	return build(proto, r, model, buildHost(p), p.RejectsTemperature(model))
 }

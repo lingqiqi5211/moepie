@@ -18,6 +18,33 @@ accounts refusing the same request. A conversation kept for its vendor's
 cache gets one retry on a transient failure before moving to another
 candidate; the Routing page's diagnostics explain why it stayed.
 
+Translated system turns are folded into Responses instructions; a
+Responses client's own instruction items retain their order. Relays
+receive image detail `original` as `high`; DeepSeek's own API retains
+`original`. Overlong ids are omitted for kinds that allow no id, and
+shortened under their kind's prefix otherwise; `call_id`
+still pairs a call with its result. The later omission rule supersedes
+hashing an overlong optional id. See [`responses.go`](../../internal/gateway/responses.go)
+and [`image_detail.go`](../../internal/gateway/image_detail.go).
+
+A Responses stream ending with empty output and no tokens, or a relay's
+"Upstream request failed" 400 in a group, can fail over before any answer
+is sent. An error frame inside a 200 uses its own HTTP status for retry
+and rest decisions. Relayed Responses and Gemini text is checked for
+written tool calls, including Alma's DeepSeek DSML; rewritten Responses
+events keep increasing sequence numbers. Namespaced calls tell Codex
+their arguments are unsealed, and Lite metadata is removed before a
+Codex websocket turn reaches a Responses relay. A Claude Message Threads
+request is refused so the client sends its full history.
+
+A non-Responses client carries sealed Responses reasoning with a tool
+call's id, backed by the existing signature store
+([`reasoning_carry.go`](../../internal/gateway/reasoning_carry.go)). If another
+key or account refuses those items, the request is retried without them
+and later requests in that conversation omit them for that key or account;
+the calls, results and text remain. Responses requests translated to
+Mistral send thinking as content parts.
+
 This page covers how a request is routed. Plugins that change requests and
 replies are in [Gateway middleware](gateway-middleware.md). Subscriptions
 served by a plugin are in [Provider and plugin ownership](provider-plugins.md).

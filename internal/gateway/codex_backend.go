@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1666,9 +1668,12 @@ func codexRelayedAccount(base string, h http.Header, on *provider.Provider) (pro
 	return *p, true
 }
 
-// unreadableItem is the item OpenAI's refusal names: sealed content it
-// can't verify, or an id it doesn't have ("Item with id 'rs_…' not found").
-var unreadableItem = regexp.MustCompile(`(?i)(?:encrypted content for item|item with id) '?([A-Za-z]+_[A-Za-z0-9_-]+)'?`)
+// unreadableItem is the item a refusal names: sealed content OpenAI
+// can't verify, or an id it doesn't have ("Item with id 'rs_…' not
+// found"), which a relay in front of one answers in words of its own
+// ("Referenced reasoning item 'rs_…' was not found or has expired",
+// #3062).
+var unreadableItem = regexp.MustCompile(`(?i)(?:encrypted content for item|item with id|referenced reasoning item) '?([A-Za-z]+_[A-Za-z0-9_-]+)'?`)
 
 // withoutUnreadable is body without what OpenAI's refusal msg says it
 // can't read: the item it names, the reasoning another account sealed, or
@@ -2824,24 +2829,105 @@ func validatesItemIDs(p provider.Provider) bool {
 		p.Account != nil && (p.Account.Agent == "codex" || p.Account.Agent == "copilot")
 }
 
+// itemIDCap is the most characters an input item's id may have: OpenAI's
+// API, the ChatGPT backend, and Copilot's /responses in front of them turn
+// a longer one away — "Invalid 'input[1].id': string too long. Expected a
+// string with maximum length 64, but got a string with length 420
+// instead" (isnine, #4525; ghjkllasdf-fake's 444 alike, #4527: Copilot
+// gives its items ids hundreds of characters long, and Codex carries each
+// one back on every later turn). A call's call_id is another field's to
+// bound, as BoundCallID does.
+const itemIDCap = 64
+
+// boundItemID is id, of at most itemIDCap characters, as an upstream that
+// checks item ids takes it: one longer goes as its kind's prefix and the
+// sha256 of the whole of it, cut to fit. The kind comes from typ
+// (itemKindPrefix, openaiItemPrefix's for a call), and only an item of another
+// kind takes a prefix from its id: Copilot's own ids can be opaque, + and
+// / in them and no prefix at the front, and a bare digest passed the
+// length and the characters and still had the whole request turned away
+// with an empty "invalid_request_body" (#5266). The same id goes to the
+// same shorter one every turn, and no two ids land on one (a plain cut
+// could: ids of a vendor can begin alike).
+func boundItemID(id, typ string) string {
+	sum := sha256.Sum256([]byte(id))
+	digest := hex.EncodeToString(sum[:])
+	prefix := openaiItemPrefix[typ]
+	if prefix == "" {
+		prefix = itemKindPrefix[typ]
+	}
+	if prefix == "" {
+		if i := strings.IndexByte(id, '_'); i > 0 && i <= 4 && safeID([]byte(id[:i])) {
+			prefix = id[:i+1]
+		}
+	}
+	return prefix + digest[:itemIDCap-len(prefix)]
+}
+
+// idOptional are the kinds of input item whose id OpenAI's /responses
+// takes left out ("" is a message given with no type), as OpenAI's own SDK
+// has them (openai-go v3.42.0's ResponseInputItemUnionParam: the id is
+// param.Opt on each of these, required on the rest). One of these with an
+// id too long goes without it, which every upstream that checks ids takes:
+// Copilot answered a message's and a call's overlong id left out with 200,
+// and the same id as a bare digest with an empty 400 "invalid_request_body"
+// (isnine on #4525, echo_ts after Codex's compaction). A call and its
+// output keep their call_id, which pairs them.
+var idOptional = map[string]bool{
+	"": true, "message": true,
+	"function_call": true, "function_call_output": true,
+	"custom_tool_call": true, "custom_tool_call_output": true,
+	"tool_search_call": true, "tool_search_output": true,
+	"computer_call_output": true,
+	"shell_call":           true, "shell_call_output": true,
+	"apply_patch_call": true, "apply_patch_call_output": true,
+	"mcp_approval_response": true,
+	"additional_tools":      true,
+	"compaction":            true,
+}
+
+// itemKindPrefix is the prefix OpenAI gives the id of each kind of input
+// item that can't go without one (openai-go's id "required"), which
+// boundItemID binds an overlong id under. Copilot hands these out opaque
+// too: a web_search_call's id ~450 characters of Base64 with no ws_ at the
+// front, which as a bare digest had the whole request turned away with the
+// same empty 400 "invalid_request_body" (echo_ts, native web search on
+// Copilot). A kind not here (local_shell_call, item_reference, program)
+// keeps the prefix its own id has.
+var itemKindPrefix = map[string]string{
+	"reasoning":             "rs_",
+	"web_search_call":       "ws_",
+	"file_search_call":      "fs_",
+	"computer_call":         "cu_",
+	"image_generation_call": "ig_",
+	"code_interpreter_call": "ci_",
+	"mcp_call":              "mcp_",
+	"mcp_list_tools":        "mcpl_",
+	"mcp_approval_request":  "mcpr_",
+}
+
 // plainItemIDs is a Responses request whose input items' ids are of
-// [A-Za-z0-9_-] only, as OpenAI takes them, and the rest of the request
-// byte for byte. Another vendor's reply can hand the agent an item whose
-// id has more in it — Muse Spark on OpenCode's reasoning id is two joined
-// with a colon ("rs_6aca…:rs_01a1…") — and the agent sends it back on
-// every later turn, after a switch too, where OpenAI and Copilot turn the
-// whole request away over it (echo_ts). Such reasoning goes: an upstream
-// that checks ids never made it, so its encrypted_content is another
-// vendor's, which it couldn't read either. Any other item (a message, a
-// call) keeps what it says, its id with each other character as "_"; a
-// call's call_id, which its output names it by, stays as it was.
+// [A-Za-z0-9_-] only and of itemIDCap characters at most, as OpenAI takes
+// them, and the rest of the request byte for byte. Another vendor's reply
+// can hand the agent an item whose id has more in it — Muse Spark on
+// OpenCode's reasoning id is two joined with a colon ("rs_6aca…:rs_01a1…")
+// — and the agent sends it back on every later turn, after a switch too,
+// where OpenAI and Copilot turn the whole request away over it (echo_ts).
+// Such reasoning goes: an upstream that checks ids never made it, so its
+// encrypted_content is another vendor's, which it couldn't read either.
+// Reasoning of the characters they take, but longer than they take
+// (Copilot's own, #4525), keeps its place, its id bound; any other item (a
+// message, a call) keeps what it says, its id left out when it was long and
+// may be (idOptional), bound when it was long and may not (boundItemID), or
+// with each other character as "_"; a call's call_id, which its output
+// names it by, stays as it was.
 func plainItemIDs(body []byte) []byte {
 	if !bytes.Contains(body, []byte(`"id"`)) {
 		return body
 	}
 	if !anyInputItem(body, func(it []byte) bool {
 		id, _ := stringBytes(memberOrNil(it, "id"))
-		return len(id) > 0 && !safeID(id)
+		return len(id) > itemIDCap || len(id) > 0 && !safeID(id)
 	}) {
 		return body
 	}
@@ -2858,15 +2944,25 @@ func plainItemIDs(body []byte) []byte {
 	for _, raw := range items {
 		var it map[string]json.RawMessage
 		var typ, id string
-		if json.Unmarshal(raw, &it) != nil || json.Unmarshal(it["id"], &id) != nil || id == "" || safeIDChars.MatchString(id) {
+		if json.Unmarshal(raw, &it) != nil || json.Unmarshal(it["id"], &id) != nil || id == "" ||
+			len(id) <= itemIDCap && safeIDChars.MatchString(id) {
 			kept = append(kept, raw)
 			continue
 		}
 		changed = true
-		if json.Unmarshal(it["type"], &typ) == nil && typ == "reasoning" {
+		// another vendor's reasoning goes; the vendor's own, only too
+		// long, stays with its seal
+		if json.Unmarshal(it["type"], &typ) == nil && typ == "reasoning" && !safeIDChars.MatchString(id) {
 			continue
 		}
-		it["id"], _ = json.Marshal(unsafeToolID.ReplaceAllString(id, "_"))
+		switch {
+		case len(id) > itemIDCap && idOptional[typ]:
+			delete(it, "id")
+		case len(id) > itemIDCap:
+			it["id"], _ = json.Marshal(boundItemID(id, typ))
+		default:
+			it["id"], _ = json.Marshal(unsafeToolID.ReplaceAllString(id, "_"))
+		}
 		b, err := marshalPlain(it)
 		if err != nil {
 			return body

@@ -346,6 +346,9 @@ func readResponsesFor(body []byte, facts, keepInstructions bool) (*Request, erro
 	// a Responses client's turns go to Claude with hour-long cache marks,
 	// unless it asked for its prompt to be kept in memory only
 	r.hourMarks = q.PromptCacheRetention != "in_memory"
+	// the instruction roles the client sent stand where they stood, and go
+	// back as they came (#2532)
+	r.instructionsKept = keepInstructions
 	if q.Reasoning != nil {
 		r.Effort = effortOf(q.Reasoning.Effort)
 		r.Thinking = true
@@ -1304,6 +1307,18 @@ func sealedReasoning(p Part) bool {
 
 // buildResponses renders a request for a Responses upstream.
 func buildResponses(r *Request, model, host string, rejectTemp bool) []byte {
+	// A translated request's system or developer message (Claude Code's
+	// environment as a {role: "system"} message) is the harness's, not an
+	// instruction item of a Responses client's own: it is folded into the
+	// instructions as the Chat and Anthropic builds fold it
+	// (responseInstructions) — a backend that takes user, assistant and
+	// developer alone refuses the role with a 400 the agent sees (#4632).
+	// A Responses client's own instruction items were kept by the read
+	// (#2532) and go where they stood; so do a codex account's, which its
+	// send says as developer ones in place (codexBody, buildFor).
+	if !r.instructionsKept {
+		r = responseInstructions(r)
+	}
 	// A turn's reasoning goes back as a reasoning item, as a model that
 	// thinks between tool calls wants it (DeepSeek: "The reasoning_text in
 	// the thinking mode must be passed back", #388). Only a DeepSeek model
@@ -2087,10 +2102,12 @@ func callTo(item map[string]any, name string, named map[string]nsTool) map[strin
 		}
 	} else if q, ok := named[name]; ok {
 		item["name"], item["namespace"] = q.Name, q.Namespace
-		// Nothing magpie serves seals arguments. Codex reads a namespaced call
-		// without this list as sealed: spawn_agent's message in MultiAgentV2
-		// would reach the subagent as ciphertext, which is really plain text.
-		item["encrypted_function_args"] = []any{}
+		// Codex reads a namespaced call without this list as sealed. A
+		// translated call is plain text, but a relayed call may already
+		// carry its upstream's explicit seal, including null or an empty list.
+		if _, exists := item["encrypted_function_args"]; !exists {
+			item["encrypted_function_args"] = []any{}
+		}
 	} else {
 		item["name"] = name
 	}

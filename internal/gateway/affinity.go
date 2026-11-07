@@ -1082,7 +1082,12 @@ func seals(body []byte, kinds ...string) [][sha256.Size]byte {
 // refused notes that who turned away the sealed items of these types in
 // body, in the conversation key names.
 func refused(key, who string, body []byte, kinds ...string) {
-	ss := seals(body, kinds...)
+	noteRefused(key, who, seals(body, kinds...))
+}
+
+// noteRefused notes that who turned away the sealed items of these hashes
+// in the conversation key.
+func noteRefused(key, who string, ss [][sha256.Size]byte) {
 	if len(ss) == 0 {
 		return
 	}

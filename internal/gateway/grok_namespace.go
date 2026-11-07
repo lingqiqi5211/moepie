@@ -13,6 +13,9 @@ package gateway
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
+
+	"github.com/yetone/magpie/internal/provider"
 )
 
 // Codex groups some tools in a namespace (collaboration's spawn_agent,
@@ -164,16 +167,33 @@ func (t *nsTidy) restore(data []byte) ([]byte, bool) {
 	return nb, true
 }
 
-// call names a function_call to a namespaced function by its name and
-// namespace, and reports whether it was one.
+// call restores a namespaced call and tells Codex when its arguments are
+// plain text. An upstream's explicit seal is preserved.
 func (t *nsTidy) call(it map[string]any) bool {
-	if it == nil || it["type"] != "function_call" || it["namespace"] != nil {
+	if it == nil || it["type"] != "function_call" {
 		return false
 	}
 	name, _ := it["name"].(string)
+	if ns, _ := it["namespace"].(string); ns != "" {
+		for _, q := range t.named {
+			if q.Namespace == ns && q.Name == name {
+				if _, ok := it["encrypted_function_args"]; !ok {
+					it["encrypted_function_args"] = []any{}
+					return true
+				}
+				break
+			}
+		}
+		return false
+	}
 	if _, ok := t.named[name]; !ok {
 		return false
 	}
 	callTo(it, name, t.named)
 	return true
+}
+
+// sealsItsOwn identifies upstreams that supply a namespaced call's seal.
+func sealsItsOwn(p provider.Provider) bool {
+	return accountAgent(p) == "codex" || strings.HasSuffix(p.Host(), "openai.com") || p.IsAzure()
 }
