@@ -841,7 +841,19 @@ var periodNames = map[usage.Period]string{usage.Today: "today", usage.Week: "7 d
 type quotaMsg []provider.SubscriptionQuota
 
 func quotasCmd() tea.Msg {
-	provider.AskClaudeUsage() // the page opened, or r pressed
+	provider.AskClaudeUsage() // the page opened
+	return readQuotas()
+}
+
+// quotasRefreshCmd is r pressed: every account read again, a saved Claude
+// account's /usage run too, as the app's Refresh does (#5380); opening the
+// page runs no saved account's.
+func quotasRefreshCmd() tea.Msg {
+	provider.AskEveryClaudeUsage()
+	return readQuotas()
+}
+
+func readQuotas() tea.Msg {
 	ctx, cancel := context.WithTimeout(provider.Asked(context.Background()), 12*time.Second)
 	defer cancel()
 	// a WorkBuddy (China) account's line says how its daily check-in went,

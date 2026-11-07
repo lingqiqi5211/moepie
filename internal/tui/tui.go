@@ -379,7 +379,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.flash, m.flashOK = "reloaded", true
 					if m.page == pageUsage {
 						m.quotas, m.qasked = nil, true
-						return m, quotasCmd
+						// every account read again, a saved Claude account's
+						// /usage run too, as the app's Refresh does (#5380)
+						return m, quotasRefreshCmd
 					}
 					return m, nil
 				}
