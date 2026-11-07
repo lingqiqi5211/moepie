@@ -337,7 +337,7 @@ func buildModels(agent string) []catalog.Model {
 	labels := provider.Labels(shown)
 	// a model magpie describes images to takes them (provider.Described)
 	seen := provider.Described != nil && provider.Described()
-	st, find := settings.Load(), provider.GroupFinder()
+	st, find := settings.Load(), provider.FoundOnce(provider.GroupFinder())
 	priceOf := provider.AgentPricer(st, find)
 	members := func(id string) []provider.Member {
 		_, ms, _ := find(id)
