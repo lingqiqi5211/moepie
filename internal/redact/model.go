@@ -84,7 +84,7 @@ func modelSpans(s string, o Options) []span {
 		if kind == "PERSON" {
 			a, b = zhTrim(s, a, b)
 		}
-		if a < b && utf8.ValidString(s[a:b]) && modelTakes(kind, s[a:b]) && modelFits(s, a, b, kind) && !(kind == "PERSON" && zhWordNotName(s, a, b)) {
+		if a < b && utf8.ValidString(s[a:b]) && modelTakes(kind, s[a:b]) && modelFits(s, a, b, kind, o.args) && !(kind == "PERSON" && zhWordNotName(s, a, b)) {
 			out = append(out, span{a, b, kind, ByModel, f.Score, false})
 		}
 	}
@@ -307,7 +307,7 @@ func withModel(o Options, texts []string) Options {
 // A name's words each start with a capital, but for the particles names
 // have (van, de, bin): "local LLM", "User yetone" and claudeKeychain are
 // a program's or a log's words.
-func modelFits(s string, a, b int, kind string) bool {
+func modelFits(s string, a, b int, kind string, args bool) bool {
 	if a > 0 && wordByte(s[a-1]) && wordByte(s[a]) || b < len(s) && wordByte(s[b-1]) && wordByte(s[b]) {
 		return false
 	}
@@ -325,7 +325,7 @@ func modelFits(s string, a, b int, kind string) bool {
 	}
 	switch kind {
 	case "PERSON":
-		return personFits(s, a, b, v)
+		return personFits(s, a, b, v, args)
 	case "ACCOUNT":
 		if hexRe.MatchString(v) && strings.ContainsAny(v, "abcdef") || versionRe.MatchString(v) || !numberLike(v) {
 			return false
@@ -344,6 +344,15 @@ func modelFits(s string, a, b int, kind string) bool {
 		}
 		return strings.IndexFunc(v, unicode.IsLetter) >= 0
 	case "SECRET":
+		// a name a call is made on is no value: gctx.GetInt64 in
+		// gctx.GetInt64("user_id") went as a made-up key (#4444). Only a
+		// name the '(' touches is a call's: in prose a secret may stand
+		// before a bracket of words ("the token is k3Xq9vB2mZ (rotated)"),
+		// and the model is asked about prose too, so notCode's wider
+		// reading of the rules' values isn't taken here
+		if b < len(s) && s[b] == '(' && identPath.MatchString(v) {
+			return false
+		}
 		if !wordByte(v[0]) || patternWords(v) || regexpLike(v) || idAfter(s, a) || strings.ContainsRune(v, ' ') && clockIn.MatchString(v) || uuidIn.MatchString(v) || strings.Contains(v, `": `) || strings.Contains(v, `", "`) || linkRe.MatchString(v) {
 			return false
 		}
@@ -638,11 +647,14 @@ func underPackages(s string, a int) bool {
 // missingModuleAt says s[a:b] is quoted after the words an error names a
 // module it could not load with: tsc's and Node's Cannot find module
 // 'x', Python's No module named 'x', a bundler's Can't resolve 'x'.
+// Only the last 64 bytes before the quote are lowered, after trimming
+// spaces, so long sessions in any script cost no whole-history copy (#4766).
 func missingModuleAt(s string, a, b int) bool {
 	if a == 0 || b >= len(s) || !strings.ContainsRune("'\"`", rune(s[a-1])) || s[b] != s[a-1] {
 		return false
 	}
-	q := strings.ToLower(strings.TrimRight(s[:a-1], " \t"))
+	t := strings.TrimRight(s[:a-1], " \t")
+	q := strings.ToLower(t[max(0, len(t)-64):])
 	for _, w := range []string{"find module", "find package", "module named", "resolve", "resolve import", "resolve module"} {
 		if wordEnd(q, w) {
 			return true
@@ -716,7 +728,7 @@ func wordByte(c byte) bool {
 	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
 
-func personFits(s string, a, b int, v string) bool {
+func personFits(s string, a, b int, v string, args bool) bool {
 	if strings.ContainsAny(v, "0123456789/\\@<>|=_") || strings.IndexFunc(v, unicode.IsUpper) < 0 && isASCII(v) {
 		return false
 	}
@@ -736,6 +748,13 @@ func personFits(s string, a, b int, v string) bool {
 	// an acronym (CI, API), a product's name in camel case (CodeRabbit,
 	// OpenAI) and a site's (Greptile beside app.greptile.com) are no one's
 	if w := strings.Fields(v); len(w) == 1 && (strings.Trim(v, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") == "" || camelProduct(v) || hostIn(s, v)) {
+		return false
+	}
+	// an app's or a product's name the model took for a first name, where
+	// its sentence speaks of a thing (thingname.go); never in a tool
+	// call's arguments, which name whom a tool acts for
+	// ({"recipient":"Rina"})
+	if w := strings.Fields(v); len(w) == 1 && isASCII(v) && !args && thingNamed(s, a, b) {
 		return false
 	}
 	for i, w := range strings.Fields(v) {

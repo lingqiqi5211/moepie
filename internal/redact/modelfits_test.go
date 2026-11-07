@@ -69,6 +69,13 @@ func TestModelMisreadsNotMasked(t *testing.T) {
 		{"wait until CI is green", "CI", "private_person"},
 		{"CodeRabbit\tpending\t0", "CodeRabbit", "private_person"},
 		{"Greptile Review at https://app.greptile.com/r/1", "Greptile", "private_person"},
+		// the method a call is made on: gctx.GetInt64 went as a made-up key
+		// in the reporter's redaction shot (#4444)
+		{`rows, err := gctx.GetInt64("user_id")`, "gctx.GetInt64", "secret"},
+		// a setting's word the local model took for a name, wherever it
+		// stood: 白名单, 821 replacements in the reporter's three days
+		// (tianyk, #4087)
+		{"开启白名单之后，把要放行的域名填进去。", "白名单", "private_person"},
 	} {
 		f := &fakeModel{values: map[string]string{c.value: c.label}}
 		if out, n := Mask(c.text, Options{Secrets: true, Personal: true, Model: f.find}); n != 0 {
@@ -94,9 +101,19 @@ func TestModelFindsStillMasked(t *testing.T) {
 		{"write to rina.k@kowalczyk.pl", "rina.k@kowalczyk.pl", "private_email"},
 		// beside what the checks above leave out
 		{"the stripe one is sk_test_AbCdEfGh_IjKlMn", "sk_test_AbCdEfGh_IjKlMn", "secret"},
+		// a real secret of dotted parts, where no rule reaches it
+		{"the vault phrase is alpha.bravo.charlie9", "alpha.bravo.charlie9", "secret"},
+		// one a bracket of words follows is no call, nor one after a colon
+		// a comma follows (#4444's guard); values of their own, as a value
+		// found once is masked again wherever it stands
+		{"tell Bob it is Pw7nK4xQ9rTe (rotated today)", "Pw7nK4xQ9rTe", "secret"},
+		{"tell Bob it is delta.echo.foxtrot7 (keep it)", "delta.echo.foxtrot7", "secret"},
+		{"note: hunterTwoThree, keep it", "hunterTwoThree", "secret"},
 		{"the token is 9f2c4e1a7b3d5c8e9f2c", "9f2c4e1a7b3d5c8e9f2c", "secret"},
 		{"ask McDonald, he knows", "McDonald", "private_person"},
 		{"write to Rina at rina.lee@kowalczyk.pl", "Rina", "private_person"},
+		// a Chinese name where the words around it say one is meant
+		{"找王芳确认一下档期", "王芳", "private_person"},
 		{"ring +1 415.555.0132 after six", "+1 415.555.0132", "private_phone"},
 		{"we live at 3/12 Smith Street, Sydney", "3/12 Smith Street, Sydney", "private_address"},
 	} {

@@ -87,6 +87,9 @@ type Options struct {
 
 	// found are the spans Model found, by text, for one request's texts
 	found map[string][]Found
+	// args is masking a tool call's arguments (MaskJSON): the model's
+	// one-word name there is never taken for an app's (thingNamed)
+	args bool
 	// sent is masking for a vendor (Mask, MaskJSON): a text masked
 	// before on Route has the model's finds and the known values it had
 	// then (sentSpans)
@@ -136,6 +139,10 @@ type rule struct {
 	back, ahead int
 	// cat is what turns the rule on (Options.covers): "" the secrets
 	cat string
+	// field is a rule that takes a value after a field's name and = or :,
+	// a space allowed between them: a value that is the next field's
+	// assignment is not this one's (fieldMatches)
+	field bool
 	// yours is a rule the user wrote (customRules)
 	yours bool
 	// anyGroup takes the first group that matched, for a pattern with a
@@ -159,6 +166,9 @@ var rules = append([]rule{
 	{kind: "API_KEY", re: regexp.MustCompile(`sk-(?:ant-|proj-|or-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}`), markers: []string{"sk-"}, bound: tokenCh, ok: notASlug},
 	// a gateway's or a relay's own: oc_sk_…, or_sk_… (#195)
 	{kind: "API_KEY", re: regexp.MustCompile(`[a-z]{2,4}_sk_[A-Za-z0-9_-]{20,}`), markers: []string{"_sk_"}, bound: tokenCh, ok: secretValue},
+	// Volcano Ark and the relays in front of it issue keys with an ark-
+	// prefix (#2946)
+	{kind: "API_KEY", re: regexp.MustCompile(`ark-[A-Za-z0-9][A-Za-z0-9_-]{15,}`), markers: []string{"ark-"}, bound: tokenCh, ok: secretValue},
 	{kind: "API_KEY", re: regexp.MustCompile(`(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|glpat-[A-Za-z0-9_-]{20,})`), markers: []string{"gh", "github_pat_", "glpat-"}, bound: tokenCh},
 	{kind: "API_KEY", re: regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`), markers: []string{"AIza"}, bound: tokenCh},
 	{kind: "API_KEY", re: regexp.MustCompile(`xox[abposr]-[0-9A-Za-z-]{10,}`), markers: []string{"xox"}, bound: tokenCh},
@@ -172,29 +182,41 @@ var rules = append([]rule{
 	{kind: "PASSWORD", re: regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://[^\s:@/?#"'<>]*:([^\s@/?#"'<>]{3,})@`), markers: []string{"://"}, ok: notAVariable, at: hiddenInURL},
 	// password = …, API_KEY: "…", as .env files and configs have them
 	{kind: "SECRET", re: regexp.MustCompile(`(?i)[A-Za-z0-9_.-]*(?:` + secretNames.pattern() + `)[A-Za-z0-9_.-]*` + quote + `[ \t]*[:=][ \t]*` + quote + `(` + secretCh + `{8,})`),
-		markers: secretNames.markers(), ok: secretValue, at: fieldAt},
+		markers: secretNames.markers(), ok: secretValue, at: fieldAt, field: true},
+	// an env var's name says what it holds in the upper case: a
+	// SERVICE_X_KEY, a DB_PASS (#2946). The names above have a word for the
+	// secret in them; these only end in one, and only in the upper case is
+	// that a secret's name — in the lower case a name that ends in key is
+	// code's: a sort key, a cache key, a public key (notAPlainKey turns the
+	// upper-case ones of those away too).
+	{kind: "SECRET", re: regexp.MustCompile(`(?:^|[^A-Za-z0-9_.-])[A-Za-z0-9_.-]*_(?:KEY|PASS)` + quote + `[ \t]*[:=][ \t]*` + quote + `(` + secretCh + `{8,})`),
+		markers: fieldNames{{"key", "key"}, {"pass", "pass"}}.markers(), ok: secretValue, at: namedSecretAt, field: true},
+	// an Authorization or Cookie header's value is a secret whatever it
+	// looks like: an opaque bearer token, a session value (#2946)
+	{kind: "SECRET", re: regexp.MustCompile(`(?im)^[ \t]*(?:authorization|cookie)[ \t]*:[ \t]*(\S[^\r\n]{7,})`),
+		markers: fieldNames{{"authorization", "authorization"}, {"cookie", "cookie"}}.markers(), ok: headerValue},
 	// a field called key and nothing more, as providers.json has one: "key":
 	// "oc_sk_…" (#195). Only a long value of letters and digits both, since
 	// code calls anything a key: a map's "key": "value", sort_key, keyboard.
 	{kind: "SECRET", re: regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9_.-])` + quote + `key` + quote + `[ \t]*[:=][ \t]*` + quote + `(` + secretCh + `{16,})`),
-		markers: fieldNames{{"key", "key"}}.markers(), ok: secretValue, at: fieldAt},
+		markers: fieldNames{{"key", "key"}}.markers(), ok: secretValue, at: fieldAt, field: true},
 	// a password after its name in Chinese, Japanese or Korean, as people
 	// write one into a message: 密码：786kih, 密碼是 hunter2, パスワード: … .
 	// Unlike password = in a config, nothing in code is called 密码, so
 	// any value of four or more is taken, digits only too (CyberCaius on
 	// Discord); a sentence's closing stop is no part of it.
-	{kind: "PASSWORD", re: cjkNamed(cjkPasswordNames), fold: lowerAll(cjkPasswordNames), back: 64, ahead: 100, ok: notAVariable},
+	{kind: "PASSWORD", re: cjkNamed(cjkPasswordNames), fold: lowerAll(cjkPasswordNames), back: 64, ahead: 100, ok: notAVariable, field: true},
 	// a key, a secret or a token after its name the same way: 密钥为 …,
 	// 令牌是 …, 金鑰： … . A key of digits only is taken after 为, 是, ：
 	// or = when it has six or more and counts nothing, so 密钥为12231241
 	// is masked and 密钥为 2048 位 is left.
-	{kind: "SECRET", re: cjkNamed(cjkKeyNames), fold: lowerAll(cjkKeyNames), back: 64, ahead: 100, at: keyAt},
+	{kind: "SECRET", re: cjkNamed(cjkKeyNames), fold: lowerAll(cjkKeyNames), back: 64, ahead: 100, at: keyAt, field: true},
 	// an English name for one before 为, 為, 是 or ：, as a Chinese message
 	// has it: apikey 为 …, token 是 …, API Key：… (CyberCaius on Discord).
 	// password = … and API_KEY: … in a config are the SECRET rule's above.
 	{kind: "SECRET", re: regexp.MustCompile(`(?i)(?:` + secretNames.pattern() + `|pwd|api[ ]key|access[ ]key|secret[ ]key|key|\bpin(?:[ ]?code)?)` + quote +
 		`[ \t]*(?:[为為是][ \t]*[:：]?|：)[ \t]*(?:\\?["'“「])?(` + secretCh + `{3,}[A-Za-z0-9_\-/+=~!@#%^&*])`),
-		fold: cjkCopulas, back: 24, ahead: 260, at: keyAt},
+		fold: cjkCopulas, back: 24, ahead: 260, at: keyAt, field: true},
 
 	{kind: "EMAIL", re: regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}`), markers: []string{"@"}, bound: alnum + "_%+-", ok: realEmail, at: emailAt, cat: catPersonal},
 	{kind: "ID_CARD", re: regexp.MustCompile(`[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx]`), bound: alnum, ok: chineseID, cat: catPersonal},
@@ -313,9 +335,10 @@ func keyValue(v string) bool {
 // time.
 func keyAt(s string, a, b int) bool {
 	v := s[a:b]
-	if pathValue(v) || versionValue(v) {
-		// where a key is kept: 私钥 ~/.ssh/id_ed25519, or a release's
-		// version: token 是 0.15.0-rc1 (fieldvalue.go)
+	if pathValue(v) || versionValue(v) || timestampValue(v) {
+		// where a key is kept: 私钥 ~/.ssh/id_ed25519, a release's
+		// version: token 是 0.15.0-rc1, or a moment: 令牌是
+		// 2026-08-30T11:44:31 (fieldvalue.go)
 		return false
 	}
 	if keyValue(v) {
@@ -489,6 +512,65 @@ func notASlug(v string) bool {
 	return false
 }
 
+// headerValue says the rest of an Authorization or Cookie line is a
+// header's value, not prose that begins with the word ("Authorization:
+// the user must sign in first"): a credential, after a scheme word or
+// alone (Bearer …, Basic …), or a cookie's name=value pairs. One that
+// stands for a variable (${TOKEN}, <token>, ****) is left alone.
+func headerValue(v string) bool {
+	v = strings.TrimSpace(v)
+	if v == "" || !notAVariable(v) {
+		return false
+	}
+	notLetter := func(r rune) bool { return !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z') }
+	f := strings.Fields(v)
+	if len(f) == 1 || len(f) == 2 && strings.IndexFunc(f[0], notLetter) < 0 {
+		// a word alone is prose's: a credential has a digit or a sign in it
+		cred := f[len(f)-1]
+		return len(cred) >= 8 && notAVariable(cred) && strings.IndexFunc(cred, notLetter) >= 0
+	}
+	for _, kv := range strings.Split(v, ";") {
+		if kv = strings.TrimSpace(kv); kv == "" {
+			continue
+		}
+		name, _, ok := strings.Cut(kv, "=")
+		if !ok || name == "" || strings.ContainsAny(name, " \t") {
+			return false
+		}
+	}
+	return strings.Contains(v, "=")
+}
+
+// notAPlainKey turns away the upper-case name before the value at s[:a]
+// when it only ends in key and holds no secret: a sort key, a cache key, a
+// prompt cache key, a public key (#2946).
+func notAPlainKey(s string, a, b int) bool {
+	i := a
+	for i > 0 && strings.IndexByte(`"' `+"\t:=", s[i-1]) >= 0 {
+		i--
+	}
+	end := i
+	for i > 0 && strings.IndexByte(alnum+"_.-", s[i-1]) >= 0 {
+		i--
+	}
+	name := strings.ToLower(s[i:end])
+	return !strings.HasSuffix(name, "sort_key") && !strings.HasSuffix(name, "cache_key") &&
+		!strings.HasSuffix(name, "prompt_cache_key") && !strings.HasSuffix(name, "public_key")
+}
+
+// notPlainKeyOrCode keeps both boundaries on a name that only ends in _KEY
+// or _PASS: plain keys stay as written, and so does code naming a secret.
+func notPlainKeyOrCode(s string, a, b int) bool {
+	return notAPlainKey(s, a, b) && notCode(s, a, b)
+}
+
+// namedSecretAt is notPlainKeyOrCode with the value-side reading the SECRET
+// rules' fieldAt gained later: a const TOKEN_KEY = "access_token_v2" is
+// code naming a token, and its value reads as a version, so both stay.
+func namedSecretAt(s string, a, b int) bool {
+	return notPlainKeyOrCode(s, a, b) && fieldAt(s, a, b)
+}
+
 func realEmail(v string) bool {
 	at := strings.LastIndexByte(v, '@')
 	if strings.EqualFold(v[:at], "git") {
@@ -498,7 +580,16 @@ func realEmail(v string) bool {
 	if !mailHost(v[:at], host) {
 		return false
 	}
-	if fileHost(host) || docFiles[host] || !mailTLD(host[strings.LastIndexByte(host, '.')+1:]) {
+	if fileHost(host) {
+		// the end of a file's name: an address before its extension
+		// (alice.smith@acme.com.pdf, export-rina.k@fastmail.com.png) is
+		// someone's all the same; a scale or a word (@2x.jpg, @final.pdf)
+		// is no domain
+		if host = fileStem(host); !strings.Contains(host, ".") || fileHost(host) || !mailHost(v[:at], host) {
+			return false
+		}
+	}
+	if docFiles[host] || !mailTLD(host[strings.LastIndexByte(host, '.')+1:]) {
 		return false
 	}
 	for _, fake := range []string{"example.com", "example.org", "example.net", "localhost", ".test", ".invalid", ".example"} {
@@ -595,6 +686,18 @@ func fileHost(host string) bool {
 	dot := strings.LastIndexByte(host, '.')
 	ext := host[dot+1:]
 	return fileExt[ext] || dot > 0 && scaleExt[ext] && scaleRe.MatchString(host[:dot])
+}
+
+// fileStem is host with the file extensions at its end taken off
+// (acme.com.tar.gz is acme.com), for a host fileHost took for a file's.
+func fileStem(host string) string {
+	for {
+		dot := strings.LastIndexByte(host, '.')
+		if dot < 0 || !fileExt[host[dot+1:]] {
+			return host
+		}
+		host = host[:dot]
+	}
 }
 
 func chineseID(v string) bool {
@@ -988,74 +1091,7 @@ func mask(raw string, o Options, put func(kind, v string) string, escaped bool) 
 			i = max(b, a+1)
 		}
 	}
-	all := rules
-	if o.Secrets && len(o.Rules) > 0 {
-		// the user's first: where one of theirs and one of magpie's find
-		// the same value, it goes by the name they gave it
-		all = append(customRules(o.Rules), rules...)
-	}
-	lower := ""
-	// split are matches a rule took apart into values of their own
-	// (rkato@box17 as a user and a host): what another rule found from
-	// the same place in them, an email, goes
-	var split []span
-	for _, r := range all {
-		if !o.covers(r.cat) {
-			continue
-		}
-		if len(r.markers) > 0 && !containsAny(s, r.markers) {
-			continue
-		}
-		if len(r.fold) > 0 {
-			if lower == "" {
-				lower = lowerASCII(s)
-			}
-			if !containsAny(lower, r.fold) {
-				continue
-			}
-		}
-		for _, m := range r.matches(s, lower) {
-			if len(r.groups) > 0 {
-				took := false
-				for g, kind := range r.groups {
-					if a, b := m[2*g+2], m[2*g+3]; a >= 0 && r.takes(s, a, b, r.groupOK[g]) {
-						found = append(found, span{a, b, kind, r.by(), 0, false})
-						took = true
-					}
-				}
-				if took {
-					split = append(split, span{m[2], m[1], "", "", 0, false})
-				}
-				continue
-			}
-			a, b := m[0], m[1]
-			for g := 1; 2*g+1 < len(m); g++ {
-				if m[2*g] >= 0 {
-					a, b = m[2*g], m[2*g+1]
-					break
-				}
-				if !r.anyGroup {
-					break
-				}
-			}
-			ok := r.ok
-			if r.fix != nil {
-				var good bool
-				if a, b, good = r.fix(s, a, b); !good {
-					continue
-				}
-				ok = nil
-			}
-			if r.takes(s, a, b, ok) {
-				found = append(found, span{a, b, r.kind, r.by(), 0, false})
-			}
-		}
-	}
-	for _, sp := range split {
-		found = slices.DeleteFunc(found, func(f span) bool {
-			return f.kind == "EMAIL" && f.start == sp.start && f.end <= sp.end
-		})
-	}
+	found = append(found, ruleSpans(s, o)...)
 	// after the rules', so where a rule finds the same value it keeps the
 	// kind it has always had
 	if o.sent {
@@ -1077,6 +1113,86 @@ func mask(raw string, o Options, put func(kind, v string) string, escaped bool) 
 		noteScores(raw, found) // what is masked for a vendor, not a preview
 	}
 	return apply(raw, found, put, o)
+}
+
+// ruleSpans are what the rules, magpie's and the user's own, find in s,
+// the text the finders read.
+func ruleSpans(s string, o Options) []span {
+	return memoRules(s, o, func() []span {
+		if len(s) >= ruleMemoMin {
+			ruleRuns.Add(1)
+		}
+		var found []span
+		all := rules
+		if o.Secrets && len(o.Rules) > 0 {
+			// the user's first: where one of theirs and one of magpie's find
+			// the same value, it goes by the name they gave it
+			all = append(customRules(o.Rules), rules...)
+		}
+		lower := ""
+		// split are matches a rule took apart into values of their own
+		// (rkato@box17 as a user and a host): what another rule found from
+		// the same place in them, an email, goes
+		var split []span
+		for _, r := range all {
+			if !o.covers(r.cat) {
+				continue
+			}
+			if len(r.markers) > 0 && !containsAny(s, r.markers) {
+				continue
+			}
+			if len(r.fold) > 0 {
+				if lower == "" {
+					lower = lowerASCII(s)
+				}
+				if !containsAny(lower, r.fold) {
+					continue
+				}
+			}
+			for _, m := range r.matches(s, lower) {
+				if len(r.groups) > 0 {
+					took := false
+					for g, kind := range r.groups {
+						if a, b := m[2*g+2], m[2*g+3]; a >= 0 && r.takes(s, a, b, r.groupOK[g]) {
+							found = append(found, span{a, b, kind, r.by(), 0, false})
+							took = true
+						}
+					}
+					if took {
+						split = append(split, span{m[2], m[1], "", "", 0, false})
+					}
+					continue
+				}
+				a, b := m[0], m[1]
+				for g := 1; 2*g+1 < len(m); g++ {
+					if m[2*g] >= 0 {
+						a, b = m[2*g], m[2*g+1]
+						break
+					}
+					if !r.anyGroup {
+						break
+					}
+				}
+				ok := r.ok
+				if r.fix != nil {
+					var good bool
+					if a, b, good = r.fix(s, a, b); !good {
+						continue
+					}
+					ok = nil
+				}
+				if r.takes(s, a, b, ok) {
+					found = append(found, span{a, b, r.kind, r.by(), 0, false})
+				}
+			}
+		}
+		for _, sp := range split {
+			found = slices.DeleteFunc(found, func(f span) bool {
+				return f.kind == "EMAIL" && f.start == sp.start && f.end <= sp.end
+			})
+		}
+		return found
+	})
 }
 
 // learnLate makes known what the model finds in raw now that it didn't
@@ -1362,7 +1478,7 @@ func (r rule) by() string {
 // ahead set, only around its fold markers.
 func (r rule) matches(s, lower string) [][]int {
 	if r.ahead == 0 {
-		return r.re.FindAllStringSubmatchIndex(s, -1)
+		return r.findAll(s)
 	}
 	var wins [][2]int
 	for _, f := range r.fold {
@@ -1401,7 +1517,7 @@ func (r rule) matches(s, lower string) [][]int {
 			k++
 			w[1] = max(w[1], wins[k][1])
 		}
-		for _, m := range r.re.FindAllStringSubmatchIndex(s[w[0]:w[1]], -1) {
+		for _, m := range r.findAll(s[w[0]:w[1]]) {
 			for x := range m {
 				if m[x] >= 0 {
 					m[x] += w[0]
@@ -1413,12 +1529,31 @@ func (r rule) matches(s, lower string) [][]int {
 	return out
 }
 
+// findAll are r's matches in s: each of them, or, for a rule that reads
+// a field's value after its name (field), none whose value is the next
+// field (fieldMatches).
+func (r rule) findAll(s string) [][]int {
+	if r.field {
+		return fieldMatches(r.re, s)
+	}
+	return r.re.FindAllStringSubmatchIndex(s, -1)
+}
+
 // lowerASCII is s with its ASCII letters in lower case, as long as s, so a
-// place in one is the same place in the other.
+// place in one is the same place in the other (a byte of a character
+// outside ASCII is never an ASCII letter). It is s itself, not a copy,
+// where s has no capital.
 func lowerASCII(s string) string {
+	i := 0
+	for i < len(s) && !('A' <= s[i] && s[i] <= 'Z') {
+		i++
+	}
+	if i == len(s) {
+		return s
+	}
 	b := []byte(s)
-	for i, c := range b {
-		if 'A' <= c && c <= 'Z' {
+	for ; i < len(b); i++ {
+		if c := b[i]; 'A' <= c && c <= 'Z' {
 			b[i] = c + 'a' - 'A'
 		}
 	}

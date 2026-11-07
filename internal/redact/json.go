@@ -65,14 +65,18 @@ var signatureKeys = []string{"signature", "thoughtSignature", "thought_signature
 // sealed with a signature: what is in them the vendor wrote and checks, so
 // it goes back exactly as the vendor wrote it. args are a tool call's
 // arguments (Anthropic's tool_use input, Gemini's functionCall args), whose
-// keys are the tool's own; nothing in them counts as sealed. defs are what
-// the agent defines for the vendor rather than says to the model
-// (definitions).
+// keys are the tool's own, as are those of Gemini's functionResponse
+// response, the structured result the tool gave; nothing in them counts
+// as sealed. defs are what the agent defines for the vendor rather than
+// says to the model (definitions).
 func scan(body []byte) (signed, args, defs []string) {
 	found := false
-	for _, k := range append(signatureKeys, "tool_use", "functionCall", "function_call") {
+	for _, k := range append(signatureKeys, "functionCall", "function_call", "functionResponse", "function_response", "arguments") {
 		found = found || bytes.Contains(body, []byte(`"`+k+`"`))
 	}
+	// a type that ends so (mcp_tool_use, custom_tool_call), without the
+	// quote before it
+	found = found || bytes.Contains(body, []byte(`tool_use"`)) || bytes.Contains(body, []byte(`_call"`))
 	for _, k := range defKeys {
 		found = found || bytes.Contains(body, []byte(`"`+k+`"`))
 	}
@@ -94,8 +98,7 @@ func scan(body []byte) (signed, args, defs []string) {
 			}
 			t, _ := x["type"].(string)
 			for k, c := range x {
-				if k == "input" && (t == "tool_use" || t == "server_tool_use") ||
-					k == "args" && (key == "functionCall" || key == "function_call") {
+				if toolArgs(t, key, k) || k == "response" && (key == "functionResponse" || key == "function_response") {
 					args = append(args, join(path, k))
 					continue
 				}
@@ -109,6 +112,28 @@ func scan(body []byte) (signed, args, defs []string) {
 	}
 	visit("", "", v)
 	return signed, args, defs
+}
+
+// toolArgs says the value under k, in an object of type t under key, is
+// what the model wrote for a tool to run, in any protocol: Anthropic's
+// input of every *_tool_use (tool_use, server_tool_use, mcp_tool_use),
+// a Responses *_call's arguments, input, action or operation
+// (function_call, mcp_call, custom_tool_call, tool_search_call,
+// local_shell_call, computer_call, apply_patch_call), a Chat Completions
+// or Ollama tool call's function.arguments, and Gemini's functionCall
+// args (and a legacy Chat function_call's arguments). Counted only for tool_use and server_tool_use, an mcp_tool_use's
+// input had the protocol's key names (url, data, *_id) kept as written,
+// a phone, a card and a key among them.
+func toolArgs(t, key, k string) bool {
+	switch {
+	case strings.HasSuffix(t, "tool_use"):
+		return k == "input"
+	case strings.HasSuffix(t, "_call"):
+		return k == "arguments" || k == "input" || k == "action" || k == "operation"
+	case key == "function" || key == "functionCall" || key == "function_call":
+		return k == "arguments" || k == "args"
+	}
+	return false
 }
 
 // defKeys are the request's own keys whose values the agent defines for the
@@ -361,10 +386,30 @@ func jsonEscape(s string) string {
 	return string(out[1 : len(out)-2]) // the quotes and the newline
 }
 
+// namedSecret says a string under a field named for a secret holds one,
+// whatever the value looks like: the rules judge a value by its shape, the
+// name by what a field so called carries (#2946) — {"api_key": "…"} with a
+// value no rule knows, an AKIA under access_key_id, a bearer token under
+// "Authorization". A short value, one that stands for a variable (${PASS},
+// <token>, ****), and a moment (a token's expiry,
+// access_token_expires_at, dchaofei #5002) are left alone. It is asked
+// only of a tool call's arguments and a tool's structured result (args),
+// whose keys are the tool's: a key the vendor's protocol names
+// (Anthropic's mcp_servers[].authorization_token, a tool's own settings)
+// is the vendor's to read, and masked by its name, it would no longer
+// work.
+func namedSecret(key, s string) bool {
+	return key != "" && len(s) >= 8 && notAVariable(s) && !timestampValue(s) && SecretName(key)
+}
+
 // MaskJSON masks the strings of a request body, and says how many values
 // it masked. A body that isn't JSON is masked as text.
 //
-// What a vendor sealed with a signature (a thinking block, Gemini's
+// In a tool call's arguments and a tool's structured result (args), a
+// field named for a secret has its value masked by its name, with secret
+// masking on (#2946). Anywhere else a key is the protocol's, and a value
+// is judged by its shape alone. What
+// a vendor sealed with a signature (a thinking block, Gemini's
 // thoughts, Responses' encrypted reasoning) is checked by the vendor
 // against the text it wrote, so it goes back as written: the values
 // masked elsewhere in the request become their placeholders again, which
@@ -414,10 +459,20 @@ func MaskJSON(body []byte, o Options) ([]byte, int) {
 	// the definitions after the rest, so a value the model found in what
 	// is said is masked in them too, as known
 	out, ok := walk(body, func(path, key, s string) string {
+		if strings.HasPrefix(s, "data:") || signed != nil && under(path, signed) {
+			return s
+		}
+		if o.Secrets && under(path, args) && namedSecret(key, s) {
+			p := put("SECRET", s)
+			total++
+			return p
+		}
 		if !masked(path, key, s) || under(path, defs) {
 			return s
 		}
-		t, n := mask(s, o, put, asJSON(key, ""))
+		so := o
+		so.args = under(path, args) || key == "arguments"
+		t, n := mask(s, so, put, asJSON(key, ""))
 		total += n
 		return t
 	})
