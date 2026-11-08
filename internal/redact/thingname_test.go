@@ -1,6 +1,7 @@
 package redact
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -109,6 +110,58 @@ func TestManyNamesRestoreEachToItself(t *testing.T) {
 	}
 	if got := Restore(reply.String(), false); got != want.String() {
 		t.Fatalf("restored\n got %q\nwant %q", got, want.String())
+	}
+}
+
+// A route may see the same text as an app description and as a tool's
+// arguments. The first keeps an app's name; the second masks whom the
+// tool acts for, whichever was sent first or is replayed later.
+func TestSentModelKeepsToolArgumentsSeparate(t *testing.T) {
+	for _, wire := range []string{"tool_use", "function_call"} {
+		for _, toolFirst := range []bool{false, true} {
+			for _, oneBody := range []bool{false, true} {
+				name := wire + "/tool_first=" + strconv.FormatBool(toolFirst) + "/one_body=" + strconv.FormatBool(oneBody)
+				t.Run(name, func(t *testing.T) {
+					resetSent()
+					t.Cleanup(resetSent)
+					f := &fakeModel{values: map[string]string{"Rina": "private_person"}}
+					o := Options{Personal: true, Model: f.find, Route: t.Name()}
+					text := "install Rina"
+					tool := `{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"send","input":{"note":"install Rina"}}]}`
+					field := "messages"
+					if wire == "function_call" {
+						field = "input"
+						text = `{"note":"install Rina"}`
+						tool = `{"type":"function_call","call_id":"c1","name":"send","arguments":` + strconv.Quote(text) + `}`
+					}
+					user := `{"role":"user","content":` + strconv.Quote(text) + `}`
+					first, second := user, tool
+					if toolFirst {
+						first, second = tool, user
+					}
+					bodies := []string{`{"` + field + `":[` + first + `]}`, `{"` + field + `":[` + second + `]}`}
+					if oneBody {
+						bodies = []string{`{"` + field + `":[` + first + `,` + second + `]}`}
+					}
+					for _, body := range bodies {
+						out, n := MaskJSON([]byte(body), o)
+						want := 0
+						if strings.Contains(body, tool) {
+							want = 1
+						}
+						if n != want || strings.Contains(body, user) && !strings.Contains(string(out), user) {
+							t.Fatalf("masked %d, want %d; app description must stay as written: %s", n, want, out)
+						}
+						if back := RestoreJSON(out); string(back) != body {
+							t.Fatalf("round trip: %s", back)
+						}
+						if again, _ := MaskJSON([]byte(body), o); string(again) != string(out) {
+							t.Fatalf("replayed text changed: %s; was %s", again, out)
+						}
+					}
+				})
+			}
+		}
 	}
 }
 

@@ -334,7 +334,9 @@ func sentSpans(what byte, s string, o Options, find func() []span) []span {
 	h := sha256.New()
 	fmt.Fprintf(h, "%d\x00%q\x00%t\x00%t\x00", what, o.Route, o.Secrets, o.Personal)
 	if what == sentModel {
-		fmt.Fprintf(h, "%t\x00%t\x00%g\x00", o.Model != nil, o.NamesByModel, o.MinScore)
+		// A name beside an app's word may stay in ordinary text, but is
+		// masked in tool arguments: modelFits reads this context too.
+		fmt.Fprintf(h, "%t\x00%t\x00%g\x00%t\x00", o.Model != nil, o.NamesByModel, o.MinScore, o.args)
 	}
 	kinds := make([]string, 0, len(o.Kinds))
 	for k, on := range o.Kinds {
