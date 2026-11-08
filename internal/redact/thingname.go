@@ -40,7 +40,7 @@ import (
 // thingNamed says the one word at s[a:b] that the model took for a
 // person's name names a thing there.
 func thingNamed(s string, a, b int) bool {
-	if t := strings.TrimLeft(s[b:], "*_`\"'”)"); strings.HasPrefix(t, "'s") || strings.HasPrefix(t, "’s") {
+	if t := strings.TrimLeft(s[b:], "*_`\"”)"); strings.HasPrefix(t, "'s") || strings.HasPrefix(t, "’s") {
 		// a possessive is a person's (Rina's Mac won't boot)
 		return false
 	}

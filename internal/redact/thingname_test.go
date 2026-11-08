@@ -165,6 +165,30 @@ func TestSentModelKeepsToolArgumentsSeparate(t *testing.T) {
 	}
 }
 
+// A possessive stays a person's even when a short title otherwise looks
+// like a list of product names. Both apostrophes work after markup too.
+func TestPossessiveNameIsNotAnApp(t *testing.T) {
+	for _, s := range []string{
+		"Rina's Mac", "Rina’s Mac",
+		"Rina's MacBook Pro", "Rina’s MacBook Pro",
+		"**Rina**'s Mac", "**Rina**’s Mac",
+		"`Rina`'s Mac", "`Rina`’s Mac",
+	} {
+		t.Run(s, func(t *testing.T) {
+			Forget()
+			t.Cleanup(Forget)
+			f := &fakeModel{values: map[string]string{"Rina": "private_person"}}
+			out, n := Mask(s, Options{Personal: true, Model: f.find})
+			if n != 1 || strings.Contains(unmarked(out), "Rina") {
+				t.Fatalf("possessive name went as written: masked %d in %q", n, out)
+			}
+			if back := Restore(out, false); back != s {
+				t.Fatalf("round trip: got %q, want %q", back, s)
+			}
+		})
+	}
+}
+
 // A first name the model took for a person's goes out only where a
 // thing's word is right beside it, or in a list of apps: not alone, not
 // with an app's or a system's word elsewhere in its sentence, not as a
