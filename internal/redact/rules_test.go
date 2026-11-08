@@ -201,6 +201,39 @@ func TestMaskAuthHeaders(t *testing.T) {
 	}
 }
 
+// A recognized authentication scheme still names a credential when its
+// token is all letters; a word alone is not evidence of a secret.
+func TestMaskAlphabeticAuthTokens(t *testing.T) {
+	for _, c := range []struct {
+		in string
+		n  int
+	}{
+		{"Authorization: Bearer abcdefghijklmnopqrst", 1},
+		{"Authorization: Basic YWxpYzpzZWNyZXRz", 1},
+		{"Authorization: Token abcdefghijklmnopqrst", 1},
+		{"Authorization: bEaReR abcdefghijklmnopqrst", 1},
+		{"Authorization: Bearer required", 1},
+		{"Authorization: required", 0},
+		{"Authorization: access required", 0},
+		{"Cookie: abcdefghijklmnopqrst", 0},
+		{"Authorization: Bearer ${API_TOKEN}", 0},
+		{"Authorization: Basic <token>", 0},
+		{"Authorization: Token ****", 0},
+	} {
+		t.Run(c.in, func(t *testing.T) {
+			Forget()
+			t.Cleanup(Forget)
+			out, n := Mask(c.in, Options{Secrets: true})
+			if n != c.n || c.n == 0 && out != c.in || c.n > 0 && out == c.in {
+				t.Fatalf("masked %d, want %d: %q", n, c.n, out)
+			}
+			if back := Restore(out, false); back != c.in {
+				t.Fatalf("round trip: got %q, want %q", back, c.in)
+			}
+		})
+	}
+}
+
 // the markers of a rule's names, made from its list, are in any name it takes
 func TestSecretMarkers(t *testing.T) {
 	for _, name := range []string{"DB_PASSWORD", "passwd", "client_secret", "Token", "apiKey", "API-KEY", "AccessKey", "private_key", "CREDENTIAL", "Credentials"} {

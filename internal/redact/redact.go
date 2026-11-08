@@ -525,9 +525,21 @@ func headerValue(v string) bool {
 	notLetter := func(r rune) bool { return !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z') }
 	f := strings.Fields(v)
 	if len(f) == 1 || len(f) == 2 && strings.IndexFunc(f[0], notLetter) < 0 {
-		// a word alone is prose's: a credential has a digit or a sign in it
 		cred := f[len(f)-1]
-		return len(cred) >= 8 && notAVariable(cred) && strings.IndexFunc(cred, notLetter) >= 0
+		if len(cred) < 8 || !notAVariable(cred) {
+			return false
+		}
+		if len(f) == 2 {
+			// A named authentication scheme makes a token a credential,
+			// even when it happens to contain only letters.
+			switch strings.ToLower(f[0]) {
+			case "bearer", "basic", "token":
+				return true
+			}
+		}
+		// A word alone, or after an unknown scheme, still needs evidence
+		// that it is a credential rather than prose.
+		return strings.IndexFunc(cred, notLetter) >= 0
 	}
 	for _, kv := range strings.Split(v, ";") {
 		if kv = strings.TrimSpace(kv); kv == "" {
