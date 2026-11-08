@@ -27,7 +27,7 @@ import (
 // Install routes http.DefaultTransport (and so http.DefaultClient) through
 // Func, and http.DefaultClient's requests made on a provider's behalf
 // (With) through a transport of that provider's proxy (Dispatch). Its
-// HTTP/2 connections are checked as the gateway's are (HTTP2Health), and
+// HTTP/2 connections are checked by Go's own pings (HTTP2Health), and
 // the requests magpie sends on its own are written down (probelog).
 func Install() {
 	if t, ok := http.DefaultTransport.(*http.Transport); ok {
@@ -43,7 +43,15 @@ func Install() {
 
 // PingAfter and PingWait: an HTTP/2 connection that has had no frame for
 // PingAfter is pinged, and dropped when no answer comes within PingWait.
-var PingAfter, PingWait = 20 * time.Second, 10 * time.Second
+// The health check is the only probe of a connection whose path has died
+// silently, so a turn in flight on it waits for the next one: PingAfter is
+// how long a vendor's silence before a turn's first byte can cost (#4936,
+// a first try read EOF 20.5s in on a connection whose tunnel a NAT or a
+// relay had dropped). The budget PingAfter+PingWait is also the margin a
+// body under uploadBytes needs on a slow uplink, a ping queued behind it
+// answered only after the last byte (#3909): 20s covers 64KB at about
+// 3KB/s.
+var PingAfter, PingWait = 10 * time.Second, 10 * time.Second
 
 // HTTP2Health is the HTTP/2 setting of a transport to the vendors. Every
 // request to one host shares one HTTP/2 connection, and one gone silent
@@ -53,7 +61,10 @@ var PingAfter, PingWait = 20 * time.Second, 10 * time.Second
 // (#2843). A ping finds it, and the requests on it fail, so a group moves
 // on and the next request dials anew. A live vendor answers a ping
 // whatever its streams are doing, so a long wait for a first byte is
-// never cut by it.
+// never cut by it. But a ping's answer restarts the clock, so a wait of
+// minutes is pinged every PingAfter, which Google's front end ends the
+// connection for: the gateway's transports ping by CalmHTTP2 instead, and
+// this is for http.DefaultTransport's short requests.
 func HTTP2Health() *http.HTTP2Config {
 	return &http.HTTP2Config{SendPingTimeout: PingAfter, PingTimeout: PingWait}
 }
@@ -216,6 +227,14 @@ func (d *dispatch) transport(r route) *http.Transport {
 	}
 	if r.unchecked != "" {
 		uncheckTLS(t)
+	}
+	if isCalm(d.base) {
+		// a clone shares base's HTTP/2 connections, dialled through
+		// base's proxy, until it is given its own
+		t.TLSNextProto = nil
+		if !r.h1 {
+			CalmHTTP2(t)
+		}
 	}
 	d.own[r] = t
 	return t
