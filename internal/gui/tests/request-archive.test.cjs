@@ -1,8 +1,8 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
 // The request archive (Jorben on Discord): its switch sits at the top right
-// of the Usage page's request list, beside the requests' sum, off unless
-// turned on; with sync not set up with an s3:// bucket it turns on all the
-// same and keeps calls on this computer, its tooltip the folder and the size
+// of the Usage page's summary card, between the requests' sum and the trend
+// toggle, off unless turned on; with sync not set up with an s3:// bucket
+// it turns on all the same and keeps calls on this computer, its tooltip the folder and the size
 // they are kept under (CyberCaius on Discord), with one its tooltip says the
 // bucket; a failed upload, or a failed save on this computer, is said
 // beside it. The Gateway page has no switch
@@ -133,10 +133,32 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.equal(await sw.innerText(), w.name);
       assert.equal(await sw.getAttribute("aria-checked"), "false", "off unless turned on");
       assert.equal(await sw.getAttribute("title"), w.local, "no bucket: kept on this computer");
-      const [swBox, sumBox, listBox] = await Promise.all([sw, page.locator("#ledSum"), page.locator("#ledWrap")].map((l) => l.boundingBox()));
-      assert(Math.abs(swBox.x + swBox.width - (listBox.x + listBox.width)) <= 4, `the switch ends at the list's right edge: ${JSON.stringify([swBox, listBox])}`);
+      // The summary card shares the list's width; its header keeps the
+      // archive between the total and the trend toggle, within its padding.
+      const head = page.locator("#ledSumCard .fx-sum-head");
+      const trend = page.locator("#ledTrendToggle");
+      const [swBox, sumBox, trendBox, cardBox, listBox] = await Promise.all([
+        sw, page.locator("#ledSum"), trend, page.locator("#ledSumCard"), page.locator("#ledWrap"),
+      ].map((l) => l.boundingBox()));
+      assert.equal(await head.locator("#ledArchive, #ledTrendToggle").count(), 2, "both controls belong to the summary header");
+      assert(Math.abs(cardBox.x - listBox.x) <= 2 && Math.abs(cardBox.x + cardBox.width - (listBox.x + listBox.width)) <= 2, "the summary card and list share their edges");
+      assert(sumBox.x + sumBox.width <= swBox.x && swBox.x + swBox.width <= trendBox.x, "total, archive and trend do not overlap and keep their order");
+      const headerRight = await head.evaluate((e) => e.getBoundingClientRect().right - parseFloat(getComputedStyle(e).paddingRight));
+      assert(Math.abs(trendBox.x + trendBox.width - headerRight) <= 2, "the trend toggle ends at the header's padded right edge");
       assert(swBox.y + swBox.height <= listBox.y, "the switch is over the list");
       assert(Math.abs(swBox.y + swBox.height / 2 - (sumBox.y + sumBox.height / 2)) <= 3, "on the line of the requests' sum");
+      assert(Math.abs(swBox.y + swBox.height / 2 - (trendBox.y + trendBox.height / 2)) <= 3, "both controls share the summary's line");
+
+      for (const width of [640, 390]) {
+        await page.setViewportSize({ width, height: 760 });
+        const [card, ...boxes] = await Promise.all([page.locator("#ledSumCard"), sw, trend].map((l) => l.boundingBox()));
+        for (const box of boxes) {
+          assert(box.x >= card.x && box.x + box.width <= card.x + card.width && box.y >= card.y && box.y + box.height <= card.y + card.height, `controls stay inside the summary at ${width}px`);
+        }
+        const [a, b] = boxes;
+        assert(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y, `controls do not overlap at ${width}px`);
+      }
+      await page.setViewportSize({ width: 1000, height: 760 });
 
       // no bucket: on all the same, kept on this computer, and off again
       await press(sw, "#view-usage");
@@ -203,7 +225,12 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.deepEqual(seen.ring, [2], "only the request the archive didn't keep is asked for");
       assert.equal(seen.filter(([k]) => k === "fetch").length, 0, "nothing was read from the archive");
 
-      const border = await page.evaluate(() => [...document.querySelectorAll(".led-head, .led-head *")].map((e) => getComputedStyle(e).borderLeftWidth).filter((b) => parseFloat(b) > 1));
+      // The trend arrow uses transparent side borders to draw a triangle;
+      // those do not paint a left-border accent.
+      const border = await page.evaluate(() => [...document.querySelectorAll(".led-head, .led-head *")]
+        .map((e) => getComputedStyle(e))
+        .filter((s) => parseFloat(s.borderLeftWidth) > 1 && s.borderLeftColor !== "rgba(0, 0, 0, 0)")
+        .map((s) => s.borderLeftWidth));
       assert.deepEqual(border, [], "no left-border accent");
       const missing = await page.evaluate(() => [
         "Request archive", "Upload failed", "Last upload failed: {e}", "Not saved", "Last save failed: {e}",
