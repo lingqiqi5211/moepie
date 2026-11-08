@@ -677,13 +677,17 @@ func readView(problems []Problem, glance bool) (*View, error) {
 		if sv.Shared = sharedEntry(s.Name); sv.Shared != "" {
 			sv.SharedElsewhere = !within(realDir(skillDir(s.Name)), realDir(sharedSkillsDir()))
 			for _, t := range targets {
-				if t.Skills != "" && (slices.Contains(readsShared, t.Agent.ID) || realDir(t.Skills) == realDir(sharedSkillsDir())) {
+				if t.Skills != "" && (t.readsSharedDir() || realDir(t.Skills) == realDir(sharedSkillsDir())) {
 					sv.Always = append(sv.Always, t.Agent.ID)
 				}
 			}
 		}
 		if o, ok := ccSwitchOrigin(s); ok {
 			o.Path = ""
+			sv.Origin = o.String()
+		} else if o, ok := lockOrigin(s); ok {
+			// one the skills CLI installed: the row says where its lock
+			// says it came from (#4645)
 			sv.Origin = o.String()
 		}
 		if m, ok := readMeta(skillDir(s.Name)); ok {
