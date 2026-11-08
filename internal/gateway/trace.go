@@ -292,8 +292,16 @@ type Weighed struct {
 	Unit   string  `json:"unit,omitempty"`
 	// Balance is a prepaid wallet's left in Unit (left.bal, #3950): the
 	// Routing page tells the figure, not a share
-	Balance  *float64          `json:"balance,omitempty"`
-	Renews   []time.Time       `json:"renews,omitempty"`   // when those windows renew, the biggest first
+	Balance *float64    `json:"balance,omitempty"`
+	Renews  []time.Time `json:"renews,omitempty"` // when those windows renew, the biggest first
+	// Soon is Renews as Smart sorted by them (left.soon,
+	// Allowance.Renewal): a credit pack's end where it comes before its
+	// window's reset, an auto-used reset, a window not started taken to
+	// run its span from now. Lapse is when the soonest credits left are
+	// lost (left.lapse), Smart's tie-break: the Routing page tells the
+	// order by these, the keys it was sorted by (#5646)
+	Soon     []time.Time       `json:"soon,omitempty"`
+	Lapse    *time.Time        `json:"lapse,omitempty"`
 	Pace     float64           `json:"pace,omitempty"`     // remaining allowance per hour until its window resets
 	Due      *time.Time        `json:"due,omitempty"`      // when the allowance window used for pace resets
 	Tokens   float64           `json:"tokens,omitempty"`   // least used: tokens it served lately
@@ -313,6 +321,11 @@ type Weighed struct {
 	// DueBy: "reset" when Due is when an auto-used Codex reset about to
 	// run out starts the windows again, sooner than they renew (#717)
 	DueBy string `json:"dueBy,omitempty"`
+	// Unreached: how many of Renews' windows, the biggest first, Smart
+	// passes over, as what they have left can't be used up before they
+	// renew unless the next one's is used first: the next one ranks it
+	// (left.unreached, #5639)
+	Unreached int `json:"unreached,omitempty"`
 	// Restarts: when that reset starts them again, set when it is sooner
 	// than its biggest window renews — Smart goes by it then (#718)
 	Restarts *time.Time `json:"restarts,omitempty"`
@@ -512,6 +525,11 @@ func weighed(c candidate, p provider.Provider, wg weighing, fallback bool, from 
 	}
 	if l, ok := wg.lefts[c.allowanceKey()]; ok {
 		w.Known, w.Used, w.Renews, w.Pace, w.Credits = true, l.used, l.renews, l.pace, l.credits
+		w.Unreached, w.Soon = l.unreached, l.soon
+		if !l.lapse.IsZero() {
+			lp := l.lapse
+			w.Lapse = &lp
+		}
 		if !l.fullest.IsZero() {
 			ur := l.fullest
 			w.UsedRenews = &ur

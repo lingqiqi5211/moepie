@@ -622,7 +622,7 @@ function routingPage(part) {
   const tryOk = (tr) => tr.status < 400 && !tr.fail;
   const API = { anthropic: "Anthropic", chat: "OpenAI", responses: "OpenAI Responses", gemini: "Gemini" };
   const MODES = {
-    "": ["Smart", "Smart: of the accounts with quota to spare, the one whose allowance renews soonest goes first — what it has left would be lost at the reset. The week decides; an account with five hours and no week goes by its five hours. One at 90% or more waits until the others can't answer; one resting after a failure goes last."],
+    "": ["Smart", "Smart: of the accounts with quota to spare, the one whose allowance renews soonest goes first — what it has left would be lost at the reset. The week decides; an account with five hours and no week goes by its five hours, and one whose month its weeks can no longer use up before it renews by its week. One at 90% or more waits until the others can't answer; one resting after a failure goes last."],
     order: ["In order", "In order: the first answers everything until it can't; then the next."],
     drain: ["Until used up", "Until used up: one answers everything until its quota is used up; then the next, which keeps them even after the one before renews."],
     rotate: ["In turn", "In turn: each conversation's next turn goes to the account after the one that answered its last, and a new conversation starts one further along; the requests within a turn stay put, keeping the prompt cache."],
@@ -690,16 +690,32 @@ function routingPage(part) {
   // Without it (a route from before the gateway said so) only an account
   // of one window says when.
   const usedRenews = (w) => known0(w.usedRenews) ? at(w.usedRenews) : (w.renews || []).length === 1 ? renews(w)[0] : 0;
-  // renewsBy is renews as Smart ranks them: an auto-used Codex reset that
-  // starts the windows again sooner (restarts) is when they renew (#718)
+  // renewsBy is renews as Smart ranks them, the gateway's own key (soon,
+  // Allowance.Renewal): a credit pack ending before its window resets
+  // renews then (#5646), an auto-used Codex reset that starts the windows
+  // again sooner (restarts) too (#718), and the biggest windows that
+  // can't be used up before they renew any more (unreached: a month its
+  // weeks can't carry) rank it no more (#5639). A route from before the
+  // gateway told soon is read from renews and restarts.
   const renewsBy = (w) => {
+    if (w.soon) return w.soon.slice(w.unreached || 0).map((s) => known0(s) ? at(s) : 0);
     const rs = known0(w.restarts) ? at(w.restarts) : 0;
-    return renews(w).map((x) => rs && (!x || rs < x) ? rs : x);
+    return renews(w).slice(w.unreached || 0).map((x) => rs && (!x || rs < x) ? rs : x);
+  };
+  // lapseOf: when the soonest of its credits left are lost (Seat.Lapse),
+  // 0 when not told; expiresAt: its k-th window as ranked is that end
+  // rather than its reset, as its credits run out first
+  const lapseOf = (w) => known0(w.lapse) ? at(w.lapse) : 0;
+  const expiresAt = (w, k) => {
+    const H = 3600e3, x = renewsBy(w)[k], l = lapseOf(w);
+    return !!x && !!l && Math.floor(x / H) === Math.floor(l / H) && !known0(w.restarts);
   };
 
-  // cmpRenews orders two accounts' windows as the gateway does: the
-  // biggest first, to the hour, one not known after those known. It says
-  // which window decided, too.
+  // cmpRenews orders two accounts as Smart does: their windows, the
+  // biggest first, to the hour, one not known after those known; then,
+  // renewing in the same hours, the one whose credits lapse first, one
+  // telling none after (routes.Smart). It says which window decided, k,
+  // or that the lapse did.
   function cmpRenews(a, b) {
     const ra = renewsBy(a), rb = renewsBy(b), H = 3600e3;
     for (let k = 0; k < ra.length || k < rb.length; k++) {
@@ -708,6 +724,8 @@ function routingPage(part) {
       if (!x || !y) return { c: x ? -1 : 1, k };
       return { c: x < y ? -1 : 1, k };
     }
+    const x = Math.floor(lapseOf(a) / H), y = Math.floor(lapseOf(b) / H);
+    if (x !== y) return { c: !x || !y ? (x ? -1 : 1) : x < y ? -1 : 1, k: -1, lapse: true };
     return { c: 0, k: -1 };
   }
 
@@ -908,13 +926,21 @@ function routingPage(part) {
     const next = peers.find((p) => p.known && group(p) === "fine");
     const soon = renewsBy(f).find(Boolean);
     if (!next) return t("{who} goes first: it has quota to spare, and the others are kept for last.", { who: w });
-    const { c, k } = cmpRenews(f, next);
+    const { c, k, lapse } = cmpRenews(f, next);
     if (c < 0 && k === 0 && known0(f.restarts)) return t("{who} goes first: of those with quota to spare, its allowance starts again soonest — one of its Codex resets about to run out is used by itself in {d}, and what it has left then is lost. {other} renews later and keeps its own.", { who: w, d: dur(at(f.restarts) - at(r.time)), other: who(next) });
-    if (c < 0 && k === 0) return t("{who} goes first: of those with quota to spare, its allowance renews soonest — in {d} — and what it has left then is lost. {other} renews later and keeps its own.", { who: w, d: dur(renews(f)[0] - at(r.time)), other: who(next) });
-    if (c < 0) return t("{who} goes first: its allowance renews in the same hour as {other}'s, and its shorter one sooner — in {d}.", { who: w, other: who(next), d: dur(renewsBy(f)[k] - at(r.time)) });
+    // its credits run out before its window renews, and before the next
+    // one's does: Smart ranked it by that end (#5646)
+    if (c < 0 && k >= 0 && expiresAt(f, k)) return t("{who} goes first: its credits expire in {d}, before {other} renews, and what is left of them then is lost — so they're used first.", { who: w, d: dur(renewsBy(f)[k] - at(r.time)), other: who(next) });
+    if (c < 0 && k === 0 && f.unreached) return t("{who} goes first: its longer window has more left than its shorter one can still let through before it renews, so the shorter one decides — it renews soonest, in {d}, and what it has left then is lost. {other} renews later and keeps its own.", { who: w, d: dur(renewsBy(f)[0] - at(r.time)), other: who(next) });
+    if (c < 0 && k === 0) return t("{who} goes first: of those with quota to spare, its allowance renews soonest — in {d} — and what it has left then is lost. {other} renews later and keeps its own.", { who: w, d: dur(renewsBy(f)[0] - at(r.time)), other: who(next) });
+    if (c < 0 && k > 0) return t("{who} goes first: its allowance renews in the same hour as {other}'s, and its shorter one sooner — in {d}.", { who: w, other: who(next), d: dur(renewsBy(f)[k] - at(r.time)) });
+    // renewing in the same hour, its credits lapse first (Seat.Lapse)
+    if (c < 0 && lapse) return t("{who} goes first: it renews within the same hour as {other}, but its credits expire sooner — in {d} — so they're used first.", { who: w, other: who(next), d: dur(lapseOf(f) - at(r.time)) });
     if (c === 0 && walletWhy(r, f)) return walletWhy(r, f);
-    if (soon) return t("{who} and {other} renew within the same hour, so the order given stays — and the vendor's prompt cache stays warm.", { who: w, other: who(next) });
-    return t("{who} goes first, in the order given: when its allowance renews isn't known.", { who: w });
+    // the order given stands only where every key Smart sorts by ties
+    if (c === 0 && soon) return t("{who} and {other} renew within the same hour, so the order given stays — and the vendor's prompt cache stays warm.", { who: w, other: who(next) });
+    if (c === 0) return t("{who} goes first, in the order given: when its allowance renews isn't known.", { who: w });
+    return t("{who} goes first.", { who: w });
   }
 
   // behindWhy is why an account Smart weighed, with quota to spare, isn't
@@ -923,7 +949,8 @@ function routingPage(part) {
   // (demonyins on X: a Design Plan at 75% left, behind a Claude Max whose
   // week renewed sooner, read as paused): "kept" when the conversation
   // stays on the one that answered it, "sooner" when the first's allowance
-  // renews sooner (cmpRenews, as the gateway ranks them). null when it is
+  // renews sooner (cmpRenews, as the gateway ranks them), "expires" when
+  // the first's credits expire sooner, the key Smart went by (#5646). null when it is
   // first, or behind for what the row or another reason says already.
   function behindWhy(r, w) {
     const f = r.order[0], x = r.order.find((y) => y.id === w.id);
@@ -931,7 +958,8 @@ function routingPage(part) {
     if (!weighedWith(r, x).includes(f) || memberSplit(r, f, x)) return null;
     if (["session", "turn", "cache"].includes(r.affinity?.why)) return "kept";
     if (r.sealedTask || ruleWhy(r, true) || f.learns || !f.known || group(f) !== "fine") return null;
-    return cmpRenews(f, x).c < 0 ? "sooner" : null;
+    const { c, k, lapse } = cmpRenews(f, x);
+    return c >= 0 ? null : lapse || expiresAt(f, k) ? "expires" : "sooner";
   }
 
   // memberSplit: the group that put x behind f, when it is one that takes
@@ -2762,6 +2790,7 @@ function routingPage(part) {
           : !w.routing && w.used >= 90 ? quota(w, "{n} used · kept for last", "{n} left · kept for last")
           : (b = behindWhy(r, w)) === "kept" ? quota(w, "{n} used · conversation kept on another", "{n} left · conversation kept on another")
           : b === "sooner" && soon ? quota(w, "{n} used · renews in {d} · one renewing sooner goes first", "{n} left · renews in {d} · one renewing sooner goes first", { d: dur(soon - n) })
+          : b === "expires" && soon ? quota(w, "{n} used · renews in {d} · one whose credits expire sooner goes first", "{n} left · renews in {d} · one whose credits expire sooner goes first", { d: dur(soon - n) })
           : soon ? quota(w, "{n} used · renews in {d}", "{n} left · renews in {d}", { d: dur(soon - n) }) : quota(w, "{n} used", "{n} left");
       } else if (w.kind === "account") s = t("what's left not known yet");
       else if (w.routing === "usage") s = t("{n} tokens lately", { n: tokens(w.tokens || 0) });
@@ -3012,8 +3041,15 @@ function routingPage(part) {
   }
   // grown since it was measured (a font come in): measured again as it is
   // and the head's line told again, so it is held from the first width
-  // on, not from the second's next telling (a pick before it isn't held)
-  new ResizeObserver(() => { storyW = route.clientWidth; storyDrawn = ""; holdStory(); if (headOf) header(...headOf); }).observe(route);
+  // on, not from the second's next telling (a pick before it isn't held).
+  // On the next frame: holdStory sets the story's min-height, which in its
+  // own ResizeObserver WebKit reports as a loop (as #5586; a Smart header
+  // wrapping to more lines at 420px, #5639)
+  let storySeen = 0;
+  new ResizeObserver(() => {
+    if (storySeen) return;
+    storySeen = requestAnimationFrame(() => { storySeen = 0; storyW = route.clientWidth; storyDrawn = ""; holdStory(); if (headOf) header(...headOf); });
+  }).observe(route);
   // renderCtx draws the request's context window under its story, with
   // its session's prompts request by request; drawn again only when what
   // it shows changes. Live, the next request is patched into the card
@@ -3131,23 +3167,40 @@ function routingPage(part) {
   // #3953: a skipped OpenCode Zen Free's line had no logo, or another
   // member's), or both. Where two share the name at the same place (a key
   // called "API key" on two providers), the member the line is about wins,
-  // then an order member over a skipped one.
+  // then an order member over a skipped one. A line naming two that share
+  // the name (two accounts of one nickname on two providers: "A and A
+  // renew…", #5646) gives each further time it says that name the next
+  // of them, each with its own logo, so it doesn't read as one.
   function logoed(s, r, about) {
     const word = /[A-Za-z0-9_]/;
+    const apart = (i, n) => !word.test(s[i - 1] || "") && !word.test(s[i + n.length] || "");
+    const members = [...new Set([about, ...r.order, ...(r.left || [])].filter(Boolean))];
     let hit = null;
-    for (const w of new Set([about, ...r.order, ...(r.left || [])].filter(Boolean))) {
+    for (const w of members) {
       for (const n of new Set([who(w), w.name].filter(Boolean))) {
         for (let i = s.indexOf(n); i >= 0; i = s.indexOf(n, i + 1)) {
-          if (word.test(s[i - 1] || "") || word.test(s[i + n.length] || "")) continue;
+          if (!apart(i, n)) continue;
           if (!hit || i < hit.i || (i === hit.i && n.length > hit.n.length)) hit = { i, n, w };
           break;
         }
       }
     }
     if (!hit) return [s];
-    const name = el("span", "rt-named");
-    name.append(icon(logoOf(hit.w)), hit.n);
-    return [s.slice(0, hit.i), name, s.slice(hit.i + hit.n.length)].filter((x) => x !== "");
+    const hits = [hit], seen = new Set([hit.w.id]);
+    const alike = members.filter((w) => !seen.has(w.id) && who(w) === hit.n && (seen.add(w.id), true));
+    for (let i = s.indexOf(hit.n, hit.i + hit.n.length); i >= 0 && alike.length; i = s.indexOf(hit.n, i + hit.n.length)) {
+      if (apart(i, hit.n)) hits.push({ i, n: hit.n, w: alike.shift() });
+    }
+    const out = [];
+    let from = 0;
+    for (const h of hits) {
+      const name = el("span", "rt-named");
+      name.append(icon(logoOf(h.w)), h.n);
+      out.push(s.slice(from, h.i), name);
+      from = h.i + h.n.length;
+    }
+    out.push(s.slice(from));
+    return out.filter((x) => x !== "");
   }
 
   // The story is told in steps: received, routed, each try and each wait
@@ -5455,7 +5508,7 @@ function routingPage(part) {
     strict: "A conversation stays with the account or key that answered it and never moves to another, even past its usage cap: when that one is rate limited or out of quota, the error goes to the agent. New conversations are routed as usual.",
   };
   const GROUP_HINT = {
-    "": "Smart, over the members' accounts and keys together: of the subscriptions with quota to spare, the one whose allowance renews soonest goes first — the week decides, and an account with five hours and no week (Claude Enterprise) goes by its five hours, so ahead of every week renewing later; one resting after a failure goes last.",
+    "": "Smart, over the members' accounts and keys together: of the subscriptions with quota to spare, the one whose allowance renews soonest goes first — the week decides, and an account with five hours and no week (Claude Enterprise) goes by its five hours, so ahead of every week renewing later, and one whose month its weeks can no longer use up before it renews by its week; one resting after a failure goes last.",
     order: "In order: the first model until it can't answer, then the next — each over its own accounts or keys as its provider routes them.",
     drain: "Until used up: one account or key, across the members, takes every request until it is used up; then the next in the list, which keeps them even after an earlier one renews. One rate limited or failing is passed over only while it rests.",
     rotate: "In turn: each conversation's next turn goes to the next member's account or key, spreading the load.",
