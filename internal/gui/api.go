@@ -1527,6 +1527,9 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 			in.PlainNames, in.PlainOwnNames = cur.PlainNames, cur.PlainOwnNames
 			in.BareModelIDs = cur.BareModelIDs // set on its own (bare-ids below)
 			in.BusyLoad = cur.BusyLoad         // and so is this (busy-load below)
+			// what every routing group does that says nothing of its own,
+			// which the Routing groups page sets (groups/defaults)
+			in.GroupSink, in.GroupFirstToken, in.GroupPatience = cur.GroupSink, cur.GroupFirstToken, cur.GroupPatience
 			in.CodexAgentsV1 = cur.CodexAgentsV1
 			in.FullContext = cur.FullContext // set on its own (full-context below)
 			in.CompactAt = cur.CompactAt     // and so is the threshold

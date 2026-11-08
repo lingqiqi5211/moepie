@@ -11,6 +11,7 @@ import (
 	"github.com/yetone/magpie/internal/agent"
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/provider"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // groupsJSON is what the Routing view manages: the routing groups, the
@@ -48,6 +49,15 @@ type groupsJSON struct {
 	// Imported: import's answer, the group added and what of the text
 	// this magpie has none of (provider.ImportGroup)
 	Imported *provider.Imported `json:"imported,omitempty"`
+	// Defaults: what every group follows when it sets no value of its own
+	// (settings.GroupSink, GroupFirstToken, GroupPatience)
+	Defaults groupDefaultsJSON `json:"defaults"`
+}
+
+type groupDefaultsJSON struct {
+	Sink       bool `json:"sink"`
+	FirstToken int  `json:"firstToken"`
+	Patience   int  `json:"patience"`
 }
 
 type skippableJSON struct {
@@ -249,6 +259,8 @@ func groupsState() groupsJSON {
 	_, offset := time.Now().Zone()
 	out := groupsJSON{Groups: []groupJSON{}, Models: []modelRef{}, Pools: []poolJSON{}, Deciders: []modelRef{}, Found: provider.AutoGroupsOn(), Templates: provider.Templates(),
 		Clock: clockJSON{Zone: provider.LocalZone(), Offset: offset}}
+	def := settings.Load()
+	out.Defaults = groupDefaultsJSON{Sink: def.GroupSink, FirstToken: def.GroupFirstToken, Patience: def.GroupPatience}
 	for i := range out.Templates {
 		if out.Templates[i].Group.Members == nil {
 			out.Templates[i].Group.Members = []string{} // one that can't be made has none
@@ -481,6 +493,10 @@ func groupRoutes(mux *http.ServeMux) {
 			err = provider.SwitchGroup(in.ID, body.On)
 		case "arrange":
 			err = provider.SetGroupOrder(body.Order)
+		case "defaults":
+			// what every group follows when it sets no value of its own
+			// (jiezhengj on Discord: set once, not in each group)
+			err = settings.SetGroupDefaults(in.Sink, in.FirstToken, in.Patience)
 		case "pick":
 			// a Manual group's member every request goes to, and nothing
 			// else of it (#2489: the tray panel switches it)

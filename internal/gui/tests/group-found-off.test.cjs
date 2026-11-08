@@ -94,8 +94,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const s = document.querySelector(".rt-gsec");
         return [...s.children].map((c) => c.className);
       });
-      // (the names in agents' lists, for every group, between them)
-      assert.deepEqual(order.slice(0, 4), ["row-head", "rt-gfound", "rt-gnames", "list rt-groups"]);
+      // (the names in agents' lists and the defaults for every group
+      // between them)
+      assert.deepEqual(order.slice(0, 7), ["row-head", "rt-gfound", "rt-gnames", "rt-gdef rt-gdef-sink", "rt-gdef rt-gdef-first", "rt-gdef rt-gdef-patience", "list rt-groups"]);
       const border = await sw.evaluate((e) => { const c = getComputedStyle(e); return c.borderLeftWidth !== c.borderRightWidth || c.borderLeftColor !== c.borderRightColor; });
       assert.equal(border, false, "no left-border accent");
 
