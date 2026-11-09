@@ -438,7 +438,10 @@ remembering its layer (`Source`):
   the runtime as it was; before the first good read every plugin is on, as
   before plugins existed. `Set` and `SetPreset` refuse to write over it, the
   window says it above the list and disables every switch, and the CLI exits
-  with it. The user fixes the file or removes it.
+  with it. The user fixes the file or removes it. A backup, a restore or a
+  sync carries `plugins.yml` in the settings part (`backup.Bundle.BuiltinPlugins`,
+  written by `Put`); a bundle from before it leaves this computer's file as
+  it is.
 - Writes hold `filelock.Mutex` (`plugins.yml.lock`) against other magpies
   and a mutex in the process, are written whole (temp file, sync, rename),
   and keep the file they replace as `plugins.yml.bak`.
@@ -454,13 +457,12 @@ remembering its layer (`Source`):
   `rotation` off a pool set to one of its routings is tried in its listed
   order; a strategy that fails falls back to the same order, never to an
   error. A JS middleware that fails leaves the request as it was; masking
-  that is asked for and can't be done sends nothing (503). Davsync doesn't carry
-  plugins.yml.
+  that is asked for and can't be done sends nothing (503).
 
 ## Verification
 
 - `go test ./internal/pluginrt/` (`TestReconcile`, `TestCompatible`,
-  `TestPluginsImportOnlyCore`, `TestCompose`, `TestSettleAndSet`,
+  `TestPluginsImportOnlyCore`, `TestCompose`, `TestSettleAndSet`, `TestPut`,
   `TestSettleBringsUpAnEssentialsInstall`, `TestBrokenFileIsKept`).
 - `go test ./internal/pluginrt/ -run 'TestSchemaOf|TestValidate|TestSetConfig'`.
 - `go test ./internal/gui/ -run 'TestBuiltin|TestBootSaysBuiltinsOff'`
