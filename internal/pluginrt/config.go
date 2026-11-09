@@ -93,12 +93,20 @@ func Load() (File, bool, error) {
 	if err := yaml.Unmarshal(b, &f); err != nil {
 		return File{}, true, fmt.Errorf("%s doesn't parse: %w", Path(), err)
 	}
-	switch f.Preset {
-	case "", PresetAll, PresetEssentials:
-	default:
-		return File{}, true, fmt.Errorf("%s: no preset %q (essentials or all)", Path(), f.Preset)
+	if err := f.Check(); err != nil {
+		return File{}, true, fmt.Errorf("%s: %w", Path(), err)
 	}
 	return f, true, nil
+}
+
+// Check says whether this magpie can write f as plugins.yml: a preset it
+// doesn't know (from a newer one, say) is refused.
+func (f File) Check() error {
+	switch f.Preset {
+	case "", PresetAll, PresetEssentials:
+		return nil
+	}
+	return fmt.Errorf("no preset %q (essentials or all)", f.Preset)
 }
 
 // Source says which layer a composed value came from.
@@ -273,10 +281,8 @@ func SetPreset(preset string) error {
 // Set, and the file it replaces kept as plugins.yml.bak. A preset it
 // doesn't know is refused, and nothing is written.
 func Put(f File) error {
-	switch f.Preset {
-	case "", PresetAll, PresetEssentials:
-	default:
-		return fmt.Errorf("no preset %q (essentials or all)", f.Preset)
+	if err := f.Check(); err != nil {
+		return err
 	}
 	inProcess.Lock()
 	defer inProcess.Unlock()

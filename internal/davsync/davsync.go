@@ -1040,7 +1040,10 @@ func bring(b backup.Bundle, part string) error {
 		}
 		return provider.MirrorSearchAPIs(*b.Searches)
 	case "settings":
-		_, err := backup.Restore(b, backup.Parts{Settings: true})
+		r, err := backup.Restore(b, backup.Parts{Settings: true})
+		if r.BuiltinPluginsKept != "" {
+			log.Printf("sync: built-in plugins left as they are here: %s", r.BuiltinPluginsKept)
+		}
 		return err
 	case "profiles":
 		here, err := profile.Load()

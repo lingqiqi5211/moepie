@@ -580,3 +580,33 @@ func TestBackupCarriesBuiltinPlugins(t *testing.T) {
 		t.Fatalf("an older backup changed plugins.yml: %+v", f)
 	}
 }
+
+// A plugins.yml this magpie can't write, as a newer one's preset, keeps
+// this machine's and lets the rest of the settings in: refused after the
+// settings were written, it left them half put back, and failed every
+// sync that brought it.
+func TestRestoreKeepsPluginsYMLItCantWrite(t *testing.T) {
+	home(t)
+	if err := pluginrt.Put(pluginrt.File{Preset: pluginrt.PresetAll}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(pluginrt.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := settings.Load()
+	s.Theme = "dark"
+	r, err := Restore(Bundle{Settings: &s, BuiltinPlugins: &pluginrt.File{Preset: "another"}}, All)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Settings || r.BuiltinPluginsKept == "" {
+		t.Fatalf("result: %+v", r)
+	}
+	if got := settings.Load(); got.Theme != "dark" {
+		t.Fatalf("settings not put back: theme %q", got.Theme)
+	}
+	if after, _ := os.ReadFile(pluginrt.Path()); string(after) != string(before) {
+		t.Fatal("plugins.yml was written")
+	}
+}

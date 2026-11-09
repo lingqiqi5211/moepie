@@ -388,6 +388,10 @@ type Result struct {
 	Skipped         []string          // agent fields left alone: the agent is not on this machine, or the value failed
 	Library         bool              // the library was put in
 	LibraryProblems []library.Problem `json:",omitempty"` // what of it couldn't be given to an agent
+
+	// BuiltinPluginsKept is why this machine's plugins.yml stayed as it
+	// was though the bundle has one: it can't be written here
+	BuiltinPluginsKept string `json:",omitempty"`
 }
 
 // Restore puts the chosen parts of the bundle in. Providers come first, so
@@ -444,6 +448,16 @@ func Restore(b Bundle, parts Parts) (Result, error) {
 		}
 	}
 	if parts.Settings && (b.Settings != nil || b.GatewayKeys != nil || b.BuiltinPlugins != nil) {
+		// a plugins.yml this magpie can't write is told before anything is,
+		// and the rest of the settings still go in: one from a newer magpie
+		// must not stop them, or every sync after it
+		builtins := b.BuiltinPlugins
+		if builtins != nil {
+			if err := builtins.Check(); err != nil {
+				r.BuiltinPluginsKept = err.Error()
+				builtins = nil
+			}
+		}
 		keys := b.scopedKeys("settings")
 		// the window's size, the proxy, the menu bar's usage are this machine's own
 		cur := settings.Load()
@@ -487,8 +501,8 @@ func Restore(b Bundle, parts Parts) (Result, error) {
 		if keys && b.GatewayKeys == nil {
 			access.MigrateLegacyLANKeyBestEffort()
 		}
-		if b.BuiltinPlugins != nil {
-			if err := pluginrt.Put(*b.BuiltinPlugins); err != nil {
+		if builtins != nil {
+			if err := pluginrt.Put(*builtins); err != nil {
 				return r, fmt.Errorf("the built-in plugins: %w", err)
 			}
 		}
