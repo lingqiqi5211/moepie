@@ -195,8 +195,12 @@ const ContextSmallest = -1
 
 // Group is a routing group.
 type Group struct {
-	ID      string   `json:"id"`
-	Name    string   `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Former are the ids the group went by before its renames, oldest
+	// first: a request or a group member still on group/<old> reaches it
+	// until a group takes that id for its own (routedGroupOf).
+	Former  []string `json:"former,omitempty"`
 	Members []string `json:"members"` // "provider/model[:effort]" or "group/<id>", in order (see MemberEffort)
 	// Match are patterns its models are found by as well (#766): a glob
 	// over the "provider/model" id with * in it ("openrouter/*:free"), or
@@ -452,6 +456,7 @@ func cloneGroups(gs []Group) []Group {
 	for i, g := range gs {
 		g.Members, g.Match, g.Matched, g.Placed = slices.Clone(g.Members), slices.Clone(g.Match), slices.Clone(g.Matched), slices.Clone(g.Placed)
 		g.Off, g.Levels, g.Fast = slices.Clone(g.Off), slices.Clone(g.Levels), slices.Clone(g.Fast)
+		g.Former = slices.Clone(g.Former)
 		g.Weights = maps.Clone(g.Weights)
 		if g.Rules != nil {
 			rs := make([]Rule, len(g.Rules))
@@ -569,6 +574,7 @@ func (g Group) own() Group {
 	g.Off = slices.Clone(g.Off)
 	g.Levels = slices.Clone(g.Levels)
 	g.Fast = slices.Clone(g.Fast)
+	g.Former = slices.Clone(g.Former)
 	g.Weights = maps.Clone(g.Weights)
 	g.Rules = slices.Clone(g.Rules)
 	for i, r := range g.Rules {
@@ -972,7 +978,7 @@ func GroupFinder() func(id string) (Group, []Member, bool) {
 			entries, read = providerEntries(), true
 			all, find = groupsIn(entries), entriesBy(entries)
 		}
-		if g, ok := groupOf(all, gid); ok && !g.Disabled {
+		if g, ok := routedGroupOf(all, gid); ok && !g.Disabled {
 			return g, membersFound(entries, find, all, g, disabledNow()), true
 		}
 		return Group{}, nil, false
@@ -987,6 +993,33 @@ func groupOf(all []Group, id string) (Group, bool) {
 		}
 	}
 	return Group{}, false
+}
+
+// routedGroupOf is the group a request for group/<id> goes to: the group
+// of that id, or else the one renamed from it (Former), so an agent or a
+// script still on the old id keeps working after a rename. A group of
+// that id, switched off too, holds the id; one magpie found that is
+// removed (Hidden, as a rename leaves a found group's old id) does not.
+func routedGroupOf(all []Group, id string) (Group, bool) {
+	if g, ok := groupOf(all, id); ok {
+		return g, true
+	}
+	for _, g := range all {
+		if !g.Hidden && slices.Contains(g.Former, id) {
+			return g, true
+		}
+	}
+	return Group{}, false
+}
+
+// dropFormer takes id out of every group's Former: a group took it for
+// its own, and group/<id> is that group's now.
+func dropFormer(gs []Group, id string) {
+	for i := range gs {
+		if slices.Contains(gs[i].Former, id) {
+			gs[i].Former = slices.DeleteFunc(slices.Clone(gs[i].Former), func(x string) bool { return x == id })
+		}
+	}
 }
 
 // membersIn are a group's models, ready now, in its order: a group in it
@@ -1546,9 +1579,18 @@ func SaveGroup(g Group) error {
 			return fmt.Errorf("magpie knows no model %q to classify with", g.Classifier)
 		}
 	}
+	var formerWas []string
+	if i := slices.IndexFunc(f.Groups, func(x Group) bool { return x.ID == g.ID }); i >= 0 {
+		formerWas = f.Groups[i].Former
+	}
+	if g.Former == nil {
+		g.Former = slices.Clone(formerWas) // a caller that doesn't know of them
+	}
+	g.Former = slices.DeleteFunc(cleanList(g.Former), func(id string) bool { return id == g.ID })
 	g.Auto, g.Hidden = false, false
 	g.Members = own // what the patterns match is found again as it is read
 	g.Disabled = false
+	dropFormer(f.Groups, g.ID)
 	for i := range f.Groups {
 		if f.Groups[i].ID == g.ID {
 			g.Disabled = f.Groups[i].Disabled && !f.Groups[i].Hidden
@@ -1879,7 +1921,9 @@ func RenameGroup(from, to string) error {
 	}
 	found := slices.ContainsFunc(foundGroups(providerEntries()), func(o Group) bool { return o.ID == from })
 	g.ID, g.Auto, g.Hidden = to, false, false
+	g.Former = append(slices.DeleteFunc(slices.Clone(g.Former), func(id string) bool { return id == from || id == to }), from)
 	f.Groups = slices.DeleteFunc(f.Groups, func(o Group) bool { return o.ID == from })
+	dropFormer(f.Groups, to)
 	if found {
 		f.Groups = append(f.Groups, Group{ID: from, Hidden: true})
 	}

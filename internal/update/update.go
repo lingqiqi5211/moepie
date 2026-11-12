@@ -75,6 +75,10 @@ var client = &http.Client{Timeout: 10 * time.Minute, Transport: proxied()}
 func proxied() http.RoundTripper {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.Proxy = netproxy.Func
+	// a root the user gave in SSL_CERT_FILE (dev-sidecar and the like) is
+	// trusted beside the system's; the file is still checked against the
+	// feed's SHA-256 and, on macOS, the signer
+	netproxy.TrustEnvRoots(t)
 	return netproxy.Dispatch(t)
 }
 
