@@ -1,7 +1,7 @@
 package library
 
 import (
-	"regexp"
+	"github.com/yetone/magpie/internal/lazyre"
 	"slices"
 	"strings"
 )
@@ -20,9 +20,9 @@ var codeHosts = map[string]bool{
 }
 
 var (
-	schemeRe    = regexp.MustCompile(`^[a-z][a-z0-9+.-]*://`)
-	ownerRepoRe = regexp.MustCompile(`^@?[a-z0-9][a-z0-9_.-]*/[a-z0-9_.-]+$`)
-	hostRe      = regexp.MustCompile(`^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?$`)
+	schemeRe    = lazyre.New(`^[a-z][a-z0-9+.-]*://`)
+	ownerRepoRe = lazyre.New(`^@?[a-z0-9][a-z0-9_.-]*/[a-z0-9_.-]+$`)
+	hostRe      = lazyre.New(`^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?$`)
 )
 
 // normAddr is an address as it's compared: lower case, with no scheme, user,

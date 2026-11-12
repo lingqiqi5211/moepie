@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"maps"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -923,7 +923,7 @@ func (l *Library) syncHooks(t *Target, b *backups, res *Result) {
 }
 
 // codexState is a [hooks.state."<key>"] header line in Codex's config.toml.
-var codexState = regexp.MustCompile(`^(\s*\[\s*hooks\s*\.\s*state\s*\.\s*)("(?:[^"\\]|\\.)*"|'[^']*')(\s*\].*)$`)
+var codexState = lazyre.New(`^(\s*\[\s*hooks\s*\.\s*state\s*\.\s*)("(?:[^"\\]|\\.)*"|'[^']*')(\s*\].*)$`)
 
 // codexStateKey splits a hook's trust key: the file's path, the event's
 // label, the group's index and the handler's.

@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"syscall"
 )
@@ -17,7 +17,7 @@ import (
 // agent says it beside the folder: Claude Code's " - Is a git repository:
 // false" (2.1.296; "Is directory a git repo: Yes" before), OpenCode's
 // "  Is directory a git repo: yes".
-var gitSaidRe = regexp.MustCompile(`(?mi)^\s*(?:- )?Is (?:a git repository|directory a git repo): (true|false|yes|no)\s*$`)
+var gitSaidRe = lazyre.New(`(?mi)^\s*(?:- )?Is (?:a git repository|directory a git repo): (true|false|yes|no)\s*$`)
 
 // GitSaid is the last "yes" or "no" an agent's text says of its folder
 // being in a git repository, "" when it says neither.

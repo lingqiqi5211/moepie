@@ -12,12 +12,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"maps"
 	"math"
 	"net/http"
 	"net/url"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -1404,7 +1404,7 @@ func sub2APIKeyLimits(p Provider) bool {
 // {token} is the key too: it is what a vendor's own error names the value
 // in "Authorization: Bearer {token}" (lx_78654 on Discord, whose header
 // went with "{token}" in it as written, and the vendor refused it).
-var balanceKeyNames = regexp.MustCompile(`(?i)\$?\{\{?\s*(?:key|api[_-]?key|token)\s*\}?\}`)
+var balanceKeyNames = lazyre.New(`(?i)\$?\{\{?\s*(?:key|api[_-]?key|token)\s*\}?\}`)
 
 // withBalanceKey is s with the key in place of its names, escaped for a
 // URL's query when inURL.

@@ -15,11 +15,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/yetone/magpie/internal/lazyre"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -38,7 +38,7 @@ type npxRun struct {
 // npmSpec is a package from the registry, with a version or tag or none:
 // npx's other specs (a path, a git or tarball URL, an alias) are left to
 // npx.
-var npmSpec = regexp.MustCompile(`^((?:@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*)(?:@([A-Za-z0-9._~^<>=*| -]+))?$`)
+var npmSpec = lazyre.New(`^((?:@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*)(?:@([A-Za-z0-9._~^<>=*| -]+))?$`)
 
 // readNpx is s's npx line, ok false for anything else: a flag but -y
 // before the package (-p, --package, -c, a registry), or no -y, which
@@ -73,7 +73,7 @@ func (r npxRun) pinned() bool {
 	return ok && exactVersion.MatchString(v)
 }
 
-var exactVersion = regexp.MustCompile(`^\d+\.\d+\.\d+([-+].*)?$`)
+var exactVersion = lazyre.New(`^\d+\.\d+\.\d+([-+].*)?$`)
 
 // npxDir is where magpie installs a spec: a folder of its own each.
 func npxDir(spec string) string {

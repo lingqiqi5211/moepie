@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	toml "github.com/pelletier/go-toml/v2"
@@ -188,7 +188,7 @@ type npmrc struct {
 }
 
 // npmrcVar is a ${VAR} in an .npmrc's value, which npm expands.
-var npmrcVar = regexp.MustCompile(`\$\{[A-Za-z_][A-Za-z0-9_]*\}`)
+var npmrcVar = lazyre.New(`\$\{[A-Za-z_][A-Za-z0-9_]*\}`)
 
 // npmrcOf reads the .npmrc at path; an empty one when it can't be read. A
 // ${VAR} is the environment's, as npm expands it.

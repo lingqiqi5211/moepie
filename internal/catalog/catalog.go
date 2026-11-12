@@ -8,12 +8,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -1584,7 +1584,7 @@ var relayPrefixes = []string{"claude-"}
 // a model another of them lists is (openai-, databricks-, doubao-, zai-):
 // the model after it is the same model, its window, levels and images
 // included.
-var channelPrefix = regexp.MustCompile(`^[a-z]{2,24}-`)
+var channelPrefix = lazyre.New(`^[a-z]{2,24}-`)
 
 // renamed is the model a relay renamed to b, when models.dev lists none
 // by b (found), and the window the rename names, if any: a window mark
@@ -1786,7 +1786,7 @@ func levelIndexOf(all map[string]mdProvider, at int, pid string) *levelIndex {
 // channel lists gemini-3.8-flash-high, claude-opus-5-5-high,
 // claude-opus-4-6-thinking and gpt-oss-120b-medium, and its xAI channel
 // grok-3-mini-fast. Its "(high)" form is found's.
-var variantSuffix = regexp.MustCompile(`(?i)-(minimal|low|medium|high|xhigh|max|thinking|fast)$`)
+var variantSuffix = lazyre.New(`(?i)-(minimal|low|medium|high|xhigh|max|thinking|fast)$`)
 
 // Unsuffixed is id with a proxy's level or speed word taken off
 // (variantSuffix), and whether it had one. It is for borrowing levels a

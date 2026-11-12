@@ -7,7 +7,7 @@ package provider
 import (
 	"context"
 	"errors"
-	"regexp"
+	"github.com/yetone/magpie/internal/lazyre"
 	"slices"
 	"strconv"
 	"strings"
@@ -60,7 +60,7 @@ func readClaudeUsage(ctx context.Context, configDir string) ([]QuotaWindow, erro
 // "Current session: 13% used · resets Oct 1 at 3:30pm (Asia/Shanghai)",
 // "Current week (all models): 4% used · resets Oct 3 at 2pm (Asia/Shanghai)",
 // "Current week (Fable): 0% used"
-var claudeUsageLineRE = regexp.MustCompile(`^Current (session|week(?: \(([^)]+)\))?):\s*([0-9.]+)% used(?:\s*·\s*resets (.+))?$`)
+var claudeUsageLineRE = lazyre.New(`^Current (session|week(?: \(([^)]+)\))?):\s*([0-9.]+)% used(?:\s*·\s*resets (.+))?$`)
 
 // A successful /usage run can tell only how the subscription is billed,
 // without an allowance. This says nothing about the account's limits.
@@ -70,7 +70,7 @@ var errClaudeCannotRun = errors.New("Claude Code can't be run from here")
 
 // An account error stays visible even when it also mentions a timeout or
 // rate limit. It is not a temporary failure to read the usage endpoint.
-var claudeUsageDenied = regexp.MustCompile(`(?i)\b(401|403)\b|not (logged|signed) in|signed out|sign-in (has )?expired|unauthorized|forbidden|authentication (failed|required)|invalid (access )?token|(session|usage) limit|hit your limit`)
+var claudeUsageDenied = lazyre.New(`(?i)\b(401|403)\b|not (logged|signed) in|signed out|sign-in (has )?expired|unauthorized|forbidden|authentication (failed|required)|invalid (access )?token|(session|usage) limit|hit your limit`)
 
 // claudeOverages is /usage's line for an account past its plan's limits
 // and billed for what it uses ("You are currently using your overages to
@@ -80,7 +80,7 @@ var claudeUsageDenied = regexp.MustCompile(`(?i)\b(401|403)\b|not (logged|signed
 // one, the reading had no windows and an error, and the switch, which
 // stays on an account it can't read, left Claude Code spending overages
 // with other accounts that had room (StringKe, #4532).
-var claudeOverages = regexp.MustCompile(`(?i)using your overages`)
+var claudeOverages = lazyre.New(`(?i)using your overages`)
 
 // claudeOveragesWindow is the window an account on overages is read with,
 // beside ws: spent (usedPast, roomLeft), so the switch moves Claude Code

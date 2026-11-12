@@ -15,9 +15,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/yetone/magpie/internal/lazyre"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -35,7 +35,7 @@ type shim struct {
 
 // asdfExec is the line asdf's shims run: `exec asdf exec "claude" "$@"`
 // (asdf 0.16 on), `exec /home/u/.asdf/bin/asdf exec "claude" "$@"` before.
-var asdfExec = regexp.MustCompile(`(?m)^exec (\S*asdf) exec "`)
+var asdfExec = lazyre.New(`(?m)^exec (\S*asdf) exec "`)
 
 // shimAt says whose shim bin is; nil when it is none, or the manager to ask
 // isn't here.

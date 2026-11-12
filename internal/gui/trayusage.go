@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"math"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -642,7 +642,7 @@ func trayIconFile(name string) (b []byte, mono bool) {
 	return svgArcFlags(b), !strings.HasSuffix(name, "-color")
 }
 
-var svgPathData = regexp.MustCompile(`\sd="([^"]*[aA][^"]*)"`)
+var svgPathData = lazyre.New(`\sd="([^"]*[aA][^"]*)"`)
 
 // svgArcFlags spaces out the flags of a path's arcs ("a4.5 4.5 0 004.5 0",
 // the flags run into the number after them), which browsers read and the

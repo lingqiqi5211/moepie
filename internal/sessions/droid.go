@@ -2,10 +2,10 @@ package sessions
 
 import (
 	"encoding/json"
+	"github.com/yetone/magpie/internal/lazyre"
 	"html"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -336,7 +336,7 @@ func droidLineOf(s *state, c *droidCarry, b []byte, main bool) {
 
 // droidSlot is the tail droid gives a custom model's id made of its name
 // ("custom:Kimi-K2-[Groq]-0").
-var droidSlot = regexp.MustCompile(`(-\[[^\]]*\])?-\d+$`)
+var droidSlot = lazyre.New(`(-\[[^\]]*\])?-\d+$`)
 
 // droidModelName is a session's model as it is priced: a custom one
 // ("custom:<id>") is the model its entry in droid's settings asks for —

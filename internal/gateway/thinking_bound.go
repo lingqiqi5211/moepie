@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"regexp"
+	"github.com/yetone/magpie/internal/lazyre"
 	"strconv"
 
 	"github.com/tidwall/gjson"
@@ -38,10 +38,10 @@ import (
 // boundRefusal is Claude's refusal of a thinking block it didn't sign for
 // this conversation or account: the signature's wording, the newer
 // binding's, and a redacted_thinking block's.
-var boundRefusal = regexp.MustCompile("(?i)invalid `?signature`? in `?thinking`? block|bound to a different conversation|not created in this conversation|invalid data in `?redacted_thinking`? block")
+var boundRefusal = lazyre.New("(?i)invalid `?signature`? in `?thinking`? block|bound to a different conversation|not created in this conversation|invalid data in `?redacted_thinking`? block")
 
 // boundAt is where the refusal says the block is: messages.<m>.content.<b>.
-var boundAt = regexp.MustCompile(`messages\.(\d+)\.content\.(\d+)`)
+var boundAt = lazyre.New(`messages\.(\d+)\.content\.(\d+)`)
 
 // thinkingRefusedMost bounds the signatures remembered; past it the
 // memory starts again, and a conversation still going is mended by one

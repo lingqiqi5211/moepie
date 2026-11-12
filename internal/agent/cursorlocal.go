@@ -23,10 +23,10 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"github.com/yetone/magpie/internal/lazyre"
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -193,7 +193,7 @@ func cursorLocalProduct(res string) (cursorProduct, bool) {
 	return p, strings.EqualFold(strings.TrimSpace(p.NameShort), cursorLocalName)
 }
 
-var plistExeRe = regexp.MustCompile(`<key>CFBundleExecutable</key>\s*<string>([^<]+)</string>`)
+var plistExeRe = lazyre.New(`<key>CFBundleExecutable</key>\s*<string>([^<]+)</string>`)
 
 // plistExecutable is CFBundleExecutable of an XML Info.plist, "" when it
 // can't be read.

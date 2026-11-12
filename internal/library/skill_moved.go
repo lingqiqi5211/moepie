@@ -13,10 +13,10 @@ package library
 // that isn't a version the app has moved on from, is left as it is.
 
 import (
+	"github.com/yetone/magpie/internal/lazyre"
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 )
@@ -71,7 +71,7 @@ func (l *Library) followMovedSkills() bool {
 }
 
 // versionName is a folder named for a version: 0.6.0.12, v2.1, 1.4.2-beta.
-var versionName = regexp.MustCompile(`^[vV]?\d+(\.\d+)*([-+_][0-9A-Za-z.]+)?$`)
+var versionName = lazyre.New(`^[vV]?\d+(\.\d+)*([-+_][0-9A-Za-z.]+)?$`)
 
 // currentNames are the links an app keeps beside its version folders to
 // the one in use.

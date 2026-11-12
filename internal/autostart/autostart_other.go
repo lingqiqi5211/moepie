@@ -3,9 +3,9 @@
 package autostart
 
 import (
+	"github.com/yetone/magpie/internal/lazyre"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/yetone/magpie/internal/appdir"
@@ -25,10 +25,10 @@ func record() string {
 // no Type and it is not an application entry, no Exec and it names nothing
 // to run. A .desktop a write left short of either reads as off, not as on.
 var (
-	entryType = regexp.MustCompile(`(?m)^Type=Application$`)
+	entryType = lazyre.New(`(?m)^Type=Application$`)
 	// the Exec key with something to run after it: an empty one names
 	// nothing, and the desktop starts no entry that names nothing
-	entryExec = regexp.MustCompile(`(?m)^Exec=\s*\S`)
+	entryExec = lazyre.New(`(?m)^Exec=\s*\S`)
 )
 
 func enabled() bool {

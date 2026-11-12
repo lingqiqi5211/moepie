@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"html"
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -691,7 +691,7 @@ func readYouSearch(b []byte) ([]foundPage, error) {
 	return pages, nil
 }
 
-var searchTags = regexp.MustCompile(`<[^>]*>`)
+var searchTags = lazyre.New(`<[^>]*>`)
 
 // searchPlain is a search API's text without the tags it marks matches with
 // (Brave's <strong>), on one line.

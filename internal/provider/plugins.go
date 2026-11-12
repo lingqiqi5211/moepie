@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"net/http"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -202,7 +202,7 @@ func pluginProtocol(provider string, m plugin.Model) Protocol {
 	return Chat
 }
 
-var gptN = regexp.MustCompile(`^gpt-(\d+)`)
+var gptN = lazyre.New(`^gpt-(\d+)`)
 
 // copilotAPI is OpenCode's shouldUseCopilotResponsesApi: GPT-5 and after,
 // but for gpt-5-mini, on Responses.
@@ -721,12 +721,12 @@ const SignInHeader = "X-Magpie-Sign-In"
 // provider supported" (#2887), and Azure OpenAI's DeploymentNotFound, whose
 // message "The API deployment for this resource does not exist" a relay
 // passes on as a 400 (its 404 fails over by its status already).
-var ModelUnserved = regexp.MustCompile(`(?i)model.{0,80}(not (supported|accessible|available|found|enabled|allowed)|unsupported|does ?n[o']t exist|unknown|invalid)|(no such|unknown|invalid|unsupported) model|model_not_found|has no provider supported|deployment[ _]?not[ _]?found|deployment.{0,60}does ?n[o']t exist|模型.{0,12}(不存在|不支持|无权|未开通)`)
+var ModelUnserved = lazyre.New(`(?i)model.{0,80}(not (supported|accessible|available|found|enabled|allowed)|unsupported|does ?n[o']t exist|unknown|invalid)|(no such|unknown|invalid|unsupported) model|model_not_found|has no provider supported|deployment[ _]?not[ _]?found|deployment.{0,60}does ?n[o']t exist|模型.{0,12}(不存在|不支持|无权|未开通)`)
 
 // signInWords are words of a refusal about the sign-in itself, which a
 // model named beside them doesn't make the model's: "model gpt-x: invalid
 // token" is the token.
-var signInWords = regexp.MustCompile(`(?i)token|api.?key|credential|sign.?in|log.?in|expired|session|令牌|密钥|登录|过期`)
+var signInWords = lazyre.New(`(?i)token|api.?key|credential|sign.?in|log.?in|expired|session|令牌|密钥|登录|过期`)
 
 // modelOnly401 says a 401 a plugin answered without SignInHeader is about
 // the model, not the account's sign-in: its body says the model isn't

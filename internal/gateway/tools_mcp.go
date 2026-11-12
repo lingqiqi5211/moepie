@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"net/http"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -58,7 +58,7 @@ type mcpTool struct {
 	name string // <plugin>_<tool>
 }
 
-var unsafeToolChars = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
+var unsafeToolChars = lazyre.New(`[^A-Za-z0-9_-]+`)
 
 // toolPrefix is the plugin's part of its tools' names: its short name
 // (opencode-weather-tools → weather-tools), in the characters MCP clients

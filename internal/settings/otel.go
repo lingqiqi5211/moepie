@@ -2,9 +2,9 @@ package settings
 
 import (
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"net/url"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 )
@@ -29,7 +29,7 @@ type OTel struct {
 	BodiesWhole bool `json:"bodiesWhole,omitempty"`
 }
 
-var otelHeaderName = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+var otelHeaderName = lazyre.New("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 
 func (o OTel) Check() error {
 	if o.Enabled && o.Endpoint == "" {

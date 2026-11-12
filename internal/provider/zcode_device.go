@@ -19,10 +19,10 @@ package provider
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"github.com/yetone/magpie/internal/lazyre"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 )
@@ -32,7 +32,7 @@ var zcodeDevices = struct {
 	m map[string]string // by the file it is kept in
 }{m: map[string]string{}}
 
-var zcodeUUIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+var zcodeUUIDRe = lazyre.New(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 func zcodeDevicePath() string { return filepath.Join(filepath.Dir(Path()), "zcode-device-mid") }
 

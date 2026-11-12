@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io/fs"
 	"maps"
 	"math"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -291,7 +291,7 @@ func (f *mcpFile) supports(s *Server) error {
 
 // windowsPath is a program named as Windows names one: C:/…, a path with a
 // backslash in it, or …/npx.cmd.
-var windowsPath = regexp.MustCompile(`^[A-Za-z]:[\\/]|\\|(?i)\.(?:exe|cmd|bat|ps1)$`)
+var windowsPath = lazyre.New(`^[A-Za-z]:[\\/]|\\|(?i)\.(?:exe|cmd|bat|ps1)$`)
 
 // foreign says why an entry by the server's name that magpie can't read as
 // a server is one it mustn't write over, or nil: Zed's server from an

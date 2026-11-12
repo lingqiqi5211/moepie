@@ -43,9 +43,9 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -72,7 +72,7 @@ const (
 )
 
 // openClawProfile is a profile name OpenClaw takes (profile-utils.ts).
-var openClawProfile = regexp.MustCompile(`(?i)^[a-z0-9][a-z0-9_-]{0,63}$`)
+var openClawProfile = lazyre.New(`(?i)^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 // openClawHome is OpenClaw's ~: $OPENCLAW_HOME, a leading ~ in it the
 // system's home (resolveEffectiveHomeDir).

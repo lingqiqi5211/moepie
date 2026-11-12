@@ -16,10 +16,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -384,7 +384,7 @@ func writePrior(b *strings.Builder, prev before) {
 	}
 }
 
-var firstNumber = regexp.MustCompile(`\d+`)
+var firstNumber = lazyre.New(`\d+`)
 
 // readIntent is the intent a classifier's answer names: its first number,
 // 0 for none.

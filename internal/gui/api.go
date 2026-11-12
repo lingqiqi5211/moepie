@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"io/fs"
 	"maps"
@@ -23,7 +24,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -869,7 +869,14 @@ var onDock func(settings.Settings)
 var assetTypes = map[string]string{".svg": "image/svg+xml", ".png": "image/png", ".css": "text/css; charset=utf-8",
 	".js": "text/javascript; charset=utf-8", ".html": "text/html; charset=utf-8"}
 
-func init() {
+// addAssetTypes is called by Handler, not init: the mime package reads
+// and parses the system's whole type table (/etc/apache2/mime.types,
+// ~18,000 allocations) the first time a type is added, and a launch that
+// serves no page (`magpie statusline` on every Claude Code message) never
+// needs it.
+var addAssetTypes = sync.OnceFunc(registerAssetTypes)
+
+func registerAssetTypes() {
 	for ext, t := range assetTypes {
 		mime.AddExtensionType(ext, t)
 	}
@@ -926,7 +933,7 @@ func revalidated(next http.Handler) http.Handler {
 
 // pageFile is a script or stylesheet of the page's own, named in it: one
 // of the page's, or of a built-in plugin's under plugins/<id>/.
-var pageFile = regexp.MustCompile(`(src|href)="([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\.(?:js|css))"`)
+var pageFile = lazyre.New(`(src|href)="([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\.(?:js|css))"`)
 
 // versionedPage is the page with each of its own scripts and stylesheets
 // named with its content's hash; one not among the page's files (boot.js,
@@ -947,6 +954,7 @@ func versionedPage(page []byte) []byte {
 // gw is the gateway this process serves, or nil when another magpie has it
 // (for now: see startBackend).
 func Handler(w Windows, gw *gateway.Server) http.Handler {
+	addAssetTypes()
 	if gw != nil {
 		served.Store(gw)
 	}

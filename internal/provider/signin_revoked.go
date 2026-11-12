@@ -20,8 +20,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/yetone/magpie/internal/lazyre"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -37,7 +37,7 @@ const revokedPrefix = "revoked:"
 // refresh codes OpenAI's auth answers a dead sign-in with; and magpie's own
 // words for one (revokedText), which the gateway may hold in place of the
 // reply's body.
-var revokedWords = regexp.MustCompile(`(?i)\btoken_revoked\b|\btoken_invalidated\b|\brefresh_token_(reused|invalidated|expired)\b|\binvalid_grant\b|invalidated oauth token|(token|sign-in) (has been|was) revoked`)
+var revokedWords = lazyre.New(`(?i)\btoken_revoked\b|\btoken_invalidated\b|\brefresh_token_(reused|invalidated|expired)\b|\binvalid_grant\b|invalidated oauth token|(token|sign-in) (has been|was) revoked`)
 
 // SignInRevoked says a reply is the vendor's word that the sign-in it was
 // sent with is revoked.

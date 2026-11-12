@@ -2,6 +2,7 @@ package edit
 
 import (
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"regexp"
 	"strconv"
 	"strings"
@@ -13,8 +14,8 @@ import (
 var (
 	// tomlTable and tomlKV only read a TOML file its parser refuses; see
 	// GetTOMLTop.
-	tomlTable = regexp.MustCompile(`^\s*\[`)
-	tomlKV    = regexp.MustCompile(`^\s*([A-Za-z0-9_.-]+|"[^"]*")\s*=\s*(.*?)\s*$`)
+	tomlTable = lazyre.New(`^\s*\[`)
+	tomlKV    = lazyre.New(`^\s*([A-Za-z0-9_.-]+|"[^"]*")\s*=\s*(.*?)\s*$`)
 )
 
 // setLine replaces the line whose key matches, or inserts newLine after the

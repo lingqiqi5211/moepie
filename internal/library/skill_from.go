@@ -3,11 +3,11 @@ package library
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -308,7 +308,7 @@ func gitRepoOf(dir string) string {
 	return ""
 }
 
-var originSection = regexp.MustCompile(`^\[\s*remote\s+"origin"\s*\]$`)
+var originSection = lazyre.New(`^\[\s*remote\s+"origin"\s*\]$`)
 
 // originURL is the repository remote "origin" of a git config fetches.
 func originURL(cfg string) string {
@@ -330,7 +330,7 @@ func originURL(cfg string) string {
 	return ""
 }
 
-var scpRemote = regexp.MustCompile(`^(?:[\w.-]+@)?([\w.-]+\.[\w.-]+):(.+)$`)
+var scpRemote = lazyre.New(`^(?:[\w.-]+@)?([\w.-]+\.[\w.-]+):(.+)$`)
 
 // remoteRepo reads a git remote's address as a repository: owner/repo on
 // GitHub, host/path elsewhere. A user or a token in it is never kept.

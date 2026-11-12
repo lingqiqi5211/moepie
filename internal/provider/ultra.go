@@ -1,7 +1,7 @@
 package provider
 
 import (
-	"regexp"
+	"github.com/yetone/magpie/internal/lazyre"
 	"slices"
 	"strings"
 )
@@ -17,7 +17,7 @@ import (
 var ultraModels = []string{"gpt-6.1-sol", "gpt-6-sol", "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra"}
 
 // datedSuffix is a snapshot's date after a model's id (-2026-09-14, -20260914).
-var datedSuffix = regexp.MustCompile(`-(\d{4}-\d{2}-\d{2}|\d{8})$`)
+var datedSuffix = lazyre.New(`-(\d{4}-\d{2}-\d{2}|\d{8})$`)
 
 // OffersUltra reports whether Codex offers its Ultra on the model, by the id
 // a vendor serves it under: openai/gpt-6.1-sol on a relay, a dated snapshot.

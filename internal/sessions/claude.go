@@ -3,7 +3,7 @@ package sessions
 import (
 	"bytes"
 	"encoding/json"
-	"regexp"
+	"github.com/yetone/magpie/internal/lazyre"
 	"slices"
 	"strings"
 	"time"
@@ -420,8 +420,8 @@ func ccText(content json.RawMessage) string {
 }
 
 var (
-	ccCommand = regexp.MustCompile(`<command-name>\s*([^<]*?)\s*</command-name>`)
-	ccArgs    = regexp.MustCompile(`<command-args>\s*([^<]*?)\s*</command-args>`)
+	ccCommand = lazyre.New(`<command-name>\s*([^<]*?)\s*</command-name>`)
+	ccArgs    = lazyre.New(`<command-args>\s*([^<]*?)\s*</command-args>`)
 )
 
 // ccPrompt is the words of a prompt someone typed, or "" for what Claude

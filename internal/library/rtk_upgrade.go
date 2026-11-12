@@ -9,12 +9,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -1027,10 +1027,10 @@ func brewError(out string) string {
 }
 
 var (
-	ansiSeq = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+	ansiSeq = lazyre.New(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
 	// a line that is only a spinner frame or a progress bar (winget's
 	// ██████▒▒▒ 1.20 MB / 3.40 MB, Homebrew's ###, curl's %)
-	progressLine = regexp.MustCompile(`^(?:[-\\|/]|[█▓▒░#=>.\s]*\d*(?:\.\d+)?\s*(?:[KMG]i?B\s*/\s*\d+(?:\.\d+)?\s*[KMG]i?B|%)?)$`)
+	progressLine = lazyre.New(`^(?:[-\\|/]|[█▓▒░#=>.\s]*\d*(?:\.\d+)?\s*(?:[KMG]i?B\s*/\s*\d+(?:\.\d+)?\s*[KMG]i?B|%)?)$`)
 )
 
 // installerSaid is the last lines an installer printed that say something:

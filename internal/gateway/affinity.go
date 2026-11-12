@@ -29,10 +29,10 @@ package gateway
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"github.com/yetone/magpie/internal/lazyre"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -1054,7 +1054,7 @@ func unanswered(key string, c candidate) {
 // encrypted_content from a previous response."; Azure's (through a relay
 // in front of a deployment, snowshadow) "invalid encrypted summary",
 // which names no item and spells it with spaces.
-var foreignReasoning = regexp.MustCompile(`(?i)invalid_encrypted_content|invalid[ _]encrypted[ _](summary|content)|encrypted[ _]content.{0,80}could not be (verified|decrypted)|could not (decrypt|verify).{0,40}encrypted[ _]content`)
+var foreignReasoning = lazyre.New(`(?i)invalid_encrypted_content|invalid[ _]encrypted[ _](summary|content)|encrypted[ _]content.{0,80}could not be (verified|decrypted)|could not (decrypt|verify).{0,40}encrypted[ _]content`)
 
 // refusedSeals remembers, per conversation and the key or account that
 // refused it, the sealed reasoning another one wrote. Codex hands every

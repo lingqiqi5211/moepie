@@ -1,11 +1,11 @@
 package provider
 
 import (
+	"github.com/yetone/magpie/internal/lazyre"
 	"maps"
-	"regexp"
 )
 
-var secretHeader = regexp.MustCompile(`(?i)auth|key|token|secret|cookie|session|password`)
+var secretHeader = lazyre.New(`(?i)auth|key|token|secret|cookie|session|password`)
 
 // SecretHeader reports whether a header or an environment variable by that
 // name looks like it holds a key: what a backup without keys leaves empty.

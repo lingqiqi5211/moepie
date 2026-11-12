@@ -20,10 +20,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"log"
 	"net/http"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -1369,7 +1369,7 @@ func restOf(id string) (Rest, bool) {
 
 // quotaWords are how vendors say "out of quota" or "slow down" when their
 // status code doesn't: some answer 400 or 403 with it.
-var quotaWords = regexp.MustCompile(`(?i)quota|insufficient|balance|credit|billing|out of budget|budget (exceeded|exhausted)|exceeded|rate.?limit|usage.?limit|limit.?reached|hit your .*limit|limit.{0,24}resets|too many requests|overloaded|余额|额度|欠费|限流|频率|频繁|速率|套餐|用量|上限`)
+var quotaWords = lazyre.New(`(?i)quota|insufficient|balance|credit|billing|out of budget|budget (exceeded|exhausted)|exceeded|rate.?limit|usage.?limit|limit.?reached|hit your .*limit|limit.{0,24}resets|too many requests|overloaded|余额|额度|欠费|限流|频率|频繁|速率|套餐|用量|上限`)
 
 // quotaSaid is whether an error's words, with no status to go by, say
 // out of quota or slow down: quotaWords, unless they say the conversation
@@ -1425,7 +1425,7 @@ func modelRefused(status int, body []byte) bool {
 // key as an outage, with every model on it, and another provider of the
 // model was never asked for it. The words after "last upstream error:"
 // are the refusal itself.
-var poolLastError = regexp.MustCompile(`(?i)no auth available \(providers=[^;)"]*; last upstream error: ([^"\n]+)`)
+var poolLastError = lazyre.New(`(?i)no auth available \(providers=[^;)"]*; last upstream error: ([^"\n]+)`)
 
 // codeAssistModelMissing says a Google account's Code Assist — the
 // Antigravity or Gemini CLI built-in's — answered 404 NOT_FOUND
@@ -1449,7 +1449,7 @@ func codeAssistModelMissing(p provider.Provider, status int, body []byte) bool {
 // {"type":"ModelDeprecated","message":"Model exo-free has been
 // deprecated."}} (MOMO on Discord), OpenAI's "The model … has been
 // deprecated".
-var retiredWords = regexp.MustCompile(`(?i)"ModelDeprecated"|model_deprecated|model.{0,80}(has been|was|is now|is) (deprecated|retired|discontinued|decommissioned|sunset)`)
+var retiredWords = lazyre.New(`(?i)"ModelDeprecated"|model_deprecated|model.{0,80}(has been|was|is now|is) (deprecated|retired|discontinued|decommissioned|sunset)`)
 
 // modelRetired says the vendor turned the request away because the model
 // is retired there: it leaves that provider's place in the lists
@@ -1483,13 +1483,13 @@ func modelRetired(status int, body []byte) bool {
 // glm-5-free is not supported"). Not its "is not supported for format
 // anthropic", a model served on another API (wrongEndpoint), and not its
 // AuthError "Invalid API key." for a key it doesn't take.
-var zenModelGone = regexp.MustCompile(`(^|[\s:"])Model [^"\s]+ is not supported("|\s*$)`)
+var zenModelGone = lazyre.New(`(^|[\s:"])Model [^"\s]+ is not supported("|\s*$)`)
 
 // refusedWords are how a vendor says it won't take requests from this
 // client at all — WorkBuddy's "Illegal API invocation from an unapproved
 // channel" to a chat opening with another agent's own system prompt — a
 // refusal of the provider, not of the request, another member may serve.
-var refusedWords = regexp.MustCompile(`(?i)unapproved channel|illegal api invocation`)
+var refusedWords = lazyre.New(`(?i)unapproved channel|illegal api invocation`)
 
 // promptRefused says a vendor answered with that refusal: the agent's
 // prompt, not the account, is at fault.
@@ -1513,7 +1513,7 @@ func promptRefused(status int, body []byte) bool {
 // field, plugins#375), is the same kind as OpenCode Go's: its subset of
 // JSON Schema is its own, and another vendor's model took the reporter's
 // same tools.
-var shapeWords = regexp.MustCompile(`(?i)failed to deserialize|unknown (item |content |input )?(type|variant|field|parameter)|unknown_parameter|unrecognized (request argument|field|parameter)|extra (inputs|fields) are not permitted|additional properties are not allowed|schema exceeds the maximum (nesting )?depth|schema[^"]{0,60}\bnesting depth\b|function_declarations\[\d+\]\.parameters\b`)
+var shapeWords = lazyre.New(`(?i)failed to deserialize|unknown (item |content |input )?(type|variant|field|parameter)|unknown_parameter|unrecognized (request argument|field|parameter)|extra (inputs|fields) are not permitted|additional properties are not allowed|schema exceeds the maximum (nesting )?depth|schema[^"]{0,60}\bnesting depth\b|function_declarations\[\d+\]\.parameters\b`)
 
 // unsaidWords are Command Code's Provider API turning a request away with
 // nothing but a trace id: {"message":"invalid request error trace_id:
@@ -1530,7 +1530,7 @@ var shapeWords = regexp.MustCompile(`(?i)failed to deserialize|unknown (item |co
 // that says so names the model's context length before the trace id, and
 // isn't one. The message may come after a provider's name ("Command Code:
 // "), as magpie tells it on.
-var unsaidWords = regexp.MustCompile(`(?i)(^|"|\\"|: )invalid request error trace_id: [0-9a-f]{16,}(\\?"|\s*$)`)
+var unsaidWords = lazyre.New(`(?i)(^|"|\\"|: )invalid request error trace_id: [0-9a-f]{16,}(\\?"|\s*$)`)
 
 // shapeRefused says a request failed over its shape alone: the next
 // member is asked, and this one doesn't rest, as nothing is wrong with it.
@@ -1563,7 +1563,7 @@ func shapeRefused(status int, body []byte) bool {
 // answer, and this one rests only as briefly as any other failure does.
 // A request's own field named location ("location field is not
 // supported") isn't one.
-var regionWords = regexp.MustCompile(`(?i)\buser location is not supported for the api use\b|unsupported_country_region_territory|country, region,? or territory not supported`)
+var regionWords = lazyre.New(`(?i)\buser location is not supported for the api use\b|unsupported_country_region_territory|country, region,? or territory not supported`)
 
 // regionRefused says the vendor refused the request for where it came
 // from, with regionWords.
@@ -1577,7 +1577,7 @@ func regionRefused(status int, body []byte) bool {
 // same history on every account and model the backend serves, and the
 // history as plain text is answered, so it is about the request, not the
 // account: asked again there, it only drains the accounts' allowances.
-var protectionWords = regexp.MustCompile(`(?i)response protection is unavailable`)
+var protectionWords = lazyre.New(`(?i)response protection is unavailable`)
 
 // protectionRefused says the vendor turned the request's content away
 // with protectionWords: the account is not at fault, and none of its
@@ -1597,7 +1597,7 @@ func protectionRefused(status int, body []byte) bool {
 // where the error names its code, not in its words: "…a different
 // model.","type":"invalid_request_error" reads as a model unserved
 // (unservedWords) otherwise.
-var zdrCoded = regexp.MustCompile(`\\?"(type|code)\\?"\s*:\s*\\?"cmd_zdr_no_providers\\?"`)
+var zdrCoded = lazyre.New(`\\?"(type|code)\\?"\s*:\s*\\?"cmd_zdr_no_providers\\?"`)
 
 // zdrRefused says Command Code turned the request away for its Zero Data
 // Retention setting: a choice the user made for every request to the
@@ -3724,17 +3724,17 @@ func errorCode(raw json.RawMessage) string {
 // policyCode is an error code that names the vendor's usage policy:
 // OpenAI's bio_policy ("This content was flagged for possible biological
 // risk"), cyber_policy and the like (#248).
-var policyCode = regexp.MustCompile(`^[a-z]+_policy$`)
+var policyCode = lazyre.New(`^[a-z]+_policy$`)
 
 // sensitiveCode is how Volcengine Ark's errors say its filter refused the
 // input or the reply: InputTextSensitiveContentDetected,
 // OutputTextSensitiveContentDetected, SensitiveContentDetected and the
 // image and video kinds of them.
-var sensitiveCode = regexp.MustCompile(`SensitiveContentDetected$`)
+var sensitiveCode = lazyre.New(`SensitiveContentDetected$`)
 
 // flaggedWords are how OpenAI's invalid_prompt says the prompt was held to
 // its usage policy, rather than malformed.
-var flaggedWords = regexp.MustCompile(`(?i)flagged|usage polic`)
+var flaggedWords = lazyre.New(`(?i)flagged|usage polic`)
 
 // policyRefusal tells whether an error — an error object, a body holding
 // one, or a stream's error event — is the vendor's safety filter refusing
@@ -4033,7 +4033,7 @@ func namedStatusOf(errRaw []byte) int {
 // "（HTTP 503）": a plugin that can't fail its 200 any more puts its
 // upstream's status in its message (mycf_711's wps-lingxi rows,
 // "灵犀上游返回 AIError：AI服务异常（上游暂时不可用，可重试）（HTTP 503）").
-var httpSaid = regexp.MustCompile(`[(（]\s*HTTP\s*(429|5\d\d)\s*[)）]`)
+var httpSaid = lazyre.New(`[(（]\s*HTTP\s*(429|5\d\d)\s*[)）]`)
 
 // textStatus is the status an error's words name (httpSaid), 0 when they
 // name none, or say the request is too long, or are magpie's own. Only a

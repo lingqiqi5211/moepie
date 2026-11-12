@@ -4,9 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 
 	"github.com/yetone/magpie/internal/provider"
@@ -56,7 +56,7 @@ func notAnAPIReply(res *http.Response, name string) *http.Response {
 }
 
 // htmlStart is how a web page begins.
-var htmlStart = regexp.MustCompile(`(?i)^<(!doctype\s+html|html[\s>]|head[\s>]|body[\s>])`)
+var htmlStart = lazyre.New(`(?i)^<(!doctype\s+html|html[\s>]|head[\s>]|body[\s>])`)
 
 // webPage says what a page served in place of a reply was, by its title,
 // and for a firewall's block page what to do about it.

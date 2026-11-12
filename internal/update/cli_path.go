@@ -3,9 +3,9 @@ package update
 import (
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -242,8 +242,8 @@ func sameFile(a, b string) bool {
 }
 
 var (
-	plistVersion = regexp.MustCompile(`<key>CFBundleShortVersionString</key>\s*<string>([^<]+)</string>`)
-	cellarVer    = regexp.MustCompile(`/Cellar/magpie/([^/]+)/`)
+	plistVersion = lazyre.New(`<key>CFBundleShortVersionString</key>\s*<string>([^<]+)</string>`)
+	cellarVer    = lazyre.New(`/Cellar/magpie/([^/]+)/`)
 )
 
 // otherVersion is the version of the magpie at cmd, read from its .app's

@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"net"
 	"net/http"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -50,7 +50,7 @@ type pluginOptionJSON struct {
 }
 
 // pluginOptionKey is the key an option may have, as the host checks it.
-var pluginOptionKey = regexp.MustCompile(`^[a-z0-9_-]{1,40}$`)
+var pluginOptionKey = lazyre.New(`^[a-z0-9_-]{1,40}$`)
 
 // pluginIcon is the vendor's icon: the one the plugin gives its provider,
 // else the one the plugin market gives the plugin or its provider, else

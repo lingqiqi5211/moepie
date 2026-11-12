@@ -9,6 +9,7 @@ package daemon
 import (
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"html"
 	"os"
 	"os/exec"
@@ -161,10 +162,10 @@ func Web() (addr, key string) {
 }
 
 var (
-	webArgRe = regexp.MustCompile(`(?:"|<string>)` + regexp.QuoteMeta(webFlag) + `([^"<\s]+)(?:"|</string>)`)
+	webArgRe = lazyre.New(`(?:"|<string>)` + regexp.QuoteMeta(webFlag) + `([^"<\s]+)(?:"|</string>)`)
 	// a unit's Environment="MAGPIE_WEB_KEY=…", a plist's
 	// <key>MAGPIE_WEB_KEY</key><string>…</string>
-	webKeyRe = regexp.MustCompile(webKeyVar + `(?:=|</key><string>)([A-Za-z0-9._~-]+)`)
+	webKeyRe = lazyre.New(webKeyVar + `(?:=|</key><string>)([A-Za-z0-9._~-]+)`)
 )
 
 // TLS is the certificate and key files the installed service serves

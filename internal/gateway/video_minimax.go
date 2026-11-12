@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"net/http"
 	"net/url"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -197,7 +197,7 @@ func minimaxRatio(f filming) string {
 
 // minimaxCode is the code MiniMax put at the end of its message: "insufficient
 // balance (1008)" is 1008.
-var minimaxCode = regexp.MustCompile(`\((\d{3,5})\)\s*$`)
+var minimaxCode = lazyre.New(`\((\d{3,5})\)\s*$`)
 
 // minimaxSaid is what MiniMax's answer b says went wrong, and its code: its
 // OpenAI-shaped error, or the base_resp its older APIs answer with.

@@ -8,10 +8,10 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -26,7 +26,7 @@ import (
 
 const reasonixKey = "MAGPIE_REASONIX_API_KEY"
 
-var reasonixKeyLine = regexp.MustCompile(`(?m)^\s*(?:export\s+)?` + reasonixKey + `\s*=`)
+var reasonixKeyLine = lazyre.New(`(?m)^\s*(?:export\s+)?` + reasonixKey + `\s*=`)
 
 // Every API request and catalog sync constructs its own Agent. The transaction
 // must cover the whole edit and rollback across those instances, including reads.

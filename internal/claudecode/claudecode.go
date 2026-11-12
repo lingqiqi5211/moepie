@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"net/http"
 	"os"
@@ -45,7 +46,7 @@ func exeName(goos string) string {
 	return "claude"
 }
 
-var versionRe = regexp.MustCompile(`^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
+var versionRe = lazyre.New(`^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
 
 // Downloaded is the Claude Code magpie downloaded and its version, or ""
 // when there is none: the newest of Root's versions that has the binary.
