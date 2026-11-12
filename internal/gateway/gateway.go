@@ -4807,6 +4807,7 @@ func (s *Server) forwardOnce(ctx context.Context, p provider.Provider, to provid
 	body = deepseekTokenField(p, to, body)
 	body = s.chatTokenField(p, to, body)
 	body = toolOneOfAsAnyOf(p, to, body)
+	body = copilotGeminiToolsFit(p, to, body)
 	body = kimiToolEnumTypes(p, to, body)
 	body = kimiToolRefTypes(p, to, body)
 	body = geminiToolTypes(body)
