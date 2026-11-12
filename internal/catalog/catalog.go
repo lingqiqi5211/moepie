@@ -2064,6 +2064,46 @@ func WrongEndpoint(status int, body []byte) bool {
 	return false
 }
 
+// NoChannel recognizes a relay (New API and its forks) answering 503 that no
+// channel serves the model in the caller's group: the relay holds the model on
+// some of its APIs and has no channel for it on the one asked, so another API
+// of the same relay may serve it (equinox0253 on X: gpt-6.1-sol asked on a
+// relay's Anthropic URL, where only its Claude models have a channel).
+func NoChannel(status int, body []byte) bool {
+	if status != 503 && status != 404 {
+		return false
+	}
+	msg := strings.ToLower(string(Words(body)))
+	for _, phrase := range []string{"no available channel", "无可用渠道", "没有可用渠道"} {
+		if strings.Contains(msg, phrase) {
+			return true
+		}
+	}
+	// a relay that answers 404 for the same case (equinox0253 on X: WandAPI,
+	// 503 on New API): New API gives that refusal the code model_not_found,
+	// and a fork keeps the code when it changes the status. The code alone
+	// is not enough: it is also what a model that does not exist is told,
+	// so the message must name a channel or a group, the relay's own
+	// routing, as a 404 for a wrong base URL or a missing model never does.
+	if status == 404 {
+		var e struct {
+			Error struct {
+				Code    any    `json:"code"`
+				Type    string `json:"type"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(body, &e) == nil {
+			code, _ := e.Error.Code.(string)
+			if code == "model_not_found" || e.Error.Type == "model_not_found" {
+				m := strings.ToLower(e.Error.Message)
+				return strings.Contains(m, "channel") || strings.Contains(m, "渠道") || strings.Contains(m, "分组") || strings.Contains(m, "under group")
+			}
+		}
+	}
+	return false
+}
+
 // Words is an error body as its words are matched: a JSON body that
 // escapes what isn't ASCII as \uXXXX (Python's json.dumps does by default)
 // has its strings decoded and put after it, one to a line, so "用量",
