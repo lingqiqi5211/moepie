@@ -626,7 +626,7 @@ func (c claudeCLI) asRoot(env []string) []string {
 // claudeEnvVars are the variables magpie sets for a Claude Code run, which
 // one in WSL is handed (wslrun's Env).
 var claudeEnvVars = []string{"ENABLE_CLAUDEAI_MCP_SERVERS", "DISABLE_AUTO_COMPACT", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
-	"DISABLE_TELEMETRY", "DISABLE_ERROR_REPORTING", "DISABLE_AUTOUPDATER", "ANTHROPIC_BETAS"}
+	"DISABLE_TELEMETRY", "DO_NOT_TRACK", "DISABLE_ERROR_REPORTING", "DISABLE_AUTOUPDATER", "ANTHROPIC_BETAS"}
 
 // env is env for a run in config directory configDir ("" for the account
 // Claude Code is signed in to): for one in WSL, what of it goes in.
@@ -930,7 +930,7 @@ func (b *subscriptionBridge) startRun(ctx context.Context, req *Request, model, 
 		cmd = binary.command(context.Background(), args...)
 	}
 	cmd.Dir = work
-	env, err := binary.proxied(ctx, cleanClaudeEnvTTL(os.Environ(), prefix.runTTL()))
+	env, err := binary.proxied(ctx, claudeRunEnv(os.Environ(), prefix.runTTL()))
 	if err != nil {
 		cleanup()
 		return nil, nil, err
@@ -2771,6 +2771,53 @@ func cleanClaudeEnvTTL(env []string, ttl string) []string {
 		// Request.cacheTTL) are the same: Anthropic refuses a 1h mark after
 		// a 5m one
 		"CLAUDE_CODE_PROMPT_CACHE_TTL="+ttl)
+}
+
+// claudeQuietVars are the variables that keep Claude Code from fetching
+// its feature flags: with any of them set (CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,
+// DISABLE_TELEMETRY or DO_NOT_TRACK; 2.1.316's privacy level, "default" only
+// with none) it reads none, and every flag is its default.
+var claudeQuietVars = []string{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISABLE_TELEMETRY", "DO_NOT_TRACK"}
+
+// claudeRunEnv is the environment a bridge's run (a caller's turns) starts
+// Claude Code in: cleanClaudeEnvTTL's, but with Claude Code's network as a
+// plain claude has it, so it reads its feature flags for the account. One of
+// them, tengu_curious_tower, is Message Threads: a turn sends only what came
+// after the last reply instead of the whole history, every image in it again
+// (#5963, nylesssssssss; 681KB a turn with a 3MB image, 3KB with threads).
+// Nothing is forced: an account Anthropic hasn't given threads goes whole,
+// as its own claude does. Updates and error reports stay off, which the
+// flags don't need. The quiet variables stay as the user set them, in
+// magpie's environment or in their Claude Code's settings.json env (the run
+// reads no settings of the user's: --setting-sources ""), since they are the
+// user's telemetry choice for Claude Code.
+//
+// The one-off runs (the model test, the warm-up, /usage) keep
+// cleanClaudeEnv's CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: they have no
+// history to send, and an interactive one would otherwise send a model
+// request of its own as it starts (probeQuotaStatus, #5582). A turn's
+// interactive run sends that request too, right before the turn's own,
+// which opens the five-hour window anyway.
+func claudeRunEnv(env []string, ttl string) []string {
+	out := slices.DeleteFunc(cleanClaudeEnvTTL(env, ttl), func(e string) bool {
+		k, _, _ := strings.Cut(e, "=")
+		return slices.Contains(claudeQuietVars, k)
+	})
+	settings := filepath.Join(claudeConfigDir(), "settings.json")
+	for _, k := range claudeQuietVars {
+		v, _ := edit.GetJSON(settings, "env."+k)
+		if v == "" {
+			for _, e := range env {
+				if w, ok := strings.CutPrefix(e, k+"="); ok {
+					v = w
+				}
+			}
+		}
+		if v != "" {
+			out = append(out, k+"="+v)
+		}
+	}
+	return append(out, "DISABLE_AUTOUPDATER=1", "DISABLE_ERROR_REPORTING=1")
 }
 
 type lockedWriter struct{ run *subscriptionRun }
@@ -5081,6 +5128,26 @@ func (r *subscriptionRun) owned() string {
 	return ""
 }
 
+// ownerSaid is an owner as the log tells it (#5767): the provider, and
+// whose account it is, its own sign-in marked, a plan-named one unnamed.
+// "account changed" alone left a reporter guessing at image hashes, when
+// the router had served the request from another account.
+func ownerSaid(owner string) string {
+	f := strings.Split(owner, "\x00")
+	said := f[0]
+	if len(f) < 2 || f[1] == "" {
+		return said
+	}
+	said += " (" + f[1]
+	if len(f) > 2 && f[2] == ownHome {
+		said += ", Claude Code's own sign-in"
+		if len(f) > 3 && f[3] == unnamedOwner {
+			said += ", unnamed"
+		}
+	}
+	return said + ")"
+}
+
 // takeNamedOwner has a run started on Claude Code's own sign-in while it
 // was known by no name (unnamedOwner) go on as owner, that sign-in named
 // since: a run in Claude Code's own home runs as whatever it is signed in
@@ -5381,8 +5448,9 @@ func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request, from 
 	// Claude Code's config, so its tool results come back on the same
 	// sign-in named by its email, and the run goes on under that name.
 	if run != nil && run.owned() != owner && !run.takeNamedOwner(owner) {
+		was := run.owned()
 		run.abort()
-		run, how = nil, accountChanged
+		run, how = nil, accountChanged+": the run was on "+ownerSaid(was)+", this request goes to "+ownerSaid(owner)
 	}
 	// the client rewrote the conversation since the run's last reply, as Pi
 	// does compacting it mid-turn: the run's agent holds the one from before,
