@@ -33,6 +33,20 @@ reads no vendor allowances; only Overview asks for them (`loadUsage`).
 Verification: `stats_kept_test.go`, `sessions_stats_gen_test.go`,
 `context_kept_test.go` and `allowance-open-read.test.cjs`.
 
+Once Sessions stats go unasked for two minutes, the GUI releases its ranges
+and response tags, and the native stats ranges are dropped too. A background
+read in flight defers that release. Session-file parses go after three idle
+minutes, once pending changes have been saved and no parse or overlay is in
+flight; the next read restores `sessions.json`. Codex identities, rollout
+listings, Claude path sets and reusable directory listings go with them.
+Usage drops its per-chunk derived indexes and idle Codex model/effort answers
+after three minutes, and drops request-page chunks after seven minutes. A
+new read recreates these caches. The final effort cache on disk described
+below remains available, so an unchanged answer can be restored without
+recalculating it. Verification: `sessions_stats_idle_test.go`,
+`sessions/cache_idle_test.go`, `usage/derived_idle_test.go` and the idle
+request-chunk cases in `usage/cache_bounds_test.go`.
+
 WorkBuddy and CodeBuddy Code name their conversation in `X-Conversation-ID`.
 The gateway reads it as a native session header, after the existing native
 headers; `X-Magpie-Session` still overrides the recorded session without

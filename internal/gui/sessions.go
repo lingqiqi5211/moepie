@@ -689,6 +689,7 @@ func statsFor(days int) sessions.Stats {
 
 func statsForGen(days int) (sessions.Stats, uint64) {
 	days = max(0, days)
+	keepStatsWhileAsked()
 	statsMemo.Lock()
 	if k := statsMemo.m[days]; k != nil {
 		statsMemo.asks++
@@ -747,6 +748,59 @@ func statsForGen(days int) (sessions.Stats, uint64) {
 	}
 	statsMemo.Unlock()
 	return st, gen
+}
+
+// statsIdle is how long the Sessions page's stats are kept after the last
+// ask. The page polls every 15 s while it is open; once it has been shut
+// for this long, every range's Stats (a Summary for each session ever:
+// ~15 MB of a 14k-session history) and the answers' tags go. The parsed
+// session files stay, so the next ask sums them up again
+// (~0.1 s a range) without reading a file.
+const statsIdle = 2 * time.Minute
+
+var statsIdleTimer struct {
+	sync.Mutex
+	t *time.Timer
+	// off: tests, which ask for stats over minutes, have it armed only
+	// when they ask for it
+	off bool
+}
+
+func init() { statsIdleTimer.off = testing.Testing() }
+
+// keepStatsWhileAsked puts off forgetIdleStats for statsIdle.
+func keepStatsWhileAsked() {
+	statsIdleTimer.Lock()
+	defer statsIdleTimer.Unlock()
+	if statsIdleTimer.off {
+		return
+	}
+	if statsIdleTimer.t != nil {
+		statsIdleTimer.t.Reset(statsIdle)
+		return
+	}
+	statsIdleTimer.t = time.AfterFunc(statsIdle, forgetIdleStats)
+}
+
+// forgetIdleStats lets go of what statsForGen and the stats route kept,
+// and hands the pages back to the system at once; a range being read again
+// puts it off.
+func forgetIdleStats() {
+	statsMemo.Lock()
+	for _, k := range statsMemo.m {
+		if k.busy {
+			statsMemo.Unlock()
+			keepStatsWhileAsked()
+			return
+		}
+	}
+	statsMemo.m = nil
+	statsMemo.Unlock()
+	statsTags.Lock()
+	statsTags.m = nil
+	statsTags.Unlock()
+	sessions.ForgetKeptRanges()
+	debug.FreeOSMemory()
 }
 
 func combinedSessionStats(days int) sessions.Stats {
@@ -1015,13 +1069,16 @@ func retightenGC() {
 	afterNextGC(retightenGC)
 }
 
-// steadyGCStart has the heap grow by half of what it holds before a
+// steadyGCStart has the heap grow by a quarter of what it holds before a
 // collection, or by steadyGCRoom when that is more, not Go's default of
 // all of it, for the life of the process; a GOGC the user set is kept.
 // A window resting on ~60 MB live polls /api/state, /api/drift and
 // /api/providers, ~10 MB thrown away a round, so at the default its
-// footprint peaked at 138 MB; under half, 107-108 MB, for ~9% more CPU in
-// the polls. Reads under a tight GC still set their tenth while they run.
+// footprint peaked at 138 MB and under half at 107-108 MB. On a real
+// account's history (~100 MB live) a quarter took the resting footprint
+// from 171 to 146 MB and its peak from 200 to 166 MB, with 60 busy poll
+// rounds at 5.14s of CPU against 5.12s. Reads under a tight GC still set
+// their tenth while they run.
 func steadyGCStart() {
 	if os.Getenv("GOGC") != "" {
 		return
@@ -1038,13 +1095,13 @@ func steadyGCStart() {
 	}
 }
 
-// steadyGCPercent is the half steadyGCStart lets the heap grow by.
-const steadyGCPercent = 50
+// steadyGCPercent is the quarter steadyGCStart lets the heap grow by.
+const steadyGCPercent = 25
 
-// steadyGCRoom is the least it grows by: half of a small heap is a few
-// MB, and a heap under 64 MB grows by 32 MB, never by more than Go's
+// steadyGCRoom is the least it grows by: a quarter of a small heap is a
+// few MB, and a heap under 64 MB grows by 16 MB, never by more than Go's
 // default.
-const steadyGCRoom = 32 << 20
+const steadyGCRoom = 16 << 20
 
 // steadyPercent is the GOGC steadyGCStart sets on a live heap of live
 // bytes (0 before the first collection: steadyGCPercent).
