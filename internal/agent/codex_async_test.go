@@ -68,8 +68,9 @@ func asyncOf(t *testing.T, config string) (feature any, capability any) {
 // magpie's provider table: without it Codex never starts a background
 // compaction on a provider other than OpenAI's (tried with Codex 0.163:
 // none in a whole turn past the threshold; with it, one per step, its
-// summary taken in). A model switch writing the table again keeps it, and
-// the switch off takes all of it out again.
+// summary taken in). A model switch writing the table again keeps it; the
+// switch off takes the feature out, while the capability is the
+// provider's and stays (#5259).
 func TestCodexAsyncCompactionWritten(t *testing.T) {
 	quietCodex(t, false, provider.CodexDaemonCheck{})
 	codexReadersAre(t, "0.164.0", "0.163.0-alpha.10.2")
@@ -110,11 +111,29 @@ func TestCodexAsyncCompactionWritten(t *testing.T) {
 	if err := cx.Sync(); err != nil {
 		t.Fatal(err)
 	}
-	if feature, capability := asyncOf(t, read()); feature != nil || capability != nil {
-		t.Fatalf("left behind with the switch off: %v %v\n%s", feature, capability, read())
+	if feature, capability := asyncOf(t, read()); feature != nil || capability != "v2" {
+		t.Fatalf("with the switch off: async_compaction = %v, capability = %v\n%s", feature, capability, read())
 	}
-	if _, ok := stashLoad()["codex.async"]; ok {
-		t.Fatal("the stash still claims what magpie wrote")
+	if raw, ok := stashLoad()["codex.async"]; !ok || !strings.Contains(raw, `"cap":true`) {
+		t.Fatalf("the stash doesn't keep the capability: %q", raw)
+	}
+}
+
+// #5259: remote compaction is the provider's capability, not the
+// background compaction's. With the switch off, Codex routed through
+// magpie still gets remote_compaction = "v2", so a manual /compact asks
+// the protocol magpie answers (codexCompact) rather than Codex's local
+// summary, whose whole conversation goes as ordinary input items a vendor
+// like Command Code refuses.
+func TestCodexRemoteCompactionCapabilityWithoutBackgroundCompaction(t *testing.T) {
+	quietCodex(t, false, provider.CodexDaemonCheck{})
+	codexReadersAre(t, "0.167.2")
+	home, read := codexHome(t, "", "model = \"gpt-5.5\"\n")
+	setAsyncCompact(t, false, 0)
+	cx := codex(home)
+	route(t, cx, read)
+	if feature, capability := asyncOf(t, read()); feature != nil || capability != "v2" {
+		t.Fatalf("async_compaction = %v, capability = %v:\n%s", feature, capability, read())
 	}
 }
 
@@ -165,7 +184,7 @@ func TestCodexAsyncCompactionKeepsUsersCapability(t *testing.T) {
 	home, read := codexHome(t, "", "model = \"gpt-5.5\"\n")
 	cx := codex(home)
 	route(t, cx, read)
-	b := strings.Replace(read(), "wire_api = \"responses\"\n", "wire_api = \"responses\"\ncapabilities = { remote_compaction = \"unsupported\" }\n", 1)
+	b := strings.Replace(read(), `capabilities = { "remote_compaction" = "v2" }`, `capabilities = { remote_compaction = "unsupported" }`, 1)
 	writeFile(t, cx.Path, b)
 	setAsyncCompact(t, true, 0)
 	if err := cx.Fields[0].Set("fake/m1"); err != nil {
@@ -221,11 +240,11 @@ func TestCodexAsyncCompactionOldCodexGetsTheBareKey(t *testing.T) {
 			if err := cx.Sync(); err != nil {
 				t.Fatal(err)
 			}
-			if feature, capability := asyncOf(t, read()); feature != nil || capability != nil {
-				t.Fatalf("left behind with the switch off: %v %v\n%s", feature, capability, read())
+			if feature, capability := asyncOf(t, read()); feature != nil || capability != "v2" {
+				t.Fatalf("with the switch off: async_compaction = %v, capability = %v\n%s", feature, capability, read())
 			}
-			if _, ok := stashLoad()["codex.async"]; ok {
-				t.Fatal("the stash still claims what magpie wrote")
+			if raw, ok := stashLoad()["codex.async"]; !ok || !strings.Contains(raw, `"cap":true`) {
+				t.Fatalf("the stash doesn't keep the capability: %q", raw)
 			}
 		})
 	}

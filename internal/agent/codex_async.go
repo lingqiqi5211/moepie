@@ -294,13 +294,18 @@ func codexAsyncSync(path, key string, routed, on bool, percent int, tableOK bool
 	}
 
 	// capabilities on magpie's provider table, when there is one: one the
-	// user gave it, whatever it says, stays as it is
+	// user gave it, whatever it says, stays as it is. remote_compaction =
+	// "v2" says magpie answers Codex's own compaction (codexCompact),
+	// which it does for every magpie model: a manual /compact and the
+	// foreground compaction use it rather than Codex's local summary,
+	// whose whole history goes as ordinary input items a vendor may not
+	// take (#5259). It is the provider's capability, not the background
+	// compaction's, so it is written whenever Codex is routed through
+	// magpie; the setting above only adds [features.async_compaction].
+	// It stays with the provider table when magpie is disconnected, as the
+	// table does.
 	if feature, _, err = codexAsyncNow(path); err != nil {
 		return err
-	}
-	table, _ = feature.(map[string]any)
-	if feature == true || table["enabled"] == true {
-		want = routed
 	}
 	if provider == nil {
 		st.Cap = false
@@ -309,17 +314,11 @@ func codexAsyncSync(path, key string, routed, on bool, percent int, tableOK bool
 		if has && !(st.Cap && len(caps) == 1 && caps["remote_compaction"] == "v2") {
 			st.Cap = false
 		}
-		switch {
-		case want && provider["capabilities"] == nil:
+		if routed && provider["capabilities"] == nil {
 			if err := edit.SetTOMLKey(path, "model_providers."+magpieID, "capabilities", edit.Inline{{Path: "remote_compaction", Value: "v2"}}); err != nil {
 				return err
 			}
 			st.Cap = true
-		case !want && st.Cap:
-			if err := edit.DelTOMLKey(path, "model_providers."+magpieID, "capabilities"); err != nil {
-				return err
-			}
-			st.Cap = false
 		}
 	}
 
