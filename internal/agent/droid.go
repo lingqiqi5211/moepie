@@ -34,7 +34,6 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -45,6 +44,7 @@ import (
 
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/gateway"
+	"github.com/yetone/magpie/internal/lazyre"
 	"github.com/yetone/magpie/internal/provider"
 )
 
@@ -119,12 +119,12 @@ func droidBase(gw, prov string) string {
 // matches droidGPT, bar gpt-image and gpt-transcribe, which no chat
 // catalog lists.
 var (
-	droidGPT = []*regexp.Regexp{
-		regexp.MustCompile(`(?i)\bgpt[-_.]?\d`),
-		regexp.MustCompile(`(?i)codex`),
-		regexp.MustCompile(`(?i)\bo[1-9](?:[-_.]|$)`),
+	droidGPT = []*lazyre.RE{
+		lazyre.New(`(?i)\bgpt[-_.]?\d`),
+		lazyre.New(`(?i)codex`),
+		lazyre.New(`(?i)\bo[1-9](?:[-_.]|$)`),
 	}
-	droidClaude = regexp.MustCompile(`(?i)claude|haiku|sonnet|opus`)
+	droidClaude = lazyre.New(`(?i)claude|haiku|sonnet|opus`)
 )
 
 // droidWants is the provider droid asks for a custom model by its "model",

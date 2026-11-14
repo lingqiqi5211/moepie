@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"net/http"
-	"regexp"
 	"strings"
 )
 
@@ -111,7 +111,7 @@ func (w *signInWriter) Write(b []byte) (int, error) {
 	return n, nil
 }
 
-var xAPIKey = regexp.MustCompile(`(?i)x-api-key`)
+var xAPIKey = lazyre.New(`(?i)x-api-key`)
 
 // refusedMessage is a provider's refusal of magpie's credential, as a
 // Claude Code signed in to claude.ai is told it: b is magpie's error,

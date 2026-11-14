@@ -39,10 +39,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -131,7 +131,7 @@ var (
 
 var errTimeout = errors.New("took too long")
 
-var idOK = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+var idOK = lazyre.New(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 type set struct {
 	stamp string

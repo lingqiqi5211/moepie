@@ -13,12 +13,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -645,7 +645,7 @@ func (a toolAnswer) text() string {
 
 // stillMaking is the id an answer says to wait on with generation_result;
 // a gateway older than PendingMeta says it in its text alone.
-var stillMakingText = regexp.MustCompile(gateway.GenerationResultTool + ` with id "([^"]+)"`)
+var stillMakingText = lazyre.New(gateway.GenerationResultTool + ` with id "([^"]+)"`)
 
 func (a toolAnswer) pending() string {
 	var id string

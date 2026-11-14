@@ -13,12 +13,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"maps"
 	"net"
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -982,7 +982,7 @@ func readElsewhere() string {
 	return fmt.Sprintf("\n  this magpie reads its files from %s, as XDG_CONFIG_HOME says; the app opened from the Dock or Start menu keeps them in %s. Run it with XDG_CONFIG_HOME unset (env -u XDG_CONFIG_HOME magpie …) to use those", appdir.Config(), def)
 }
 
-var idRe = regexp.MustCompile(`[^a-z0-9]+`)
+var idRe = lazyre.New(`[^a-z0-9]+`)
 
 // Slug derives an id from a name: "My Relay" → "my-relay".
 func Slug(name string) string {

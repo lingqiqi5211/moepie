@@ -2,7 +2,7 @@ package gateway
 
 import (
 	"encoding/json"
-	"regexp"
+	"github.com/yetone/magpie/internal/lazyre"
 	"slices"
 	"strings"
 )
@@ -125,7 +125,7 @@ func vertexEffort(req *Request, levels []string) *Request {
 
 // vertexSignatureRefused is Vertex AI turning a call's thought signature
 // away as one it didn't give: "Invalid thought signature.".
-var vertexSignatureRefused = regexp.MustCompile(`(?i)invalid thought signature`)
+var vertexSignatureRefused = lazyre.New(`(?i)invalid thought signature`)
 
 // withoutSignatures is req with no thought signature on its calls, each of
 // which then goes to Vertex AI waved through (skipSignature); false when it

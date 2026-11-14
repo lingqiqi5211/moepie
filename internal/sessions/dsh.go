@@ -7,10 +7,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,7 +50,7 @@ func DshDir() string {
 }
 
 // session.jsonl, session.v3.jsonl.zstd, …
-var dshName = regexp.MustCompile(`^session(?:\.v(\d+))?\.jsonl(\.zstd)?$`)
+var dshName = lazyre.New(`^session(?:\.v(\d+))?\.jsonl(\.zstd)?$`)
 
 // dshHead is a session file's first line.
 type dshHead struct {

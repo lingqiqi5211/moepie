@@ -14,11 +14,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -130,7 +130,7 @@ func inUseLocked() string {
 // envBunVersion is what each $MAGPIE_BUN said it is, asked once.
 var envBunVersion = map[string]string{}
 
-var bunVersionRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+var bunVersionRe = lazyre.New(`^\d+\.\d+\.\d+$`)
 
 // bunReported is the version a bun says it is, "" when it won't say.
 func bunReported(exe string) string {

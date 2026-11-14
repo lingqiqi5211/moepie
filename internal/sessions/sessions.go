@@ -16,12 +16,12 @@ import (
 	"bytes"
 	"cmp"
 	"errors"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"sort"
@@ -832,7 +832,7 @@ func Dirs() []string {
 
 // rollout-2026-09-20T15-48-28-<thread id>[_<segment>].jsonl, and .jsonl.zst
 // once the Codex app's "compress local chat history" has packed an older one
-var rolloutName = regexp.MustCompile(`^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9A-Za-z-]+?)(?:_[0-9A-Za-z-]+)?\.jsonl(?:\.zst)?$`)
+var rolloutName = lazyre.New(`^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9A-Za-z-]+?)(?:_[0-9A-Za-z-]+)?\.jsonl(?:\.zst)?$`)
 
 // zstSuffix ends a rollout the Codex app has compressed.
 const zstSuffix = ".zst"
@@ -1144,6 +1144,7 @@ func zone() string {
 }
 
 func loadCache() {
+	cacheUsed()
 	z := zone()
 	if loaded && z == cacheZone {
 		return
@@ -1255,6 +1256,9 @@ var saving struct {
 	gap     time.Duration // the shortest gap the saves folded into next asked
 	wrote   time.Time     // when the last save was written
 	hurry   bool          // Saved is waiting: no save waits out saveGap
+	// failed says the last write didn't reach the disk: the parses in
+	// memory are then the only ones, and stay (dropIdleCache)
+	failed bool
 }
 
 type save struct {
@@ -1291,6 +1295,12 @@ func writeCache(c *save) {
 	if saveHook != nil {
 		saveHook()
 	}
+	ok := false
+	defer func() {
+		saving.Lock()
+		saving.failed = !ok
+		saving.Unlock()
+	}()
 	dir := filepath.Dir(c.path)
 	if os.MkdirAll(dir, 0o755) != nil {
 		return
@@ -1308,7 +1318,9 @@ func writeCache(c *save) {
 	}
 	if err != nil || os.Rename(tmp.Name(), c.path) != nil {
 		os.Remove(tmp.Name())
+		return
 	}
+	ok = true
 }
 
 // refresh parses those of want that changed since their parse was kept, a
@@ -2458,7 +2470,7 @@ func tsAt(b []byte, last bool) time.Time {
 	return t
 }
 
-var tag = regexp.MustCompile(`</?[A-Za-z][\w-]*[^<>]*>`)
+var tag = lazyre.New(`</?[A-Za-z][\w-]*[^<>]*>`)
 
 // untagged is a message the agent or a harness wrapped in tags, as words.
 func untagged(s string) string { return title(tag.ReplaceAllString(s, " ")) }
@@ -2493,7 +2505,7 @@ func title(s string) string {
 
 // ---- pricing ----------------------------------------------------------------
 
-var dated = regexp.MustCompile(`-\d{8}$`)
+var dated = lazyre.New(`-\d{8}$`)
 
 // priceOf prices a model as a session names it: one through magpie as
 // "<provider>/<model>" at the price the gateway counts it at — what the user
@@ -2565,8 +2577,8 @@ func makers(id string) []string {
 
 // ---- resuming ---------------------------------------------------------------
 
-var safeID = regexp.MustCompile(`^[0-9A-Za-z_-]+$`)
-var safeOmpProfile = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+var safeID = lazyre.New(`^[0-9A-Za-z_-]+$`)
+var safeOmpProfile = lazyre.New(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 // ResumeCommand is the shell line that picks a session up again in its
 // folder, or "" for an id that isn't plain.

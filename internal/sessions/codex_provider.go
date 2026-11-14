@@ -7,12 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -40,7 +40,7 @@ import (
 
 // codexProviderRe is what a provider id may be: a key of config.toml's
 // [model_providers], or a built-in one.
-var codexProviderRe = regexp.MustCompile(`^[0-9A-Za-z_.-]{1,64}$`)
+var codexProviderRe = lazyre.New(`^[0-9A-Za-z_.-]{1,64}$`)
 
 // CodexMove is one session moved to another provider.
 type CodexMove struct {

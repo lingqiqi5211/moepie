@@ -11,7 +11,7 @@ package provider
 
 import (
 	"context"
-	"regexp"
+	"github.com/yetone/magpie/internal/lazyre"
 	"sync"
 	"time"
 )
@@ -29,12 +29,12 @@ var (
 // not that it is asked on the wrong endpoint ("not accessible via the
 // /chat/completions endpoint", unsupported_api_for_model), which the
 // gateway takes to another of the model's endpoints.
-var copilotNotServed = regexp.MustCompile(`(?i)"model_not_supported"|requested model is not supported`)
+var copilotNotServed = lazyre.New(`(?i)"model_not_supported"|requested model is not supported`)
 
 // copilotSessionGone is Copilot saying the request's Copilot-Session-Token
 // doesn't hold its model ("Requested model not available for session"),
 // which it says once the session is read (copilotAPIHeaders).
-var copilotSessionGone = regexp.MustCompile(`(?i)not available for session`)
+var copilotSessionGone = lazyre.New(`(?i)not available for session`)
 
 // copilotRefused notes a refusal of model for the account, and says whether
 // the request is worth sending again: when Auto picked the model, as Auto

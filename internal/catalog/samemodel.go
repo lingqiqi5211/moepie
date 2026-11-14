@@ -1,7 +1,7 @@
 package catalog
 
 import (
-	"regexp"
+	"github.com/yetone/magpie/internal/lazyre"
 	"strings"
 	"unicode"
 )
@@ -71,7 +71,7 @@ func snapshotDate(s string) bool {
 
 // modelGaps are what SameModel spells as one "-": a run of spaces (a
 // no-break one too), "_" and "-".
-var modelGaps = regexp.MustCompile(`[\s\p{Zs}_-]+`)
+var modelGaps = lazyre.New(`[\s\p{Zs}_-]+`)
 
 // singleDashes is whether modelGaps leaves k as it is: no gap in it but
 // single "-"s.

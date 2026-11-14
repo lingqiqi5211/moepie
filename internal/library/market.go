@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"html"
 	"io"
 	"maps"
@@ -14,7 +15,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -410,7 +410,7 @@ type registryVar struct {
 	IsSecret    bool   `json:"isSecret"`
 }
 
-var placeholderRe = regexp.MustCompile(`\{[^{}]*\}`)
+var placeholderRe = lazyre.New(`\{[^{}]*\}`)
 
 // listed is an active server the registry lists, as the market
 // offers it.
@@ -874,7 +874,7 @@ var skillsShURL = "https://www.skills.sh"
 //go:embed market_skills.json
 var skillsSnapshot []byte
 
-var repoRe = regexp.MustCompile(`^[\w.-]+/[\w.-]+$`)
+var repoRe = lazyre.New(`^[\w.-]+/[\w.-]+$`)
 
 var popular = struct {
 	sync.Mutex
@@ -1232,7 +1232,7 @@ func (e *SearchError) Unwrap() error { return e.Err }
 // variable for tests.
 var retryPause = time.Second
 
-var metaDescRe = regexp.MustCompile(`<meta\s+name="description"\s+content="([^"]*)"`)
+var metaDescRe = lazyre.New(`<meta\s+name="description"\s+content="([^"]*)"`)
 
 // metaDescription is what a page's <meta name="description"> says.
 func metaDescription(page []byte) string {

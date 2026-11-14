@@ -632,8 +632,11 @@ type requestIndex struct {
 	// heats are the heatmap's last pages, kept while the agents' session
 	// files are all that changed (heatFresh)
 	heats map[pageKey]heatPage
-	// idle trims the chunks once the page goes unasked (keepWhileAsked)
-	idle *time.Timer
+	// idle trims the chunks once the page goes unasked (keepWhileAsked),
+	// and forget lets the rest go requestForget later; asks counts the
+	// asks, so a forget armed before the last one lets nothing go
+	idle, forget *time.Timer
+	asks         uint64
 	// parts are the cells of each chunk the last pages of a few partKeys
 	// were added up from, by chunk serial: kept until what prices or
 	// names a call changes (meta), and read without the lock, since a
@@ -707,6 +710,12 @@ var (
 	requestCacheBytes int64 = 128 << 20
 	requestIdleBytes  int64 = 24 << 20
 	requestIdle             = 2 * time.Minute
+	// requestForget is how long after the trim the rest go too. Nothing
+	// asks for them while no page is open, so what the start or the last
+	// visit read (~11 MB of a real history's chunks) was kept for the life
+	// of the process. The next page reads them back from the file of them
+	// (toDisk), decoded and not parsed again.
+	requestForget = 5 * time.Minute
 )
 
 func statKey(path string) string {
@@ -1500,6 +1509,10 @@ func (idx *requestIndex) save() {
 // asked for, and to requestIdleBytes once it has gone unasked for
 // requestIdle. idx is locked.
 func (idx *requestIndex) keepWhileAsked() {
+	idx.asks++
+	if idx.forget != nil {
+		idx.forget.Stop()
+	}
 	if idx.idle != nil {
 		idx.idle.Reset(requestIdle)
 		return
@@ -1508,6 +1521,18 @@ func (idx *requestIndex) keepWhileAsked() {
 		idx.Lock()
 		defer idx.Unlock()
 		idx.trim(requestIdleBytes)
+		asks := idx.asks
+		forget := func() {
+			idx.Lock()
+			defer idx.Unlock()
+			if idx.asks == asks { // not asked for since the trim
+				idx.trim(0)
+			}
+		}
+		if idx.forget != nil {
+			idx.forget.Stop()
+		}
+		idx.forget = time.AfterFunc(requestForget, forget)
 	})
 }
 
@@ -1636,6 +1661,7 @@ var msgKeysOpening func(*rowChunk)
 // cold start's pairing of the whole history kept all of them, ~67 MB of
 // its ~460 MB live heap, beside the period's that polls read (#2278).
 func msgKeysOf(chunks []*rowChunk) []*chunkMsgKeys {
+	derivedUsed()
 	settled := settledBefore(time.Now())
 	msgKeys.Lock()
 	msgKeys.turn++

@@ -30,11 +30,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"hash/maphash"
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -522,7 +522,7 @@ type dshItem struct {
 	lines  []string
 }
 
-var dshIDLine = regexp.MustCompile(`^(?:- |  )id:\s*['"]?([^'"#\s]+)['"]?\s*(#.*)?$`)
+var dshIDLine = lazyre.New(`^(?:- |  )id:\s*['"]?([^'"#\s]+)['"]?\s*(#.*)?$`)
 
 // dshParse splits the patch list at path into what comes before its first
 // entry and the entries. A list written in flow style ([ {id: a} ], which
@@ -781,7 +781,7 @@ func dshRouteLists(route *yaml.Node, id string) bool {
 	return false
 }
 
-var dshModelLine = regexp.MustCompile(`^\s+model:\s*(.+?)\s*$`)
+var dshModelLine = lazyre.New(`^\s+model:\s*(.+?)\s*$`)
 
 // dshGet reads the model new sessions start on: the one last picked in dsh,
 // saved in its settings (0.1.x), else the patch list's.

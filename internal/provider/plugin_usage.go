@@ -9,8 +9,8 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"github.com/yetone/magpie/internal/lazyre"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -78,7 +78,7 @@ func pluginUsageLogins(pp plugin.Provider) []Login {
 }
 
 // signInGone is a plugin's usage saying the account's sign-in is gone.
-var signInGone = regexp.MustCompile(`(?i)sign-in has (expired|lapsed)|sign in again`)
+var signInGone = lazyre.New(`(?i)sign-in has (expired|lapsed)|sign in again`)
 
 // pluginLoginQuota is the allowance of one of a plugin provider's
 // accounts, l.Agent being "plugin:" and its id.

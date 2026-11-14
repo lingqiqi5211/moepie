@@ -8,11 +8,11 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"hash/fnv"
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -250,9 +250,9 @@ func letterIcon(name string) (string, error) {
 const iconUA = "magpie"
 
 var (
-	linkTag  = regexp.MustCompile(`(?is)<link\b[^>]*>`)
-	tagAttr  = regexp.MustCompile(`(?is)\b(rel|href|sizes|type)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`)
-	headDone = regexp.MustCompile(`(?i)</head>|<body\b`)
+	linkTag  = lazyre.New(`(?is)<link\b[^>]*>`)
+	tagAttr  = lazyre.New(`(?is)\b(rel|href|sizes|type)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`)
+	headDone = lazyre.New(`(?i)</head>|<body\b`)
 )
 
 // pageIcons are the pictures a site's home page names as its icon, the

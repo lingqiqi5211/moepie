@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io/fs"
 	"log"
 	"net"
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -2033,7 +2033,7 @@ func codexIn(at place) *Agent {
 // ccSwitchProvider matches the ids of the provider tables CC Switch writes
 // into Codex's config: "custom", and "cc-switch", "cc-switch-2"… from its
 // older versions. Its "cc-switch-official" is its own proxy to OpenAI.
-var ccSwitchProvider = regexp.MustCompile(`^(custom|cc-switch(-[0-9]+)?)$`)
+var ccSwitchProvider = lazyre.New(`^(custom|cc-switch(-[0-9]+)?)$`)
 
 // codexBuiltinProvider is the providers Codex has built in, which a thread
 // can name with no table in config.toml (codex-rs model-provider-info:

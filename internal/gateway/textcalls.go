@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"regexp"
+	"github.com/yetone/magpie/internal/lazyre"
 	"strings"
 	"sync/atomic"
 )
@@ -113,14 +113,14 @@ var (
 	// DeepSeek's DSML pipes, a namespace (minimax:), or nothing, the plain
 	// invoke
 	invokePre  = `(?:[|｜][\s|｜]*DSML[\s|｜]*|[A-Za-z_][\w-]*:)?`
-	dsmlInvoke = regexp.MustCompile(`<\s*` + invokePre + `invoke\s+name\s*=\s*"([^"]+)"\s*>`)
-	dsmlParam  = regexp.MustCompile(`(?s)<\s*` + invokePre + `parameter\s+name\s*=\s*"([^"]+)"((?:\s+\w+\s*=\s*"[^"]*")*)\s*>(.*?)<\s*/?\s*` + invokePre + `parameter\s*>`)
-	dsmlClose  = regexp.MustCompile(`<\s*/\s*` + invokePre + `invoke\s*>`)
-	dsmlString = regexp.MustCompile(`string\s*=\s*"true"`)
+	dsmlInvoke = lazyre.New(`<\s*` + invokePre + `invoke\s+name\s*=\s*"([^"]+)"\s*>`)
+	dsmlParam  = lazyre.New(`(?s)<\s*` + invokePre + `parameter\s+name\s*=\s*"([^"]+)"((?:\s+\w+\s*=\s*"[^"]*")*)\s*>(.*?)<\s*/?\s*` + invokePre + `parameter\s*>`)
+	dsmlClose  = lazyre.New(`<\s*/\s*` + invokePre + `invoke\s*>`)
+	dsmlString = lazyre.New(`string\s*=\s*"true"`)
 	// what is left of the tags once the calls are read out, and the
 	// braces, quotes or > GLM leaves before a close (#1945); and the
 	// plain invoke's, with its wrappers
-	textCallJunk = regexp.MustCompile(dsmlTag + `[^<>]*>?|[}\]"'>]*\s*</tool_calls?>|<tool_calls?>|<\s*/?\s*(?:[A-Za-z_][\w-]*:)?(?:invoke|parameter|function_calls|tool_calls?)\b[^<>]*>`)
+	textCallJunk = lazyre.New(dsmlTag + `[^<>]*>?|[}\]"'>]*\s*</tool_calls?>|<tool_calls?>|<\s*/?\s*(?:[A-Za-z_][\w-]*:)?(?:invoke|parameter|function_calls|tool_calls?)\b[^<>]*>`)
 )
 
 // textCallNames are the tools a request offers, by name.
@@ -390,8 +390,8 @@ func hermesCall(s string, names map[string]bool) (writtenCall, int, bool) {
 }
 
 var (
-	paramHead = regexp.MustCompile(`^\s*\{\s*"name"\s*:\s*"([^"]+)"\s*\}?\s*>?`)
-	paramOpen = regexp.MustCompile(`^\s*<parameter(?:\s+name\s*=\s*"([^"]+)"|=([^\s>]+))\s*>`)
+	paramHead = lazyre.New(`^\s*\{\s*"name"\s*:\s*"([^"]+)"\s*\}?\s*>?`)
+	paramOpen = lazyre.New(`^\s*<parameter(?:\s+name\s*=\s*"([^"]+)"|=([^\s>]+))\s*>`)
 )
 
 // paramCall reads a call DeepSeek wrote half as Hermes' block and half as
@@ -454,8 +454,8 @@ func paramCall(s string, names map[string]bool) (writtenCall, int, bool) {
 }
 
 var (
-	glmPair = regexp.MustCompile(`(?s)^\s*<arg_key>(.*?)</arg_key>\s*<arg_value>(.*?)</arg_value>`)
-	glmName = regexp.MustCompile(`^\s*([^\s<>{}"]+)\s*`)
+	glmPair = lazyre.New(`(?s)^\s*<arg_key>(.*?)</arg_key>\s*<arg_value>(.*?)</arg_value>`)
+	glmName = lazyre.New(`^\s*([^\s<>{}"]+)\s*`)
 )
 
 // glmCall reads GLM's own call (#906, nullburn: GLM-5.3-Flash through

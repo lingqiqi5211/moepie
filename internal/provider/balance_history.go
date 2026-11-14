@@ -19,10 +19,10 @@ package provider
 
 import (
 	"encoding/json"
+	"github.com/yetone/magpie/internal/lazyre"
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -154,7 +154,7 @@ type currencyAmount struct {
 	N    float64
 }
 
-var currencyPart = regexp.MustCompile(`^([^\d-]+?)(-?\d[\d,]*(?:\.\d+)?)$`)
+var currencyPart = lazyre.New(`^([^\d-]+?)(-?\d[\d,]*(?:\.\d+)?)$`)
 
 // balanceCurrencies is a balance's amounts when it is told in several
 // currencies, each a sign and a number, apart by " · " as readDeepSeek

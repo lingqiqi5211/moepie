@@ -2,7 +2,7 @@ package gateway
 
 import (
 	"bytes"
-	"regexp"
+	"github.com/yetone/magpie/internal/lazyre"
 	"slices"
 	"strings"
 
@@ -179,7 +179,7 @@ var (
 	// effortFieldUnknown is an upstream that doesn't know the effort's
 	// field: OpenAI's "Unrecognized request argument supplied:
 	// reasoning_effort", a validator's "Extra inputs are not permitted"
-	effortFieldUnknown = regexp.MustCompile(`(?i)(?:unrecogni[sz]ed|unknown|unsupported|unexpected|extra)\s+(?:request\s+)?(?:argument|parameter|field|property|name|key)s?(?:\s+supplied)?\W{0,4}reasoning(?:[._]effort)?\b|\breasoning(?:[._]effort)?['"\x60]?\W{0,4}(?:extra inputs are not permitted|is not (?:supported|allowed|permitted)|unsupported)`)
+	effortFieldUnknown = lazyre.New(`(?i)(?:unrecogni[sz]ed|unknown|unsupported|unexpected|extra)\s+(?:request\s+)?(?:argument|parameter|field|property|name|key)s?(?:\s+supplied)?\W{0,4}reasoning(?:[._]effort)?\b|\breasoning(?:[._]effort)?['"\x60]?\W{0,4}(?:extra inputs are not permitted|is not (?:supported|allowed|permitted)|unsupported)`)
 )
 
 // ownEffortRefused reads a 400 to the effort magpie added (OwnEffort) as

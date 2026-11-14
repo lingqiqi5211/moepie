@@ -5,10 +5,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -33,7 +33,7 @@ type githubRelease struct {
 	} `json:"assets"`
 }
 
-var urgentNotes = regexp.MustCompile(`(?im)^[ \t]*(?:>[ \t]*)?\*\*urgent release:\*\*`)
+var urgentNotes = lazyre.New(`(?im)^[ \t]*(?:>[ \t]*)?\*\*urgent release:\*\*`)
 
 func githubGet(ctx context.Context, address string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", address, nil)

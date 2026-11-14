@@ -9,13 +9,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -122,7 +122,7 @@ func bunExe() string {
 // missingLibRe finds what a musl Linux's loader says when a program needs
 // a library the system lacks: "Error loading shared library
 // libstdc++.so.6: No such file or directory (needed by …)".
-var missingLibRe = regexp.MustCompile(`Error loading shared library ([^:\s]+)`)
+var missingLibRe = lazyre.New(`Error loading shared library ([^:\s]+)`)
 
 // missingLibs says which libraries a bun that started couldn't be linked
 // with lacks, from what it printed, "" when that isn't why it failed. Bun's

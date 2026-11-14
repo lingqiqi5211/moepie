@@ -6,9 +6,9 @@ package provider
 
 import (
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"os"
 	"path"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -22,9 +22,9 @@ var foldCase = runtime.GOOS == "darwin" || runtime.GOOS == "windows"
 var ruleHome = func() string { h, _ := os.UserHomeDir(); return h }
 
 var (
-	drivePath = regexp.MustCompile(`^[A-Za-z]:(/|$)`)
-	wslMount  = regexp.MustCompile(`^/mnt/([A-Za-z])(/|$)`)
-	wslShare  = regexp.MustCompile(`(?i)^//wsl(\$|\.localhost)/[^/]+(/|$)`)
+	drivePath = lazyre.New(`^[A-Za-z]:(/|$)`)
+	wslMount  = lazyre.New(`^/mnt/([A-Za-z])(/|$)`)
+	wslShare  = lazyre.New(`(?i)^//wsl(\$|\.localhost)/[^/]+(/|$)`)
 )
 
 // folderKey puts a folder the one way it is compared: forward slashes, ~

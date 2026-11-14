@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -48,7 +48,7 @@ const gooseProviderID = magpieID
 // thinking_effort is one of its own request params, never sent — so a
 // level offered for it would change nothing; it is declared without
 // reasoning rather than shown a picker that does nothing.
-var gooseThinks = regexp.MustCompile(`(?i)(?:^|[-/])(?:o\d+(?:$|-)|gpt-(?:5|6)(?:$|[-.]))`)
+var gooseThinks = lazyre.New(`(?i)(?:^|[-/])(?:o\d+(?:$|-)|gpt-(?:5|6)(?:$|[-.]))`)
 
 // gooseKeys are the secrets goose reads for the native providers whose
 // models magpie can list, and which goose takes from the environment before

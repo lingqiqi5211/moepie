@@ -12,8 +12,8 @@ package provider
 
 import (
 	"errors"
+	"github.com/yetone/magpie/internal/lazyre"
 	"net/url"
-	"regexp"
 	"strings"
 )
 
@@ -23,7 +23,7 @@ var errSignInAddressOver = errors.New("this is the address a sign-in's browser e
 
 // claudePageCode is the code#state Claude's page shows for Claude Code's
 // sign-in, typed back into `claude auth login`.
-var claudePageCode = regexp.MustCompile(`^[A-Za-z0-9_.~-]+#([A-Za-z0-9_.~-]+)$`)
+var claudePageCode = lazyre.New(`^[A-Za-z0-9_.~-]+#([A-Za-z0-9_.~-]+)$`)
 
 // signInEndState is the OAuth state a pasted text carries when the text is
 // a browser sign-in's end: an http(s) address with a code (or an error) and

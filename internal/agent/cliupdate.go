@@ -13,13 +13,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -248,7 +248,7 @@ func (u *updater) shown() string {
 	return strings.Join(parts, " ")
 }
 
-var brewPath = regexp.MustCompile(`/(Cellar|Caskroom)/([^/]+)/`)
+var brewPath = lazyre.New(`/(Cellar|Caskroom)/([^/]+)/`)
 
 // howInstalled says how the CLI at bin was installed, from where it is;
 // nil when that says nothing sure.
@@ -470,7 +470,7 @@ func isDir(p string) bool  { st, err := os.Stat(p); return err == nil && st.IsDi
 
 // ---- versions --------------------------------------------------------------
 
-var versionRe = regexp.MustCompile(`(?:^|[^\w.])v?(\d+\.\d+(?:\.\d+)*(?:-[0-9A-Za-z][0-9A-Za-z.]*)?)`)
+var versionRe = lazyre.New(`(?:^|[^\w.])v?(\d+\.\d+(?:\.\d+)*(?:-[0-9A-Za-z][0-9A-Za-z.]*)?)`)
 
 // parseVersion is the first version in what a CLI printed.
 func parseVersion(out string) string {
@@ -1167,7 +1167,7 @@ func mendHint(u *updater, version string) string {
 	return "run " + u.shown() + " again, or reinstall it the way you installed it"
 }
 
-var ansiRe = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+var ansiRe = lazyre.New(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
 
 // lastLines is the last n lines of out with something on them, without
 // their colours.

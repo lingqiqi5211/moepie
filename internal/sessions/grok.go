@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"cmp"
 	"encoding/json"
+	"github.com/yetone/magpie/internal/lazyre"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -331,7 +331,7 @@ func grokTool(s *state, at time.Time, b []byte) {
 }
 
 // grokSkillName is a name a /<name> prompt can call a skill up by.
-var grokSkillName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+var grokSkillName = lazyre.New(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
 // grokSlashSkill is the skill a prompt typed as /<name> calls up, "" when
 // it calls up none: no skill or command of that name is in a folder Grok

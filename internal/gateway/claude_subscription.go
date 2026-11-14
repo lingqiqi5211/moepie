@@ -39,6 +39,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"hash"
 	"io"
 	"io/fs"
@@ -50,7 +51,6 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -492,7 +492,7 @@ func clientNamedWorkPlace(req *Request) (dir string, inTurns bool) {
 	return dir, inTurns
 }
 
-var clientCwdPattern = regexp.MustCompile(`(?m)(?:Primary working directory|^\s*(?:-\s*)?Working directory|Current working directory): *([^\r\n]+)$|<cwd>([^<\r\n]+)</cwd>`)
+var clientCwdPattern = lazyre.New(`(?m)(?:Primary working directory|^\s*(?:-\s*)?Working directory|Current working directory): *([^\r\n]+)$|<cwd>([^<\r\n]+)</cwd>`)
 
 func evalSymlinks(path string) string {
 	if p, err := filepath.EvalSymlinks(path); err == nil {
@@ -3891,9 +3891,9 @@ func bridgeToolName(name string) string {
 }
 
 var (
-	bridgeToolNameOK     = regexp.MustCompile(`^[A-Za-z0-9_-]{1,51}$`)
-	bridgeToolNameBad    = regexp.MustCompile(`[^A-Za-z0-9_-]`)
-	bridgeToolNameHashed = regexp.MustCompile(`_[0-9a-f]{12}$`)
+	bridgeToolNameOK     = lazyre.New(`^[A-Za-z0-9_-]{1,51}$`)
+	bridgeToolNameBad    = lazyre.New(`[^A-Za-z0-9_-]`)
+	bridgeToolNameHashed = lazyre.New(`_[0-9a-f]{12}$`)
 )
 
 // bridgeNames is the caller's name of each of tools by the name the MCP
@@ -3942,7 +3942,7 @@ func withoutBillingHeader(system string) string {
 
 // billingHeader is the line with its fields (cc_version=…; cc_entrypoint=…;
 // cch=…;), which the block after follows with no newline between.
-var billingHeader = regexp.MustCompile(`^x-anthropic-billing-header:(\s*[A-Za-z_]+=[^;\s]*;)*\s*`)
+var billingHeader = lazyre.New(`^x-anthropic-billing-header:(\s*[A-Za-z_]+=[^;\s]*;)*\s*`)
 
 // renderClaudeTurn is the messages since a reply in a conversation Claude
 // Code already has, as it would be told them itself. The user's alone go
@@ -4370,7 +4370,7 @@ func saidWithResults(msgs []Message) string {
 // sub-agent, a background command) ended, with the header it puts before
 // it: "[SYSTEM NOTIFICATION - NOT USER INPUT]" … <task-notification>…
 // </task-notification>.
-var taskNotice = regexp.MustCompile(`(?s)(?:\[SYSTEM NOTIFICATION - NOT USER INPUT\][^<]*)?<task-notification>.*?</task-notification>`)
+var taskNotice = lazyre.New(`(?s)(?:\[SYSTEM NOTIFICATION - NOT USER INPUT\][^<]*)?<task-notification>.*?</task-notification>`)
 
 // withTaskNotices hands the run the notifications of background tasks
 // that came after the results (taskNotice), in a reminder at the end of the
@@ -4421,21 +4421,21 @@ var (
 	// Claude Code tells its model one: "The user sent a new message while
 	// you were working:" (2.1.296), "The user sent the following message:"
 	// (older).
-	midTurnHead = regexp.MustCompile(`The user sent (?:a new message while you were working|the following message):[ \t]*\n`)
+	midTurnHead = lazyre.New(`The user sent (?:a new message while you were working|the following message):[ \t]*\n`)
 	// midTurnEnd is where the user's words after midTurnHead end: Claude
 	// Code's ask to address them, the reminder's end, or a notice of its
 	// own after them.
-	midTurnEnd = regexp.MustCompile(`\n\n(?:This is how Claude Code surfaces messages the user sends mid-turn|IMPORTANT: After completing your current task, you MUST address the user's message above|Please address this message and continue with your tasks)|</system-reminder>|\n\n<total_tokens>|\n\n` + hookNoticeLead)
+	midTurnEnd = lazyre.New(`\n\n(?:This is how Claude Code surfaces messages the user sends mid-turn|IMPORTANT: After completing your current task, you MUST address the user's message above|Please address this message and continue with your tasks)|</system-reminder>|\n\n<total_tokens>|\n\n` + hookNoticeLead)
 	// hookNotice is a Claude Code hook's output told to the model:
 	// "PreToolUse:Read hook additional context: …", "SessionStart hook
 	// success: …", "Stop hook blocking error from command: …". Only
 	// these kinds: "Stop hook is broken: …" may be the user's.
 	hookNoticeLead = `[A-Z][A-Za-z]+(?::\S+)? hook (?:additional context|success|blocking error(?: from command)?|stopped continuation|feedback):`
-	hookNotice     = regexp.MustCompile(`^` + hookNoticeLead)
+	hookNotice     = lazyre.New(`^` + hookNoticeLead)
 	// tokenCount is Claude Code's count of the tokens left, or used.
-	tokenCount = regexp.MustCompile(`^(?:<total_tokens>[^<]*</total_tokens>|Token usage: \S+; \S+ remaining)$`)
+	tokenCount = lazyre.New(`^(?:<total_tokens>[^<]*</total_tokens>|Token usage: \S+; \S+ remaining)$`)
 	// reminderTag is a <system-reminder> tag, open or close.
-	reminderTag = regexp.MustCompile(`</?system-reminder(?:\s[^>]*)?>`)
+	reminderTag = lazyre.New(`</?system-reminder(?:\s[^>]*)?>`)
 )
 
 // midTurnSaid is the user's words in each message they sent mid-turn
@@ -4931,7 +4931,7 @@ func cliSchema(raw json.RawMessage) json.RawMessage {
 // given, before it reads its input: not JSON, not an object, or a schema
 // its Ajv won't compile ("strict mode: unknown keyword" for one only a
 // later draft has).
-var cliSchemaWords = regexp.MustCompile(`--json-schema (is not a valid JSON Schema|is not valid JSON|must be a JSON object)`)
+var cliSchemaWords = lazyre.New(`--json-schema (is not a valid JSON Schema|is not valid JSON|must be a JSON object)`)
 
 // cliSchemaRefused is a run's Claude Code ending over the request's schema:
 // it ends the same for the same schema on every account and every try,

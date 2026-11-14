@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"maps"
 	"mime"
@@ -22,7 +23,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -718,7 +718,7 @@ func Target(dir, path, prompt, ext string, i, n int) (string, error) {
 	return target(dir, path, prompt, ext, i, n)
 }
 
-var unslug = regexp.MustCompile(`[^a-z0-9]+`)
+var unslug = lazyre.New(`[^a-z0-9]+`)
 
 // target is where the i-th of n images goes: path as a file (numbered when
 // n > 1) or a folder, else generated-images/<words of the prompt>-<time>.

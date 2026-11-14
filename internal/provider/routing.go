@@ -9,7 +9,7 @@ package provider
 import (
 	"context"
 	"fmt"
-	"regexp"
+	"github.com/yetone/magpie/internal/lazyre"
 	"slices"
 	"sort"
 	"strings"
@@ -53,7 +53,7 @@ const (
 )
 
 // pluginRouting is a routing a plugin serves: "<plugin>/<name>".
-var pluginRouting = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9][A-Za-z0-9._-]*$`)
+var pluginRouting = lazyre.New(`^[A-Za-z0-9._-]+/[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // PluginRouting says whether routing is one a plugin serves,
 // "<plugin>/<name>" (a JS gateway plugin's strategies). providers.json

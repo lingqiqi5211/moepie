@@ -2,9 +2,9 @@ package gui
 
 import (
 	"encoding/json"
+	"github.com/yetone/magpie/internal/lazyre"
 	"net/http"
 	"net/url"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -250,10 +250,10 @@ func mainView(q url.Values) string {
 }
 
 // mainName is the id of a provider or an agent.
-var mainName = regexp.MustCompile(`^[A-Za-z0-9._@:/ -]{1,80}$`)
+var mainName = lazyre.New(`^[A-Za-z0-9._@:/ -]{1,80}$`)
 
 // mainFind is a line of text to look for, as a search field holds one.
-var mainFind = regexp.MustCompile(`^[^\x00-\x1f\x7f]{0,100}$`)
+var mainFind = lazyre.New(`^[^\x00-\x1f\x7f]{0,100}$`)
 
 // mainURL is the window's page for a view as mainView gives it, the
 // request's id kept as its own parameter (the panel's link to one request,

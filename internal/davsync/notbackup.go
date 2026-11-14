@@ -8,11 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"html"
 	"io"
 	"mime"
 	"net/http"
-	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -128,8 +128,8 @@ func described(c Config, data []byte, err error) error {
 	return &notBackup{f: whatIs(data), where: fileWhere(c), cmd: cmdOf(c), err: err}
 }
 
-var titleRe = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
-var rootRe = regexp.MustCompile(`<([A-Za-z_][\w.:-]*)`)
+var titleRe = lazyre.New(`(?is)<title[^>]*>(.*?)</title>`)
+var rootRe = lazyre.New(`<([A-Za-z_][\w.:-]*)`)
 
 // whatIs tells what a body that isn't a backup is, from its bytes alone.
 func whatIs(data []byte) ServerFile {

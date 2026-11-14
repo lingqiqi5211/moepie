@@ -34,12 +34,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"net"
 	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -798,7 +798,7 @@ func desktopSameJSON(a, b json.RawMessage) bool {
 // desktopLocaleName is a language Desktop takes for its "locale": the
 // names of its catalogs (lit in Desktop 2.7032's main process,
 // /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*\.json$/).
-var desktopLocaleName = regexp.MustCompile(`^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$`)
+var desktopLocaleName = lazyre.New(`^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$`)
 
 // desktopLocaleFrom is the config.json, of every set's signed-in
 // userData, that names a language: the first set's (where Desktop runs)

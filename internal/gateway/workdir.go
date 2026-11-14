@@ -19,21 +19,21 @@ package gateway
 // match it.
 
 import (
+	"github.com/yetone/magpie/internal/lazyre"
 	"html"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 
 	"github.com/yetone/magpie/internal/provider"
 )
 
 var (
-	ccWorkDir = regexp.MustCompile(`(?m)^(?: - )?Primary working directory: (.+)$`)
+	ccWorkDir = lazyre.New(`(?m)^(?: - )?Primary working directory: (.+)$`)
 	// the folder a <cwd> holds: Codex's on its line, Pi's on its own
-	cwdTag = regexp.MustCompile(`<cwd>\s*([^<\n]+?)\s*</cwd>`)
-	envDir = regexp.MustCompile(`(?m)^\s*Working directory: (.+)$`)
-	wasDir = regexp.MustCompile(` \(was .*\)$`)
+	cwdTag = lazyre.New(`<cwd>\s*([^<\n]+?)\s*</cwd>`)
+	envDir = lazyre.New(`(?m)^\s*Working directory: (.+)$`)
+	wasDir = lazyre.New(` \(was .*\)$`)
 )
 
 // workDir is the folder the request says its agent works in; "" when it

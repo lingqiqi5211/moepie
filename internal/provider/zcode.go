@@ -27,13 +27,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -305,7 +305,7 @@ type zhipuSubscription struct {
 }
 
 // zhipuDate finds the dates in a span like "2026-09-18 12:00:00-2026-10-18 12:00:00".
-var zhipuDate = regexp.MustCompile(`\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}:\d{2})?`)
+var zhipuDate = lazyre.New(`\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}:\d{2})?`)
 
 // zhipuTime reads the plan's times, "2026-10-18 12:00:00" in Beijing.
 func zhipuTime(s string) *time.Time {

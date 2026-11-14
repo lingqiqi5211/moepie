@@ -3,6 +3,7 @@ package gateway
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/yetone/magpie/internal/lazyre"
 	"regexp"
 
 	"github.com/yetone/magpie/internal/provider"
@@ -35,13 +36,13 @@ const historyToolsRefused = "tools[].history"
 const stubToolDescription = "Called earlier in this conversation; not available now."
 
 // anthropicToolName is a name Anthropic takes for a tool.
-var anthropicToolName = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
+var anthropicToolName = lazyre.New(`^[a-zA-Z0-9_-]{1,128}$`)
 
 // toolsMissing is an upstream refusing tool calls in a request with no
 // tools: Anthropic's "must define tools", Bedrock's "The toolConfig field
 // must be defined when using toolUse and toolResult content blocks", or
 // tools said required beside the calls.
-var toolsMissing = regexp.MustCompile("(?i)must define tools|toolconfig field must be defined|tools?\\W{1,4}(?:param(?:eter)?|field)?\\W{0,4}(?:is |are )?(?:required|must be (?:defined|provided|specified))[^\\n]{0,80}(?:tool_calls?|tool_use|tool_result|toolUse|toolResult|function_call)")
+var toolsMissing = lazyre.New("(?i)must define tools|toolconfig field must be defined|tools?\\W{1,4}(?:param(?:eter)?|field)?\\W{0,4}(?:is |are )?(?:required|must be (?:defined|provided|specified))[^\\n]{0,80}(?:tool_calls?|tool_use|tool_result|toolUse|toolResult|function_call)")
 
 // toolNotDeclared is what follows or leads a tool's name in a refusal of
 // a call to it: not found, not defined, unknown.

@@ -12,9 +12,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/yetone/magpie/internal/lazyre"
 	"log"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -23,7 +23,7 @@ import (
 // for a refresh. Not refresh_token_expired ("_" is a word character, so
 // \b doesn't split it there), which says the sign-in itself is gone
 // (revokedWords).
-var expiredWords = regexp.MustCompile(`(?i)\btoken_expired\b|authentication token (is|has) expired|please try refreshing it`)
+var expiredWords = lazyre.New(`(?i)\btoken_expired\b|authentication token (is|has) expired|please try refreshing it`)
 
 // SignInExpired says a reply is the vendor's word that the access token
 // it was sent with has expired, for a refresh to mend.

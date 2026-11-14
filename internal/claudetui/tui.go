@@ -29,13 +29,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/yetone/magpie/internal/lazyre"
 	"github.com/yetone/magpie/internal/wslrun"
 )
 
@@ -279,7 +279,7 @@ func (s *shim) read() {
 	}
 }
 
-var ansi = regexp.MustCompile(`\x1b\[[0-9;?<>=]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[P^_][^\x1b]*\x1b\\|\x1b.`)
+var ansi = lazyre.New(`\x1b\[[0-9;?<>=]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[P^_][^\x1b]*\x1b\\|\x1b.`)
 
 // plain is what Claude Code drew since the screen was last cleared
 // (clearScreen), its escapes taken out.
@@ -306,14 +306,14 @@ func (s *shim) lastScreen() string {
 }
 
 var (
-	trustNo  = regexp.MustCompile(`❯\s*No,\s*exit`)
-	trustYes = regexp.MustCompile(`❯\s*Yes,\s*I trust`)
+	trustNo  = lazyre.New(`❯\s*No,\s*exit`)
+	trustYes = lazyre.New(`❯\s*Yes,\s*I trust`)
 	// how long a Yes stays drawn before Enter is pressed on it
 	trustSettle = 300 * time.Millisecond
 )
 
 // lastAt is where re's last match in p starts, -1 with none.
-func lastAt(re *regexp.Regexp, p string) int {
+func lastAt(re *lazyre.RE, p string) int {
 	m := re.FindAllStringIndex(p, -1)
 	if len(m) == 0 {
 		return -1
@@ -326,14 +326,14 @@ var errUntrusted = errors.New("Claude Code asks whether to trust the folder, whi
 // signIn is what Claude Code's interactive mode shows where it is not
 // signed in, as -p may be (CLAUDE_CODE_OAUTH_TOKEN, a container whose
 // ~/.claude.json has no onboarding done): nothing the helper may answer.
-var signIn = regexp.MustCompile(`Select login method|Log in with your Claude account|claude\.ai/oauth/authorize`)
+var signIn = lazyre.New(`Select login method|Log in with your Claude account|claude\.ai/oauth/authorize`)
 
 // firstRun is the notes Claude Code's interactive mode shows where its
 // onboarding isn't done (a config folder only -p was run in, given
 // CLAUDE_CODE_OAUTH_TOKEN): agreeing to them is the user's, as is what
 // comes after them. It is matched in the screen's words, any space
 // between them one: Claude Code draws some by moving the cursor.
-var firstRun = regexp.MustCompile(`Security notes:.*Press Enter to continue`)
+var firstRun = lazyre.New(`Security notes:.*Press Enter to continue`)
 
 // ready waits for Claude Code's prompt. Asked whether to trust the folder
 // it runs in, it is told yes, as a person would, when TrustEnv says so.
@@ -673,7 +673,7 @@ func (s *shim) send(pieces []piece) error {
 	return fmt.Errorf("Claude Code did not take the message: %s", s.lastScreen())
 }
 
-var imageShown = regexp.MustCompile(`\[Image #(\d+)\]`)
+var imageShown = lazyre.New(`\[Image #(\d+)\]`)
 
 // path is where Claude Code reads a file of the helper's at path: one in
 // WSL under the distro's mount of the drive.

@@ -3,9 +3,9 @@ package library
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/yetone/magpie/internal/lazyre"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -340,7 +340,7 @@ func piFiles(h, d string, p piPlugins, native bool) *mcpFile {
 }
 
 // piKey is a server name that can be written as one step of a key path.
-var piKey = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+var piKey = lazyre.New(`^[A-Za-z0-9_-]+$`)
 
 // piMove moves what pi-mcp-adapter read from mcp.json into
 // mcp-adapter.json: the whole file when there is none yet, as the adapter's

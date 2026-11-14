@@ -6,10 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/yetone/magpie/internal/lazyre"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -119,7 +119,7 @@ func codexUserAgent(v string) string {
 	return "codex_cli_rs/" + v + " (" + codexUA.os + "; " + arch + ") " + term
 }
 
-var versionRE = regexp.MustCompile(`\d+(\.\d+)+`)
+var versionRE = lazyre.New(`\d+(\.\d+)+`)
 
 // codexOS names the system as Codex CLI does: "Mac OS 26.6.0",
 // "Windows 10.0.26100", "Linux 6.8.0".

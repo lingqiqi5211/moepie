@@ -8,8 +8,8 @@ package library
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/yetone/magpie/internal/lazyre"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -245,7 +245,7 @@ func (l *Library) skill(name string) *Skill {
 
 // A name is what a server or a skill is called in every agent's file, and
 // a skill's folder: it has to be a bare key in TOML and a plain file name.
-var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+var nameRe = lazyre.New(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 
 func checkName(kind, name string) error {
 	if !nameRe.MatchString(name) {
@@ -256,7 +256,7 @@ func checkName(kind, name string) error {
 
 // agentRe is an agent's id: a name, or one in a WSL distro's
 // (codex@wsl:Ubuntu-24.04).
-var agentRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}(@wsl:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?$`)
+var agentRe = lazyre.New(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}(@wsl:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?$`)
 
 func checkAgent(id string) error {
 	if !agentRe.MatchString(id) {

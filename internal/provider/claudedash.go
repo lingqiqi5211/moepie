@@ -1,7 +1,7 @@
 package provider
 
 import (
-	"regexp"
+	"github.com/yetone/magpie/internal/lazyre"
 	"slices"
 	"strings"
 )
@@ -19,10 +19,10 @@ import (
 // as Mythos 5. Other vendors' ids are never respelled.
 
 // claudeDotted is a Claude model's version written with a dot.
-var claudeDotted = regexp.MustCompile(`(?i)claude-(?:opus|sonnet|haiku|fable|mythos)-\d+(?:\.\d+)+`)
+var claudeDotted = lazyre.New(`(?i)claude-(?:opus|sonnet|haiku|fable|mythos)-\d+(?:\.\d+)+`)
 
 // claudeDashedish is an id that could be a dotted one respelled.
-var claudeDashedish = regexp.MustCompile(`(?i)claude-(?:opus|sonnet|haiku|fable|mythos)-\d+-\d`)
+var claudeDashedish = lazyre.New(`(?i)claude-(?:opus|sonnet|haiku|fable|mythos)-\d+-\d`)
 
 // ClaudeDashed is id with each dot of a Claude model's version a dash:
 // relay/claude-opus-4.6-us[1m] is relay/claude-opus-4-6-us[1m]. Any other

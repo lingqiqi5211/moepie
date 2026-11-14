@@ -29,9 +29,9 @@ package agent
 import (
 	"encoding/json"
 	"errors"
+	"github.com/yetone/magpie/internal/lazyre"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -95,7 +95,7 @@ var codexReaders = func(at place) []CodexReader {
 	return out
 }
 
-var codexPackageVersionRe = regexp.MustCompile(`"version"\s*:\s*"([^"]+)"`)
+var codexPackageVersionRe = lazyre.New(`"version"\s*:\s*"([^"]+)"`)
 
 // bundledCodexVersion is the version of the codex a Codex app bundle
 // ships (Contents/Resources/codex-cli/codex-package.json, "version":

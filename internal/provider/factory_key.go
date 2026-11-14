@@ -17,7 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
+	"github.com/yetone/magpie/internal/lazyre"
 	"strings"
 	"time"
 
@@ -27,7 +27,7 @@ import (
 // factoryKeyPrefix is droid's Uh: what a Factory API key starts with.
 const factoryKeyPrefix = "fk-"
 
-var factoryKeyRe = regexp.MustCompile(`\bfk-[A-Za-z0-9_\-]{8,}`)
+var factoryKeyRe = lazyre.New(`\bfk-[A-Za-z0-9_\-]{8,}`)
 
 // factoryKeysIn finds the API keys in pasted text: one a line, in a .env
 // line (FACTORY_API_KEY=fk-…) or in JSON, each once.

@@ -2,7 +2,7 @@ package edit
 
 import (
 	"fmt"
-	"regexp"
+	"github.com/yetone/magpie/internal/lazyre"
 	"sort"
 	"strconv"
 	"strings"
@@ -88,7 +88,7 @@ func DelYAMLTop(path string, keys ...string) error {
 	return writeYAMLTop(path, out)
 }
 
-var yamlPlain = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
+var yamlPlain = lazyre.New(`^[A-Za-z0-9._/-]+$`)
 
 func yamlTopLiteral(value any) string {
 	v := toString(value)
