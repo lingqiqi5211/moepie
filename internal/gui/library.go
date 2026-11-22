@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -372,6 +373,11 @@ func libraryRoutes(mux *http.ServeMux, w Windows) {
 		st, err := library.SignInServer(r.Context(), in.Name)
 		if err != nil {
 			fail(rw, err)
+			return
+		}
+		if u, err := url.Parse(st.URL); st.URL != "" && (err != nil || !mcpauth.WebURL(u)) {
+			// the server named it: only a web page is handed to the system
+			writeJSON(rw, mcpSignInOpened{st, "not a web page"})
 			return
 		}
 		writeJSON(rw, mcpSignInOpened{st, openError(w, st.URL)})
