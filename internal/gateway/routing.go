@@ -347,7 +347,7 @@ var (
 	// below to purchase add-on packs…" too (Creat.wu on Discord)
 	brokeWords = lazyre.New(`(?i)insufficient.?(balance|credit|fund)|\bcredits? (are )?exhausted\b|余额不足|欠费|请充值`)
 	// quotaWords: it has used up what its plan allows for now.
-	usedUpWords = lazyre.New(`(?i)quota|usage.?limit|out of budget|budget (exceeded|exhausted)|limit.?reached|hit your .*limit|limit.{0,24}resets|exceeded.*(plan|limit)|额度|用量|套餐|上限`)
+	usedUpWords = lazyre.New(`(?i)quota|usage.?limit|out of budget|budget (exceeded|exhausted)|limit.?reached|(?:hit|reached) your .*limit|limit.{0,24}resets|exceeded.*(plan|limit)|额度|用量|套餐|上限`)
 	// rateWords: a 429 that is a short rate limit — requests or tokens per
 	// minute — which usedUpWords took for a used-up plan ("Rate limit
 	// exceeded", "reached"): as magpie words an upstream error, with
@@ -359,7 +359,7 @@ var (
 	// words or not — a day's free requests, say, or a sub2api key's own
 	// 5-hour, day or 7-day limit ("api key 7天限额已用完", sent as
 	// rate_limit_exceeded).
-	plannedWords = lazyre.New(`(?i)quota|usage.?limit|hit your .*limit|limit.{0,24}resets|per.?(day|week|month)|daily|weekly|monthly|额度|用量|套餐|限额已用完`)
+	plannedWords = lazyre.New(`(?i)quota|usage.?limit|(?:hit|reached) your .*limit|limit.{0,24}resets|per.?(day|week|month)|daily|weekly|monthly|额度|用量|套餐|限额已用完`)
 	// minuteWords: a 429 that names a window of a minute or less, or the
 	// rate itself — tokens or requests per minute, TPM, RPM — which some
 	// vendors call a quota all the same: Gemini's "You exceeded your
@@ -373,7 +373,7 @@ var (
 	minuteWords = lazyre.New(`(?i)per.?(second|minute)|per.?(sec|min)\b|\b[rt]p[ms]\b|(token|call|request) rate limit|每分钟|每秒`)
 	// longWords: a window longer than a minute, or a plan's own limit,
 	// named in a 429 — what minuteWords' rate limit is not.
-	longWords = lazyre.New(`(?i)usage.?limit|hit your .*limit|limit.{0,24}resets|per.?(hour|day|week|month)|\bhours?\b|hourly|daily|weekly|monthly|\b[rt]p[dh]\b|额度已用|用量|套餐|限额已用完|小时|每天|每日|每周|每月`)
+	longWords = lazyre.New(`(?i)usage.?limit|(?:hit|reached) your .*limit|limit.{0,24}resets|per.?(hour|day|week|month)|\bhours?\b|hourly|daily|weekly|monthly|\b[rt]p[dh]\b|额度已用|用量|套餐|限额已用完|小时|每天|每日|每周|每月`)
 	// urlWords: a link in an error, whose words are its path, not what the
 	// vendor said: Azure's rate limit points to aka.ms/oai/quotaincrease
 	urlWords = lazyre.New(`https?://\S+`)
@@ -401,7 +401,10 @@ var (
 	// otherModels: a refusal that says the account's other models still
 	// answer ("切换其他模型", "switch to the other models"): its limit is
 	// the model's, and the model alone rests
-	otherModels = lazyre.New(`(?i)switch(?:ing)? to (?:the )?other models?|切换(?:到)?其他模型`)
+	claudeFamilyWords = lazyre.New(`(?:hit|reached) your ([a-z][a-z0-9.]*) limit`)
+	otherModels       = lazyre.New(`(?i)switch(?:ing)? to (?:the )?other models?|切换(?:到)?其他模型`)
+	// words of a window that counts every model of a Claude account
+	claudeWindowWords = lazyre.New(`5.?hour|five.?hour|session|weekly|7.?day|seven.?day|usage limit|your limit|organization|overage|extra usage`)
 	// modelCooling is a relay that pools credentials per model saying
 	// those of the requested model cooled down: CLIProxyAPI's 429
 	// model_cooldown, "All credentials for model model-a are cooling down
@@ -1467,7 +1470,7 @@ func (s *Server) restAfterMarked(c candidate, status int, header http.Header, bo
 			// key's own limit apart): the sink keeps the same scope, or
 			// one model's 429 would send the remote's other models, never
 			// limited, behind the others too
-			if remoteModelRest(c, failRate, header) || modelLimited(c, failRate, body) {
+			if remoteModelRest(c, failRate, header) || modelLimitedBy(c, failRate, header, body) {
 				sink(c.restID(), now)
 			} else {
 				sink(c.restKey(), now)
@@ -1594,7 +1597,7 @@ func (s *Server) restAfterMarked(c candidate, status int, header http.Header, bo
 	// that model's: its siblings on the same key still answer upstream,
 	// and the model's own sentence rests with the model, not on every
 	// sibling's refusal (#3039)
-	if modelLimited(c, why, body) {
+	if modelLimitedBy(c, why, header, body) {
 		id = c.restID()
 	}
 	// out of credit, or of a quota, on a model that costs credits where
@@ -1680,6 +1683,33 @@ func modelLimited(c candidate, why string, body []byte) bool {
 	return modelCooledDown(why, body) || modelNamed(c, why, body)
 }
 
+// modelLimitedBy is modelLimited, and a Claude account's plain rate limit
+// (claudeModelRate) too, which the reply's headers help tell.
+func modelLimitedBy(c candidate, why string, header http.Header, body []byte) bool {
+	return modelLimited(c, why, body) || claudeModelRate(c, why, header, body)
+}
+
+// claudeModelRate says a Claude account's 429 rate_limit_error, which names
+// no window, is the limit of the model it was sent for: Anthropic counts
+// rate limits per model (kaitokiku on X: Fable rate limited rested the
+// account, and Opus showed "限流 · 42 分钟后恢复" with it, though Opus
+// answered). A refusal of the account's allowance rests the account: the
+// 5-hour, session, weekly or usage words (failQuota, never failRate), or
+// anthropic-ratelimit-unified headers whose representative claim is a
+// window that counts every model.
+func claudeModelRate(c candidate, why string, header http.Header, body []byte) bool {
+	if why != failRate || c.model == "" || c.p.Account == nil || c.p.Account.UsageAgent() != "claude" {
+		return false
+	}
+	if claim := strings.ToLower(header.Get("anthropic-ratelimit-unified-representative-claim")); claim != "" {
+		switch claim {
+		case "five_hour", "seven_day", "overage", "session", "weekly":
+			return false
+		}
+	}
+	return !claudeWindowWords.Match(bytes.ToLower(wordsOf(body)))
+}
+
 // modelNamed says a rate or quota refusal names c's model in the vendor's
 // words, as the vendors that count per model do: OpenAI's "Rate limit
 // reached for gpt-4o in organization … on tokens per min", Groq's "Rate
@@ -1696,7 +1726,7 @@ func modelNamed(c candidate, why string, body []byte) bool {
 	}
 	words := bytes.ToLower(wordsOf(body))
 	name := strings.ToLower(c.model)
-	if namesModel(words, name) {
+	if namesModel(words, name) || claudeFamilyLimit(c, name, words) {
 		return true
 	}
 	// a name the router prefixed (vendor/model) is said without it
@@ -1704,6 +1734,29 @@ func modelNamed(c candidate, why string, body []byte) bool {
 		return namesModel(words, name[i+1:])
 	}
 	return false
+}
+
+// claudeFamilyLimit says a Claude account's refusal is its own limit for
+// the family of model, as Claude Code words it: "You've reached your Fable
+// limit. Run /usage-credits to continue or switch models with /model"
+// (YsiCing on X: Opus was refused with it, its quota left). The family is
+// the word between "your" and "limit", found in the model's id. The
+// account-wide windows say "usage", "session", "weekly", "5-hour"
+// or nothing ("You've hit your limit"), and rest the account.
+func claudeFamilyLimit(c candidate, model string, words []byte) bool {
+	if c.p.Account == nil || c.p.Account.UsageAgent() != "claude" {
+		return false
+	}
+	m := claudeFamilyWords.FindSubmatch(words)
+	if m == nil {
+		return false
+	}
+	switch fam := string(m[1]); fam {
+	case "usage", "session", "weekly", "monthly", "daily", "hourly", "rate", "plan", "message", "credit", "credits", "free", "extra", "overage":
+		return false
+	default:
+		return strings.Contains(model, fam)
+	}
 }
 
 // namesModel says name stands in words as a whole id: not the front of a
@@ -1843,7 +1896,7 @@ func backingOff(key string, now time.Time) bool {
 // count where it is, so one request's own retries don't stretch it.
 func (s *Server) rateRest(c candidate, header http.Header, body []byte, sharedPool bool, now time.Time) (time.Duration, string, int) {
 	id := c.restKey()
-	if c.isOpenRouterFree() && sharedPool || remoteModelRest(c, failRate, header) || modelLimited(c, failRate, body) {
+	if c.isOpenRouterFree() && sharedPool || remoteModelRest(c, failRate, header) || modelLimitedBy(c, failRate, header, body) {
 		id = c.restID()
 	}
 	n := 1
