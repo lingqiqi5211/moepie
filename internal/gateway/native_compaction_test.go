@@ -302,15 +302,20 @@ func TestCodexNativeCompactionWriterCapUsesPool(t *testing.T) {
 	}
 }
 
+// codexListAsked is a Codex version newer than any magpie asks as, for
+// account lists that say what a plan has (a list asked for an older
+// Codex, or kept without its version, says nothing: Account.ListLags).
+const codexListAsked = "999.0.0"
+
 // A listed Codex account reads a checkpoint when the writer no longer lists the model.
 func TestNativeCompactionWriterWhoseListLacksTheModel(t *testing.T) {
 	codexSignedIn(t, "spare@example.com")
 	b := newResetBackend(t)
 	// the spare's plan lists the model; the writer's no longer does
-	if err := catalog.SaveLive("codex@"+provider.KeyID("spare@example.com"), provider.CodexBase, []catalog.Model{{ID: "gpt-5.5"}}); err != nil {
+	if err := catalog.SaveLiveAsked("codex@"+provider.KeyID("spare@example.com"), provider.CodexBase, codexListAsked, []catalog.Model{{ID: "gpt-5.5"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := catalog.SaveLive("codex@"+provider.KeyID("me@example.com"), provider.CodexBase, []catalog.Model{{ID: "gpt-4.1"}}); err != nil {
+	if err := catalog.SaveLiveAsked("codex@"+provider.KeyID("me@example.com"), provider.CodexBase, codexListAsked, []catalog.Model{{ID: "gpt-4.1"}}); err != nil {
 		t.Fatal(err)
 	}
 	wroteCheckpoint("gAAAAB-sealed-by-me", candidate{p: provider.Provider{ID: "codex", Account: &provider.Account{User: "me@example.com"}}})
@@ -345,10 +350,10 @@ func TestNativeCompactionWriterThroughAGroupWhoseListLacksTheModel(t *testing.T)
 	codexSignedIn(t, "spare@example.com")
 	b := newResetBackend(t)
 	// the spare's plan lists the model; the writer's no longer does
-	if err := catalog.SaveLive("codex@"+provider.KeyID("spare@example.com"), provider.CodexBase, []catalog.Model{{ID: "gpt-5.5"}}); err != nil {
+	if err := catalog.SaveLiveAsked("codex@"+provider.KeyID("spare@example.com"), provider.CodexBase, codexListAsked, []catalog.Model{{ID: "gpt-5.5"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := catalog.SaveLive("codex@"+provider.KeyID("me@example.com"), provider.CodexBase, []catalog.Model{{ID: "gpt-4.1"}}); err != nil {
+	if err := catalog.SaveLiveAsked("codex@"+provider.KeyID("me@example.com"), provider.CodexBase, codexListAsked, []catalog.Model{{ID: "gpt-4.1"}}); err != nil {
 		t.Fatal(err)
 	}
 	nativeOn(t, "codex")

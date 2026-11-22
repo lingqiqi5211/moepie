@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/provider"
 )
 
@@ -92,5 +93,32 @@ func TestSubscriptionAccountSkippedForModelItLacks(t *testing.T) {
 	code, body := post(t, "/v1/responses", `{"model":"codex/gpt-5.6-luna","input":"ping"}`)
 	if code != 200 || !strings.Contains(body, "pong") || strings.Join(tried, ",") != "acct-plus,acct-free" {
 		t.Fatalf("gpt-5.6-luna: status %d, tried %v: %s", code, tried, body)
+	}
+
+	// the Free list kept as asked for an older Codex than magpie speaks as
+	// now says nothing of gpt-5.5 (provider.Account.ListLags): the account
+	// is tried after the Plus one, not left out as a plan without it
+	lists, _ := filepath.Glob(filepath.Join(filepath.Dir(catalog.LivePath("x")), "codex@*.json"))
+	behind := 0
+	for _, f := range lists {
+		var kept map[string]any
+		b, _ := os.ReadFile(f)
+		if json.Unmarshal(b, &kept) != nil || strings.Contains(string(b), `"gpt-5.5"`) {
+			continue
+		}
+		kept["asked"] = "0.1.0"
+		os.WriteFile(f, mustJSON(kept), 0o644)
+		behind++
+	}
+	if behind != 1 {
+		t.Fatalf("kept Free lists %d of %v", behind, lists)
+	}
+	restingUntil.Lock()
+	restingUntil.m = map[string]time.Time{}
+	restingUntil.Unlock()
+	tried = nil
+	code, body = post(t, "/v1/responses", `{"model":"codex/gpt-5.5","input":"ping"}`)
+	if strings.Join(tried, ",") != "acct-plus,acct-free" {
+		t.Fatalf("gpt-5.5 with a behind Free list: status %d, tried %v: %s", code, tried, body)
 	}
 }

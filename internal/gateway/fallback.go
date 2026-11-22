@@ -357,15 +357,38 @@ func perKeyEvery(p provider.Provider, model string, from provider.Protocol) (out
 		// (by the vendor's own id: an account's list names its models by
 		// theirs, not by one the user lists one by)
 		own := p.OwnModelID(model)
+		var lacking []candidate
 		for _, c := range all {
 			if c.p.Account.Lists(own) {
 				out = append(out, c)
 			} else {
-				left = append(left, c)
+				lacking = append(lacking, c)
 			}
 		}
 		if len(out) == 0 {
 			return all, nil, nil, barred
+		}
+		// a list older than the model says nothing of it (ListLags): such
+		// an account is asked as one that lists it, at its own place in
+		// the order
+		listing := make([]*provider.Account, 0, len(out))
+		for _, c := range out {
+			listing = append(listing, c.p.Account)
+		}
+		lags := map[int]bool{}
+		for _, c := range lacking {
+			if c.p.Account.ListLags(own, listing) {
+				lags[c.rank] = true
+			} else {
+				left = append(left, c)
+			}
+		}
+		if len(lags) > 0 {
+			lists := map[int]bool{}
+			for _, c := range out {
+				lists[c.rank] = true
+			}
+			out = slices.DeleteFunc(slices.Clone(all), func(c candidate) bool { return !lags[c.rank] && !lists[c.rank] })
 		}
 		return out, nil, left, barred
 	}
