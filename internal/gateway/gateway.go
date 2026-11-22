@@ -4847,7 +4847,7 @@ func (s *Server) forwardOnce(ctx context.Context, p provider.Provider, to provid
 		// the thinking blocks it refused as another conversation's
 		// (thinking_bound.go), every route to it alike
 		body = s.withoutRefusedThinking(p, body)
-		if isKimi(p, to) || p.IsOpenCode() && strings.Contains(strings.ToLower(modelOf(body)), "deepseek") {
+		if deferredOutUpFront(p, to, body) {
 			// Claude Code's deferred-tool blocks, for which Kimi's
 			// Anthropic endpoint turns the whole request away with a 400
 			// that names nothing to learn from (#2042). OpenCode's
