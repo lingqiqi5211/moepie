@@ -35,6 +35,9 @@ func (k *keyed) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func fresh(t *testing.T) {
 	t.Helper()
+	// a rest an earlier test's request narrows in the background is done
+	// before this test resets, or swaps, what it reads (awaitAllowance)
+	narrowing.Wait()
 	home := t.TempDir() // no agent signed in
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home) // Windows finds the home there
