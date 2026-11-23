@@ -66,7 +66,7 @@ func codexHeaderLimits(h http.Header, now time.Time) []provider.CodexLimit {
 		if at, err := strconv.ParseInt(strings.TrimSpace(h.Get(pre+"reset-at")), 10, 64); err == nil && at > 0 {
 			l.Resets = time.Unix(at, 0)
 		} else if after, err := strconv.ParseInt(strings.TrimSpace(h.Get(pre+"reset-after-seconds")), 10, 64); err == nil && after > 0 {
-			l.Resets = now.Add(time.Duration(after) * time.Second)
+			l.Resets = onWall(now.Add(time.Duration(after) * time.Second))
 		}
 		out = append(out, l)
 	}
@@ -106,7 +106,7 @@ func codexEventLimits(data []byte, now time.Time) []provider.CodexLimit {
 		if w.ResetAt > 0 {
 			l.Resets = time.Unix(w.ResetAt, 0)
 		} else if w.ResetAfter > 0 {
-			l.Resets = now.Add(time.Duration(w.ResetAfter) * time.Second)
+			l.Resets = onWall(now.Add(time.Duration(w.ResetAfter) * time.Second))
 		}
 		out = append(out, l)
 	}
