@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yetone/magpie/internal/access"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/usage"
 )
@@ -261,7 +262,7 @@ func (e decideRefused) Unwrap() error { return e.err }
 // accounts in the group's order, each asked as Jev is (askJev) until one
 // answers, the one that failed resting as it would for a chat. ok is false
 // when model names no decision group.
-func (s *Server) askDecisionGroup(wait time.Duration, model string, intents []string, prev before, effort bool, text string) (v verdict, ok bool, err error) {
+func (s *Server) askDecisionGroup(wait time.Duration, who access.Identity, model string, intents []string, prev before, effort bool, text string) (v verdict, ok bool, err error) {
 	if !provider.IsGroupRef(model) {
 		return verdict{}, false, nil
 	}
@@ -272,6 +273,8 @@ func (s *Server) askDecisionGroup(wait time.Duration, model string, intents []st
 	g = g.Live()
 	ms, _ = provider.PausedOut(g, ms, RouterAgent, "", ruleClock())
 	cs, _, _ := s.decideTries(g, ms)
+	// held to who's accounts: those of the caller asking it
+	cs = slices.DeleteFunc(cs, func(c candidate) bool { return !accountAllowed(who, c) })
 	cs = probeOne(cs) // of those resting, only the one back soonest (#1799)
 	if len(cs) == 0 {
 		return verdict{}, true, fmt.Errorf("no decision model of the group %s can be asked now", g.Name)
@@ -283,8 +286,10 @@ func (s *Server) askDecisionGroup(wait time.Duration, model string, intents []st
 // askDecider is askClassifier for one decision provider's model: its keys
 // or accounts in its routing's order (decideKeys), each asked until one
 // answers, as a decision group's are.
-func (s *Server) askDecider(wait time.Duration, p provider.Provider, model string, intents []string, prev before, effort bool, text string) (verdict, error) {
+func (s *Server) askDecider(wait time.Duration, who access.Identity, p provider.Provider, model string, intents []string, prev before, effort bool, text string) (verdict, error) {
 	cs, _ := s.decideKeys(p, model)
+	// held to who's accounts: those of the caller asking it
+	cs = slices.DeleteFunc(cs, func(c candidate) bool { return !accountAllowed(who, c) })
 	cs = probeOne(cs) // of those resting, only the one back soonest (#1799)
 	if len(cs) == 0 {
 		return verdict{}, fmt.Errorf("no key or account of %s may be asked %s now", p.Name, model)

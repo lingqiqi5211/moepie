@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yetone/magpie/internal/access"
 	"github.com/yetone/magpie/internal/provider"
 )
 
@@ -127,7 +128,7 @@ func TestDecisionKeyCutShortIsNotRested(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := New()
-	_, err := s.askClassifierIn(50*time.Millisecond, "jw/jev-latest", []string{"feature", "bug"}, before{}, false, "fix this")
+	_, err := s.askClassifierIn(50*time.Millisecond, access.Identity{}, "jw/jev-latest", []string{"feature", "bug"}, before{}, false, "fix this")
 	if err == nil || !strings.Contains(err.Error(), "left of the request's classifier wait") {
 		t.Fatalf("cut short: %v", err)
 	}

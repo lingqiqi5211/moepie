@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yetone/magpie/internal/access"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/settings"
 )
@@ -433,13 +434,13 @@ func classifierEffortField(model string) string { return "classifier effort\x00"
 // relay that knows no reasoning_effort, one that takes none of the
 // levels — is asked again without it, as before, and from then on: the
 // classifier answers wherever it did.
-func (s *Server) askLeast(wait time.Duration, model string, body func(effort string) []byte) (string, error) {
+func (s *Server) askLeast(wait time.Duration, held access.Identity, model string, body func(effort string) []byte) (string, error) {
 	effort := classifyEffort(model)
 	p, m, ok := provider.Resolve(model)
 	if effort != "" && ok && !s.fits(p.ID, classifierEffortField(m), provider.Chat) {
 		effort = ""
 	}
-	a, err := s.askChat(wait, model, body(effort))
+	a, err := s.askChat(wait, held, model, body(effort))
 	var f chatFailed
 	if effort == "" || !errors.As(err, &f) {
 		return a, err
@@ -448,7 +449,7 @@ func (s *Server) askLeast(wait time.Duration, model string, body func(effort str
 		return a, err
 	}
 	s.markUnfit(p.ID, classifierEffortField(m), provider.Chat)
-	return s.askChat(wait, model, body(""))
+	return s.askChat(wait, held, model, body(""))
 }
 
 // chatFailed is a classifier's answer that was an error, with its status
@@ -467,6 +468,11 @@ type chatFailed struct {
 func (s *Server) askWaited(ctx context.Context) classifier {
 	var mu sync.Mutex
 	var until time.Time
+	// the caller's accounts (a gateway key's) hold its classifier's calls
+	// too, as they hold magpie's other calls for it (accountHolds): only
+	// the accounts, not the key's models, as the classifier is the group's
+	// pick, not the caller's
+	who := access.Identity{Accounts: access.Caller(ctx).Accounts}
 	return func(model string, intents []string, prev before, effort bool, text string) (verdict, error) {
 		mu.Lock()
 		now := time.Now()
@@ -479,7 +485,7 @@ func (s *Server) askWaited(ctx context.Context) classifier {
 			return verdict{}, waitSpent{fmt.Errorf("%s not asked: the request's classifier wait of %s was spent by the routing group above", model, classifyTimeout())}
 		}
 		defer noteWait(ctx)()
-		return s.askClassifierIn(left, model, intents, prev, effort, text)
+		return s.askClassifierIn(left, who, model, intents, prev, effort, text)
 	}
 }
 
@@ -488,16 +494,17 @@ func (s *Server) askWaited(ctx context.Context) classifier {
 // intents the message is and, when effort, how hard the turn is, each in a
 // call of its own, at once.
 func (s *Server) askClassifier(model string, intents []string, prev before, effort bool, text string) (verdict, error) {
-	return s.askClassifierIn(classifyTimeout(), model, intents, prev, effort, text)
+	return s.askClassifierIn(classifyTimeout(), access.Identity{}, model, intents, prev, effort, text)
 }
 
-// askClassifierIn gives a classifier only the wait the request has left.
-func (s *Server) askClassifierIn(wait time.Duration, model string, intents []string, prev before, effort bool, text string) (verdict, error) {
+// askClassifierIn gives a classifier only the wait the request has left,
+// held to who's accounts, when it names any.
+func (s *Server) askClassifierIn(wait time.Duration, who access.Identity, model string, intents []string, prev before, effort bool, text string) (verdict, error) {
 	if p, m, ok := provider.Resolve(model); ok && p.DecidesModel(m) {
-		return s.askDecider(wait, p, m, intents, prev, effort, text)
+		return s.askDecider(wait, who, p, m, intents, prev, effort, text)
 	}
 	// a group of decision models: each in turn (decide_group.go)
-	if v, ok, err := s.askDecisionGroup(wait, model, intents, prev, effort, text); ok {
+	if v, ok, err := s.askDecisionGroup(wait, who, model, intents, prev, effort, text); ok {
 		return v, err
 	}
 	var v verdict
@@ -508,7 +515,7 @@ func (s *Server) askClassifierIn(wait time.Duration, model string, intents []str
 		go func() {
 			defer wg.Done()
 			var a string
-			if a, ierr = s.askLeast(wait, model, func(effort string) []byte { return classifyBody(model, effort, intents, prev, text) }); ierr == nil {
+			if a, ierr = s.askLeast(wait, who, model, func(effort string) []byte { return classifyBody(model, effort, intents, prev, text) }); ierr == nil {
 				v.Intent, ierr = readIntent(a, intents)
 			}
 		}()
@@ -518,7 +525,7 @@ func (s *Server) askClassifierIn(wait time.Duration, model string, intents []str
 		go func() {
 			defer wg.Done()
 			var a string
-			if a, eerr = s.askLeast(wait, model, func(effort string) []byte { return effortBody(model, effort, prev, text) }); eerr == nil {
+			if a, eerr = s.askLeast(wait, who, model, func(effort string) []byte { return effortBody(model, effort, prev, text) }); eerr == nil {
 				v.Effort, v.Score, eerr = readEffort(a)
 			}
 		}()
@@ -586,8 +593,9 @@ func readEffort(answer string) (string, float64, error) {
 }
 
 // askChat sends a chat model body through the gateway and returns its
-// answer's text, if it comes in wait.
-func (s *Server) askChat(wait time.Duration, model string, body []byte) (string, error) {
+// answer's text, if it comes in wait. held, when it names accounts, holds
+// it to them, as a gateway key's accounts hold a request.
+func (s *Server) askChat(wait time.Duration, held access.Identity, model string, body []byte) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), wait)
 	defer cancel()
 	r, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://magpie/v1/chat/completions", nil)
@@ -596,6 +604,9 @@ func (s *Server) askChat(wait time.Duration, model string, body []byte) (string,
 	}
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("User-Agent", RouterAgent)
+	if len(held.Accounts) > 0 {
+		r = r.WithContext(access.WithIdentity(r.Context(), held))
+	}
 	w := httptest.NewRecorder()
 	s.serve(w, r, provider.Chat, body)
 	if ctx.Err() != nil {
