@@ -1526,6 +1526,9 @@ func (s *Server) countTokens(w http.ResponseWriter, r *http.Request) {
 		writeError(w, provider.Anthropic, 400, err.Error())
 		return
 	}
+	// counted as it will be sent: its tool exchange mended where it
+	// doesn't pair (tool_blocks_paired.go)
+	body = toolBlocksPaired(body)
 	named := unprefixed(model)
 	if m := claudeTierStandIn(r, agentOf(r), model); m != "" {
 		model = m // counted on the model the request will go to
@@ -5312,6 +5315,10 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 		geminiWhole = !streamOf(body)
 		body = withoutFields(body, "stream")
 	case provider.Anthropic:
+		// a call no result answers, or a result answering no call, which
+		// Anthropic turns the whole request away for, and every later
+		// one of the conversation with it (tool_blocks_paired.go)
+		body = toolBlocksPaired(body)
 		// Claude Code's advisor, named by magpie's id (advisor.go)
 		body = advisorTools(body, p, upstream, wiresOf(r.Context()))
 		if p.IsBedrock() {
