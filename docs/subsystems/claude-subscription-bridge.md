@@ -248,6 +248,14 @@ The gateway's log says which (`claude: this run is -p: …`,
 `claudePrintWhy`), and the helper's own line when it becomes `-p` (below)
 is logged from the run's stderr (`lockedWriter`).
 
+An account Anthropic turned off (its organization disabled, a 400 or
+403; on hold, which Claude Code says with no status and `bridgeFailed`
+gives a 403; subscription sign-in turned off for the organization; a
+flagged account that "can't receive replies from Claude", a 403) is
+read as restricted (`claudeAccountOff`, gateway-routing): it rests until
+an appeal and the request goes on to the next account or member
+(`TestClaudeAccountOffMovesToNextAccount`).
+
 The Claude Code provider page says under its accounts whether runs are
 the interactive mode (TUI) or `-p` (CLI), with why when every run is
 `-p`, and opens what tells the two apart (`claudeModeRow` in app.js, drawn by

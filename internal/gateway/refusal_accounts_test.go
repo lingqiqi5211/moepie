@@ -224,6 +224,21 @@ func TestClaudeRefusalMovesToNextKey(t *testing.T) {
 // writes its token to: "own" for the first, tok-spare for the spare.
 func claudeSubscriptionRefusing(t *testing.T) string {
 	t.Helper()
+	return claudeSubscriptionFirstSays(t, `    echo '{"type":"stream_event","event":{"type":"message_start","message":{"id":"m","model":"claude-sonnet-5","usage":{"input_tokens":1}}}}'
+    echo '{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}'
+    echo '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":""}}}'
+    echo '{"type":"stream_event","event":{"type":"content_block_stop","index":0}}'
+    echo '{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"refusal","stop_details":{"type":"refusal","category":"cyber","explanation":null}},"usage":{"output_tokens":2}}}'
+    echo '{"type":"stream_event","event":{"type":"message_stop"}}'
+    echo '{"type":"result","subtype":"success","is_error":true,"result":"API Error: Claude Code is unable to respond to this request, which appears to violate our Usage Policy"}'
+`)
+}
+
+// claudeSubscriptionFirstSays is claudeSubscriptionRefusing with the first
+// account's run writing first, shell lines, for each turn. Control
+// requests (the interactive mode's initialize) are acknowledged.
+func claudeSubscriptionFirstSays(t *testing.T, first string) string {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("a shell script stands in for Claude Code")
 	}
@@ -255,15 +270,14 @@ if [ "$1" = auth ]; then echo '{"loggedIn":true,"authMethod":"oauth_token","apiP
 TOK=; [ -n "$CLAUDE_CONFIG_DIR" ] && TOK=$(sed -n 's/.*"accessToken": *"\([^"]*\)".*/\1/p' "$CLAUDE_CONFIG_DIR/.credentials.json")
 echo "${TOK:-own}" >> ` + log + `
 while read -r line; do
+  case $line in *'"type":"control_request"'*)
+    # acknowledged as Claude Code does: the interactive mode's initialize
+    id=$(printf '%s' "$line" | sed 's/.*"request_id":"\([^"]*\)".*/\1/')
+    echo '{"type":"control_response","response":{"subtype":"success","request_id":"'$id'"}}'
+    continue ;;
+  esac
   if [ -z "$TOK" ] || [ "$TOK" = tok-me ]; then
-    echo '{"type":"stream_event","event":{"type":"message_start","message":{"id":"m","model":"claude-sonnet-5","usage":{"input_tokens":1}}}}'
-    echo '{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}'
-    echo '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":""}}}'
-    echo '{"type":"stream_event","event":{"type":"content_block_stop","index":0}}'
-    echo '{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"refusal","stop_details":{"type":"refusal","category":"cyber","explanation":null}},"usage":{"output_tokens":2}}}'
-    echo '{"type":"stream_event","event":{"type":"message_stop"}}'
-    echo '{"type":"result","subtype":"success","is_error":true,"result":"API Error: Claude Code is unable to respond to this request, which appears to violate our Usage Policy"}'
-  else
+` + first + `  else
     echo '{"type":"stream_event","event":{"type":"message_start","message":{"id":"m","model":"claude-sonnet-5","usage":{"input_tokens":1}}}}'
     echo '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"pong"}}}'
     echo '{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}}'

@@ -1693,6 +1693,11 @@ func retryable(status int, body []byte) bool {
 		// 6,467 points and the empty one was never rested (#4095,
 		// mycf_711)
 		return true
+	case status >= 400 && status < 500 && claudeOffWords.Match(body):
+		// the account turned off (its organization disabled, on hold):
+		// nothing about the request, which another member may serve. A
+		// 400, it ended the group at the disabled account (Ramon317317)
+		return true
 	case status == 400, status == 422:
 		return quotaWords.Match(body) || unservedWords.Match(body) || refusedWords.Match(body) || shapeWords.Match(body) || unsaidWords.Match(body) || regionWords.Match(body) || wrongEndpoint(status, body) ||
 			// a relay's own word that the provider behind it turned the

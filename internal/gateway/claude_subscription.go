@@ -5597,6 +5597,12 @@ func bridgeFailed(name, msg string, status int) (int, string) {
 		return status, msg
 	case quotaSaid(msg):
 		return 429, msg
+	case name == "Claude Code" && claudeOffWords.MatchString(msg):
+		// the account on hold, as Claude Code says it with no status of
+		// the API's (account_on_hold): a 502 rested it a minute and asked
+		// it again; the account's own refusal, read as restricted
+		// (claudeAccountOff)
+		return http.StatusForbidden, msg
 	case name == "Claude Code" && tooLong(400, msg):
 		return 400, msg + " (Claude Code's own check, before Anthropic was asked: it holds a conversation to its own limit for the account, " +
 			"200K once Anthropic has said the account needs extra usage for long context. " +
