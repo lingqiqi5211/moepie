@@ -42,7 +42,7 @@ func TestRegisterScheme(t *testing.T) {
 				testenv.Program(t, filepath.Join(bin, name), script)
 			}
 			dir := filepath.Join(data, "applications")
-			path := filepath.Join(dir, "magpie.desktop")
+			path := filepath.Join(dir, "moepie.desktop")
 			const old = "[Desktop Entry]\nExec=/usr/bin/magpie %u\nMimeType=x-scheme-handler/magpie;\n"
 			if tc.existing {
 				if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -84,7 +84,7 @@ func TestRegisterScheme(t *testing.T) {
 			if err := registerScheme(); err != nil {
 				t.Fatal(err)
 			}
-			want := "update-desktop-database\n" + dir + "\nxdg-mime\ndefault\nmagpie.desktop\nx-scheme-handler/magpie\n"
+			want := "update-desktop-database\n" + dir + "\nxdg-mime\ndefault\nmoepie.desktop\nx-scheme-handler/magpie\n"
 			if got, err := os.ReadFile(calls); err != nil || string(got) != want {
 				t.Fatalf("registration calls: %q, want %q (%v)", got, want, err)
 			}
@@ -96,10 +96,10 @@ func TestRegisterScheme(t *testing.T) {
 // is installed, so neither the dock nor the app grid draws a gear (#2626).
 func checkDesktopBinding(t *testing.T, data, entry string) {
 	t.Helper()
-	if !strings.Contains(entry, "\nName=moepie\n") || !strings.Contains(entry, "\nStartupWMClass="+programName+"\n") || !strings.Contains(entry, "\nIcon=magpie\n") {
+	if !strings.Contains(entry, "\nName=moepie\n") || !strings.Contains(entry, "\nStartupWMClass="+programName+"\n") || !strings.Contains(entry, "\nIcon=moepie\n") {
 		t.Fatalf("desktop entry doesn't bind the window %q and its icon: %q", programName, entry)
 	}
-	icon, err := os.ReadFile(filepath.Join(data, "icons", "hicolor", "256x256", "apps", "magpie.png"))
+	icon, err := os.ReadFile(filepath.Join(data, "icons", "hicolor", "256x256", "apps", "moepie.png"))
 	if err != nil || !bytes.Equal(icon, desktopIcon) {
 		t.Fatalf("icon not installed: %d bytes, %v", len(icon), err)
 	}
@@ -130,7 +130,7 @@ func TestRegisterSchemeBindsAnOlderEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(data, "applications")
-	path := filepath.Join(dir, "magpie.desktop")
+	path := filepath.Join(dir, "moepie.desktop")
 	older := "[Desktop Entry]\nType=Application\nName=magpie\nComment=Every agent's model. One place.\nExec=" + exe +
 		" %u\nIcon=magpie\nStartupWMClass=" + programName + "\nCategories=Development;Utility;\nMimeType=x-scheme-handler/magpie;\nTerminal=false\n"
 	if err := os.MkdirAll(dir, 0o755); err != nil {

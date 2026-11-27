@@ -21,7 +21,7 @@ func dataHome() string {
 // unregisterScheme takes out the desktop entry the app made for magpie://
 // links while it runs exe, or an exe that is gone, and its icon with it.
 func unregisterScheme(exe string) error {
-	entry := filepath.Join(dataHome(), "applications", "magpie.desktop")
+	entry := filepath.Join(dataHome(), "applications", "moepie.desktop")
 	b, err := os.ReadFile(entry)
 	if err != nil {
 		return nil
@@ -39,7 +39,10 @@ func unregisterScheme(exe string) error {
 	if err := os.Remove(entry); err != nil {
 		return err
 	}
-	_ = os.Remove(filepath.Join(dataHome(), "icons", "hicolor", "256x256", "apps", "magpie.png"))
+	icons := filepath.Join(dataHome(), "icons", "hicolor", "256x256", "apps")
+	_ = os.Remove(filepath.Join(icons, "moepie.png"))
+	// the icon an older moepie put there, under the name it used then
+	_ = os.Remove(filepath.Join(icons, "magpie.png"))
 	return nil
 }
 

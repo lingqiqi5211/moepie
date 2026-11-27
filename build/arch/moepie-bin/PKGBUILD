@@ -1,0 +1,32 @@
+# moepie-bin: the Arch package a release carries, holding the desktop app the
+# release workflow's linux job built and started, repacked with pacman's own
+# metadata. Nothing is compiled here: CI fills in @VERSION@ and @SHA256@ and
+# puts the binary, the menu entry (the app's own file, internal/gui, with its
+# @EXE@ filled in) and the icon beside this PKGBUILD, and packages the other
+# architecture with CARCH overridden (see the release workflow's arch job).
+
+pkgname=moepie-bin
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="Unified gateway to route AI plans for coding agents (prebuilt binary)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/lingqiqi5211/moepie"
+license=('MIT')
+depends=('gtk3' 'webkit2gtk-4.1' 'gdk-pixbuf2' 'glib2' 'libsoup3' 'hicolor-icon-theme')
+provides=('moepie')
+conflicts=('moepie' 'moepie-cli-bin' 'magpie' 'magpie-cli-bin')
+install=moepie.install
+options=('!strip' '!debug')
+
+# the checksum is the release artifact's, the other files come from this
+# repository at the commit being released
+source=("moepie-linux-$CARCH" moepie.desktop moepie.png LICENSE THIRD_PARTY_NOTICES)
+sha256sums=('@SHA256@' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+	install -Dm755 "$srcdir/moepie-linux-$CARCH" "$pkgdir/usr/bin/moepie"
+	install -Dm644 "$srcdir/moepie.desktop" "$pkgdir/usr/share/applications/moepie.desktop"
+	install -Dm644 "$srcdir/moepie.png" "$pkgdir/usr/share/icons/hicolor/256x256/apps/moepie.png"
+	install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+	install -Dm644 "$srcdir/THIRD_PARTY_NOTICES" "$pkgdir/usr/share/licenses/$pkgname/THIRD_PARTY_NOTICES"
+}

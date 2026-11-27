@@ -120,7 +120,9 @@ commit to build (default `main`), and optionally set `version` to `0.1.N`:
    a draft release left by a failed attempt instead of skipping the number.
    A commit that already has a published release is skipped, not rebuilt.
 2. **mac**, **cli**, **linux**, **windows-check** build the 15 application files
-   and prove the Windows and Linux apps start and answer on the gateway.
+   and prove the Windows and Linux apps start and answer on the gateway;
+   **arch** repacks the Linux app and the terminal build into `moepie-bin` and
+   `moepie-cli-bin`.
 3. **publish** verifies the file set, creates `dist/SHA256SUMS`, generates bilingual
    notes, uploads them, and publishes a draft release atomically: the updater
    never sees a half-uploaded release. It explicitly reserves the Git tag and
@@ -130,8 +132,43 @@ commit to build (default `main`), and optionally set `version` to `0.1.N`:
 
 Runs are artifacts-only unless `publish` is ticked. To make a public release,
 tick it explicitly; the exact commit must already have a successful main-push
-Test run. A published release contains exactly the 16 files the updater looks
+Test run. A published release contains exactly the 20 files the updater looks
 for; anything else fails the run instead of shipping.
+
+### The Arch packages
+
+A release also carries `moepie-bin-<version>-1-<arch>.pkg.tar.zst` (the desktop
+app) and `moepie-cli-bin-<version>-1-<arch>.pkg.tar.zst` (the terminal build),
+for `x86_64` and `aarch64`. Both are `-bin` packages: the **arch** job in the
+release workflow runs `makepkg` in Arch's own `archlinux:base-devel` image and
+repacks the binary the **linux** or **cli** job already built (the app also
+started), so nothing is compiled twice and the installed binary is the one CI
+ran. Both install `/usr/bin/moepie`, which is why the two conflict: they are the
+same command, with and without the window. `moepie-bin` depends on `gtk3` and
+`webkit2gtk-4.1`; `moepie-cli-bin` needs neither.
+
+The menu entry is `internal/gui/moepie.desktop`, one file for both ways it is
+installed: the app embeds it and writes it into the user's applications folder
+with `@EXE@` replaced by its own path, and the package installs it with
+`/usr/bin/moepie` instead. Its name is `moepie` and its icon `moepie.png`, beside
+it in the user's `~/.local/share` or in `/usr/share` for the package. Earlier
+versions wrote those two files as `magpie.desktop` and `magpie.png`; what is
+already in the user's folder stays there, so an upgrade may leave both until
+the user removes the old one.
+
+An aarch64 package is built on the x86_64 runner with `CARCH` overridden in a
+copy of `makepkg.conf`, which is sound only because the package compiles
+nothing: Arch Linux ARM publishes no official container image, and the binary
+comes from the ARM runner.
+
+A packaged install is updated by pacman, which magpie says: `internal/update`
+reads pacman's own database to find the package that owns its binary. The
+command it names is still the AUR helper's, so a `moepie-bin` install from these
+releases is told to run `yay -S moepie-bin`, which does not exist there yet.
+
+`site/public/install.sh` is upstream's installer for upstream's releases, so it
+keeps writing upstream's `magpie.desktop`; it is not a path this fork's packages
+go through.
 
 Signing is optional. Without `MAC_CERTIFICATE_P12` the mac build is ad-hoc
 signed and not notarised; without `DEEPSEEK_API_KEY` the notes stay English
