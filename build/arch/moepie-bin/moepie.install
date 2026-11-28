@@ -1,0 +1,12 @@
+# The menu entry claims magpie:// links: the desktop's database has to hear
+# about it once pacman has written the file, and to forget it afterwards.
+
+reread() {
+  if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database -q /usr/share/applications || true
+  fi
+}
+
+post_install() { reread; }
+post_upgrade() { reread; }
+post_remove() { reread; }

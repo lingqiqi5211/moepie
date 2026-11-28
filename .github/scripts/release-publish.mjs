@@ -16,7 +16,7 @@ for (let page = 1; ; page++) {
 const existing = releases.find((r) => r.tag_name === tag);
 if (existing && !existing.draft) throw new Error('Release already exists; do not replace published binaries');
 const files = readdirSync('dist').filter((f) => f !== 'release-notes.md').sort();
-if (files.length !== 16 || !files.includes('SHA256SUMS')) throw new Error('Incomplete release files');
+if (files.length !== 20 || !files.includes('SHA256SUMS')) throw new Error('Incomplete release files');
 // Reserve the tag explicitly. --target on release create is ignored when a
 // ref already exists, and another publisher can create it after preparation.
 // Resolve annotated tags as well as lightweight ones, using GitHub's current
@@ -57,4 +57,4 @@ if (JSON.stringify(actual) !== JSON.stringify(files)) throw new Error('Uploaded 
 // Uploading may take minutes: do not publish if the ref moved meanwhile.
 verifyTag();
 gh('release', 'edit', tag, '-R', repo, '--draft=false', `--latest=${latest}`);
-console.log(`Published ${tag} from ${sha} with 16 verified attachments`);
+console.log(`Published ${tag} from ${sha} with 20 verified attachments`);

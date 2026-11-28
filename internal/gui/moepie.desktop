@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=moepie
+Comment=Every agent's model. One place.
+Exec=@EXE@ %u
+Icon=moepie
+StartupWMClass=magpie
+Categories=Development;Utility;
+MimeType=x-scheme-handler/magpie;
+Terminal=false

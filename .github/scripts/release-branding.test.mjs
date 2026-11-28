@@ -23,7 +23,15 @@ test('visible shell branding changes without migrating stored data or import pro
   assert.equal(manifest.short_name, 'moepie');
   assert.ok(read('internal/gui/app.go').includes('Name:           "moepie"'));
   assert.ok(read('internal/gui/lightweight.go').includes('Title:            "moepie"'));
-  assert.ok(read('internal/gui/scheme_linux.go').includes('\nName=moepie\n'));
+  // the menu entry is one file: the app embeds it, and the Arch package
+  // installs it with the command that package puts on PATH
+  const entry = read('internal/gui/moepie.desktop');
+  for (const line of ['Name=moepie', 'Icon=moepie', 'Exec=@EXE@ %u', 'MimeType=x-scheme-handler/magpie;']) assert.ok(entry.includes(`\n${line}\n`), line);
+  assert.ok(!read('internal/gui/scheme_linux.go').includes('[Desktop Entry]'));
+  for (const pkg of ['build/arch/moepie-bin/PKGBUILD', 'build/arch/moepie-cli-bin/PKGBUILD']) {
+    assert.ok(read(pkg).includes('"$pkgdir/usr/bin/moepie"'), pkg);
+  }
+  assert.ok(read('build/arch/moepie-bin/PKGBUILD').includes('/usr/share/applications/moepie.desktop'));
   assert.ok(read('internal/gui/desktop.go').includes('const programName = "magpie"'));
   assert.ok(read('internal/gui/scheme_windows.go').includes('Software\\Classes\\magpie'));
   const win = JSON.parse(read('build/windows/winres.json'));

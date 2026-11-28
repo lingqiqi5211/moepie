@@ -366,8 +366,114 @@ jobs:
           name: build-linux-${{ matrix.arch }}
           path: dist/moepie-linux-${{ matrix.arch }}
           if-no-files-found: error
+
+  # The Arch packages repack what the linux and cli jobs built and started,
+  # with makepkg, so pacman's metadata is pacman's own. No official Arch image
+  # is aarch64, and none is needed: a package that compiles nothing takes its
+  # architecture from a CARCH-overridden makepkg.conf, while the binary itself
+  # came from the ARM runner.
+  arch:
+    needs: [prepare, linux, cli]
+    if: needs.prepare.outputs.skip != 'true'
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    runs-on: ubuntu-22.04
+    container:
+      image: archlinux:base-devel
+
+    steps:
+      - name: Checkout moepie source code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+
+      - name: Download the Linux app
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: build-linux-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download the terminal builds
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: build-cli
+          path: dist
+
+      - name: Build the Arch packages
+        run: |
+          set -eu
+          # makepkg refuses root, and packs the package with zstd
+          pacman -Syu --noconfirm --needed zstd
+          useradd -m builder
+          chown -R builder .
+          # build pkgdir binary as-name architecture: the binary is named for
+          # the package's CARCH, not for the Go arch it was built on. Its work
+          # folder sits in dist, as makepkg's does, so nothing lands in the
+          # checkout.
+          build() {
+            work=$PWD/dist/arch/$1-$4
+            mkdir -p "$work"
+            for f in build/arch/"$1"/*; do
+              if [ -f "$f" ]; then cp "$f" "$work"/; fi
+            done
+            cp "dist/$2" "$work/$3"
+            cp LICENSE THIRD_PARTY_NOTICES "$work"/
+            if [ "$1" = moepie-bin ]; then
+              # the app's own menu entry and icon, with the command pacman puts
+              # on PATH in place of the executable the app would write
+              sed 's|@EXE@|/usr/bin/moepie|' internal/gui/moepie.desktop > "$work"/moepie.desktop
+              cp internal/gui/icon-256.png "$work"/moepie.png
+            fi
+            sum=$(sha256sum "$work/$3" | cut -d' ' -f1)
+            sed -i -e "s|@VERSION@|$VERSION|g" -e "s|@SHA256@|$sum|g" "$work"/PKGBUILD
+            conf=/etc/makepkg.conf
+            if [ "$4" != x86_64 ]; then
+              sed -e "s|^CARCH=.*|CARCH=\"$4\"|" -e "s|^CHOST=.*|CHOST=\"$4-unknown-linux-gnu\"|" \
+                /etc/makepkg.conf > "$PWD/dist/arch/makepkg-$4.conf"
+              conf=$PWD/dist/arch/makepkg-$4.conf
+            fi
+            chown -R builder "$work"
+            su builder -c "cd '$work' && PKGDEST='$PWD/dist' makepkg --config '$conf' --nodeps --noconfirm -f"
+          }
+          for pair in amd64:x86_64 arm64:aarch64; do
+            goarch=${pair%%:*}; parch=${pair##*:}
+            build moepie-bin "moepie-linux-$goarch" "moepie-linux-$parch" "$parch"
+            build moepie-cli-bin "moepie-cli-linux-$goarch" "moepie-cli-linux-$parch" "$parch"
+          done
+
+      - name: Check the packages
+        run: |
+          set -eu
+          for parch in x86_64 aarch64; do
+            for pkg in moepie-bin moepie-cli-bin; do
+              f=dist/$pkg-$VERSION-1-$parch.pkg.tar.zst
+              pacman -Qip "$f" | grep -Eq "^Architecture *: *$parch$"
+              pacman -Qip "$f" | grep -Eq "^Version *: *$VERSION-1$"
+              bsdtar -tf "$f" | grep -qx usr/bin/moepie
+            done
+            entry=$(bsdtar -tf "dist/moepie-bin-$VERSION-1-$parch.pkg.tar.zst")
+            printf '%s\n' "$entry" | grep -qx usr/share/applications/moepie.desktop
+            printf '%s\n' "$entry" | grep -qx usr/share/icons/hicolor/256x256/apps/moepie.png
+            # the terminal build is the same command without the window: no
+            # menu entry, no icon, nothing of GTK to pull in
+            if bsdtar -tf "dist/moepie-cli-bin-$VERSION-1-$parch.pkg.tar.zst" | grep -q '^usr/share/applications/'; then
+              echo "::error::moepie-cli-bin carries a launcher"; exit 1
+            fi
+          done
+
+      - name: Upload the packages
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: build-arch
+          path: |
+            dist/moepie-bin-*.pkg.tar.zst
+            dist/moepie-cli-bin-*.pkg.tar.zst
+          if-no-files-found: error
+
   publish:
-    needs: [prepare, mac, cli, windows-check, linux]
+    needs: [prepare, mac, cli, windows-check, linux, arch]
     runs-on: ubuntu-latest
     permissions:
       contents: write

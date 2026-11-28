@@ -1,0 +1,28 @@
+# moepie-cli-bin: the Arch package a release carries for a machine with no
+# desktop, holding the terminal build (no GTK, no WebKitGTK, no cgo) the cli job
+# cross-compiled. It is the same command as moepie-bin's, so the two cannot be
+# installed together. Nothing is compiled here: CI fills in @VERSION@ and
+# @SHA256@ and puts the binary beside this PKGBUILD, and packages the other
+# architecture with CARCH overridden (see the release workflow's arch job).
+
+pkgname=moepie-cli-bin
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="Unified gateway to route AI plans for coding agents (prebuilt binary, no GUI)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/lingqiqi5211/moepie"
+license=('MIT')
+provides=('moepie')
+conflicts=('moepie' 'moepie-bin' 'magpie' 'magpie-bin')
+options=('!strip' '!debug')
+
+# the checksum is the release artifact's, the other files come from this
+# repository at the commit being released
+source=("moepie-cli-linux-$CARCH" LICENSE THIRD_PARTY_NOTICES)
+sha256sums=('@SHA256@' 'SKIP' 'SKIP')
+
+package() {
+	install -Dm755 "$srcdir/moepie-cli-linux-$CARCH" "$pkgdir/usr/bin/moepie"
+	install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+	install -Dm644 "$srcdir/THIRD_PARTY_NOTICES" "$pkgdir/usr/share/licenses/$pkgname/THIRD_PARTY_NOTICES"
+}
